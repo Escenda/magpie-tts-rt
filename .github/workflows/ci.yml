@@ -1,0 +1,133 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install contract-test dependencies
+        run: >-
+          sudo apt-get update &&
+          sudo apt-get install -y
+          cmake ninja-build g++ libssl-dev nlohmann-json3-dev
+          python3-jsonschema
+
+      - name: Configure the CPU-only contract build
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DMAGPIE_TTS_RT_BUILD_RUNTIME=OFF
+          -DMAGPIE_TTS_RT_BUILD_TESTS=ON
+
+      - name: Build all contract targets
+        run: cmake --build build
+
+      - name: Run contract tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Validate JSON Schema and canonical fixture
+        run: |
+          python3 - <<'PY'
+          import json
+          from jsonschema import Draft202012Validator
+
+          with open("schemas/runtime-bundle-manifest.schema.json", encoding="utf-8") as stream:
+              schema = json.load(stream)
+          with open("tests/manifest/fixtures/minimal-valid.json", encoding="utf-8") as stream:
+              fixture = json.load(stream)
+          Draft202012Validator.check_schema(schema)
+          Draft202012Validator(schema).validate(fixture)
+          path_validator = Draft202012Validator(schema["$defs"]["relativePath"])
+          for rejected in ("model\\engine.plan", "../engine.plan", "model/\0engine.plan"):
+              if path_validator.is_valid(rejected):
+                  raise AssertionError(f"relativePath accepted unsafe value: {rejected!r}")
+          PY
+
+      - run: python3 tools/check_release_version.py
+
+      - name: Verify contract-only installation
+        run: cmake --install build --prefix "$RUNNER_TEMP/magpie-tts-rt"
+
+  sanitizers:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [address-undefined, thread]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install sanitizer-test dependencies
+        run: >-
+          sudo apt-get update &&
+          sudo apt-get install -y
+          cmake ninja-build g++ libssl-dev nlohmann-json3-dev
+      - name: Select sanitizer flags
+        run: |
+          case "${{ matrix.sanitizer }}" in
+            address-undefined)
+              echo "MTT_SANITIZER_FLAGS=-fsanitize=address,undefined -fno-omit-frame-pointer" \
+                >> "$GITHUB_ENV"
+              ;;
+            thread)
+              echo "MTT_SANITIZER_FLAGS=-fsanitize=thread -fno-omit-frame-pointer" \
+                >> "$GITHUB_ENV"
+              ;;
+          esac
+      - name: Configure the sanitizer contract build
+        run: >-
+          cmake -S . -B build-sanitized -G Ninja
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_C_FLAGS="$MTT_SANITIZER_FLAGS"
+          -DCMAKE_CXX_FLAGS="$MTT_SANITIZER_FLAGS"
+          -DCMAKE_EXE_LINKER_FLAGS="$MTT_SANITIZER_FLAGS"
+          -DMAGPIE_TTS_RT_BUILD_RUNTIME=OFF
+          -DMAGPIE_TTS_RT_BUILD_TESTS=ON
+          -DMAGPIE_TTS_RT_WARNINGS_AS_ERRORS=OFF
+      - run: cmake --build build-sanitized
+      - run: ctest --test-dir build-sanitized --output-on-failure
+
+  rust:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
+      - run: cargo install bindgen-cli --version 0.72.1 --locked
+      - run: ../tools/check_rust_bindings.sh
+      - run: ../tools/check_abi_constants.py
+      - run: python3 ../tools/check_release_version.py
+      - run: rustup show
+      - run: cargo fmt --all --check
+      - run: cargo test --workspace --locked
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
+      - name: Build the native-link contract shim
+        run: |
+          mkdir -p "$RUNNER_TEMP/mtt-native-shim"
+          cc -std=c11 -Wall -Wextra -Wpedantic -Werror -fPIC -shared \
+            -I../include ../tests/c_api/native_contract_shim.c \
+            -o "$RUNNER_TEMP/mtt-native-shim/libmagpie_tts_rt.so"
+      - name: Test every Rust feature through a native symbol
+        env:
+          MAGPIE_TTS_RT_LIB_DIR: ${{ runner.temp }}/mtt-native-shim
+          LD_LIBRARY_PATH: ${{ runner.temp }}/mtt-native-shim
+          MAGPIE_TTS_RT_NATIVE_SHIM: "1"
+        run: cargo test --workspace --all-features --locked
+      - name: Clippy every Rust feature
+        env:
+          MAGPIE_TTS_RT_LIB_DIR: ${{ runner.temp }}/mtt-native-shim
+        run: cargo clippy --workspace --all-features --all-targets --locked -- -D warnings
+      - run: cargo package -p magpie-tts-rt-sys --locked
+      - name: Audit the safe-crate package before its sys crate exists on crates.io
+        run: cargo package -p magpie-tts-rt --list

@@ -1,0 +1,10 @@
+prefix=${pcfiledir}/@MAGPIE_TTS_RT_PC_PREFIX_RELATIVE@
+exec_prefix=${prefix}
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+Name: MagpieTTS-RT
+Description: Low-latency TensorRT runtime for MagpieTTS
+Version: @PROJECT_VERSION@
+Libs: -L${libdir} -lmagpie_tts_rt
+Cflags: -I${includedir}

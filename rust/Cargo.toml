@@ -1,0 +1,19 @@
+[workspace]
+members = [
+    "magpie-tts-rt",
+    "magpie-tts-rt-sys",
+]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.88.0"
+license-file = "../LICENSE"
+readme = "../README.md"
+repository = "https://github.com/Escenda/magpie-tts-rt"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "deny"

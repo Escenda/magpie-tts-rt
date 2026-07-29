@@ -1,0 +1,18 @@
+[package]
+name = "magpie-tts-rt-sys"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+readme.workspace = true
+repository.workspace = true
+description = "Raw C ABI bindings for the draft MagpieTTS-RT runtime"
+links = "magpie_tts_rt"
+build = "build.rs"
+
+[features]
+default = []
+native-link = []
+
+[lints]
+workspace = true

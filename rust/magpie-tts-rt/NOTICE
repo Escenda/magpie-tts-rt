@@ -1,0 +1,6 @@
+MagpieTTS-RT
+Copyright 2026 MagpieTTS-RT contributors
+
+This crate is part of an independent community project. It is not an NVIDIA
+product and is not endorsed by or affiliated with NVIDIA. Model weights and
+derived engine artifacts are governed separately from this source package.

@@ -1,0 +1,19 @@
+[package]
+name = "magpie-tts-rt"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+readme.workspace = true
+repository.workspace = true
+description = "Rust ownership wrapper for the draft MagpieTTS-RT C ABI"
+
+[features]
+default = []
+native-link = ["magpie-tts-rt-sys/native-link"]
+
+[dependencies]
+magpie-tts-rt-sys = { version = "0.1.0", path = "../magpie-tts-rt-sys" }
+
+[lints]
+workspace = true

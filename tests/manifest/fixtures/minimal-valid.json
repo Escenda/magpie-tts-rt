@@ -1,0 +1,834 @@
+{
+  "schema_version": 1,
+  "bundle_id": "test-fixture-magpie-v1",
+  "created_at_utc": "2026-07-29T12:00:00Z",
+  "runtime": {
+    "os_name": "linux",
+    "os_version": "ubuntu-24.04",
+    "architecture": "aarch64",
+    "endianness": "little",
+    "cuda_version": "13.2",
+    "tensorrt_version": "10.16.2.10",
+    "driver_version": "595.78",
+    "gpu_name": "NVIDIA Thor",
+    "gpu_compute_capability": "11.0",
+    "plugin_abi_version": 1
+  },
+  "artifacts": {
+    "model": {
+      "model_id": "nvidia/magpie_tts_multilingual_357m",
+      "revision": "v2607",
+      "file": {
+        "path": "models/magpie-v2607.nemo",
+        "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "size_bytes": 3
+      }
+    },
+    "export": {
+      "format": "magpie_tts_rt_export_v1",
+      "source_revision": "0123456789abcdef0123456789abcdef01234567",
+      "voice_id": "sofia",
+      "baked_context_length": 217,
+      "baked_context_sha256": "abababababababababababababababababababababababababababababababab",
+      "audio_bos_baked": true,
+      "file": {
+        "path": "export/model-export.json",
+        "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "size_bytes": 3
+      }
+    },
+    "tokenizer": {
+      "kind": "sentencepiece",
+      "vocabulary_size": 32768,
+      "file": {
+        "path": "tokenizer/tokenizer.model",
+        "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+        "size_bytes": 3
+      }
+    },
+    "plugin": {
+      "name": "magpie_tts_rt_plugins",
+      "abi_version": 1,
+      "file": {
+        "path": "lib/libmagpie_tts_rt_plugins.so",
+        "sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+        "size_bytes": 3
+      }
+    }
+  },
+  "classifier_free_guidance": {
+    "row_order": "conditional_then_unconditional",
+    "conditional_row_index": 0,
+    "conditional_condition_source": "text_encoder_output",
+    "conditional_mask_source": "text_mask",
+    "unconditional_row_index": 1,
+    "unconditional_condition_source": "all_zero",
+    "unconditional_mask_source": "all_false"
+  },
+  "engines": [
+    {
+      "name": "text_encoder",
+      "role": "text_encoder",
+      "file": {
+        "path": "engines/text-encoder.plan",
+        "sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+        "size_bytes": 3
+      },
+      "inputs": [
+        {
+          "name": "text_token_ids",
+          "dtype": "int64",
+          "shape": [1, -1]
+        },
+        {
+          "name": "text_mask",
+          "dtype": "bool",
+          "shape": [1, -1]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "text_condition",
+          "dtype": "bf16",
+          "shape": [1, -1, 768]
+        }
+      ],
+      "profiles": [
+        {
+          "name": "text_1_512",
+          "input_shapes": [
+            {
+              "tensor_name": "text_token_ids",
+              "min": [1, 1],
+              "opt": [1, 64],
+              "max": [1, 512]
+            },
+            {
+              "tensor_name": "text_mask",
+              "min": [1, 1],
+              "opt": [1, 64],
+              "max": [1, 512]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "main_decoder_prefill",
+      "role": "main_decoder_prefill",
+      "file": {
+        "path": "engines/main-decoder-prefill.plan",
+        "sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+        "size_bytes": 3
+      },
+      "inputs": [
+        {
+          "name": "condition",
+          "dtype": "bf16",
+          "shape": [2, -1, 768]
+        },
+        {
+          "name": "condition_mask",
+          "dtype": "bool",
+          "shape": [2, -1]
+        }
+      ],
+      "outputs": [
+        {"name": "last_hidden", "dtype": "bf16", "shape": [2, 1, 768]},
+        {"name": "alignment", "dtype": "bf16", "shape": [2, -1]},
+        {"name": "prefill_self_key_0", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "prefill_self_value_0", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "prefill_self_mask_0", "dtype": "bool", "shape": [2, 467]},
+        {"name": "prefill_cross_key_0", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "prefill_cross_value_0", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "prefill_self_key_1", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "prefill_self_value_1", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "prefill_self_mask_1", "dtype": "bool", "shape": [2, 467]},
+        {"name": "prefill_cross_key_1", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "prefill_cross_value_1", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "prefill_self_key_2", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "prefill_self_value_2", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "prefill_self_mask_2", "dtype": "bool", "shape": [2, 467]},
+        {"name": "prefill_cross_key_2", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "prefill_cross_value_2", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "prefill_self_key_3", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "prefill_self_value_3", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "prefill_self_mask_3", "dtype": "bool", "shape": [2, 467]},
+        {"name": "prefill_cross_key_3", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "prefill_cross_value_3", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "prefill_self_key_4", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "prefill_self_value_4", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "prefill_self_mask_4", "dtype": "bool", "shape": [2, 467]},
+        {"name": "prefill_cross_key_4", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "prefill_cross_value_4", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "prefill_self_key_5", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "prefill_self_value_5", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "prefill_self_mask_5", "dtype": "bool", "shape": [2, 467]},
+        {"name": "prefill_cross_key_5", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "prefill_cross_value_5", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "prefill_self_key_6", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "prefill_self_value_6", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "prefill_self_mask_6", "dtype": "bool", "shape": [2, 467]},
+        {"name": "prefill_cross_key_6", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "prefill_cross_value_6", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "prefill_self_key_7", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "prefill_self_value_7", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "prefill_self_mask_7", "dtype": "bool", "shape": [2, 467]},
+        {"name": "prefill_cross_key_7", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "prefill_cross_value_7", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "prefill_self_key_8", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "prefill_self_value_8", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "prefill_self_mask_8", "dtype": "bool", "shape": [2, 467]},
+        {"name": "prefill_cross_key_8", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "prefill_cross_value_8", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "prefill_self_key_9", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "prefill_self_value_9", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "prefill_self_mask_9", "dtype": "bool", "shape": [2, 467]},
+        {"name": "prefill_cross_key_9", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "prefill_cross_value_9", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "prefill_self_key_10", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "prefill_self_value_10", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "prefill_self_mask_10", "dtype": "bool", "shape": [2, 467]},
+        {"name": "prefill_cross_key_10", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "prefill_cross_value_10", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "prefill_self_key_11", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "prefill_self_value_11", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "prefill_self_mask_11", "dtype": "bool", "shape": [2, 467]},
+        {"name": "prefill_cross_key_11", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "prefill_cross_value_11", "dtype": "bf16", "shape": [2, -1, 1, 128]}
+      ],
+      "profiles": [
+        {
+          "name": "text_1_512",
+          "input_shapes": [
+            {
+              "tensor_name": "condition",
+              "min": [2, 1, 768],
+              "opt": [2, 64, 768],
+              "max": [2, 512, 768]
+            },
+            {
+              "tensor_name": "condition_mask",
+              "min": [2, 1],
+              "opt": [2, 64],
+              "max": [2, 512]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "main_decoder_step",
+      "role": "main_decoder_step",
+      "file": {
+        "path": "engines/main-decoder-step.plan",
+        "sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+        "size_bytes": 3
+      },
+      "inputs": [
+        {"name": "previous_codec_tokens", "dtype": "int64", "shape": [1, 8, 2]},
+        {"name": "position", "dtype": "int64", "shape": []},
+        {"name": "alignment_prior", "dtype": "bf16", "shape": [2, 1, -1]},
+        {"name": "step_self_key_in_0", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_value_in_0", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_mask_in_0", "dtype": "bool", "shape": [2, 467]},
+        {"name": "step_cross_key_in_0", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "step_cross_value_in_0", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "step_self_key_in_1", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_value_in_1", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_mask_in_1", "dtype": "bool", "shape": [2, 467]},
+        {"name": "step_cross_key_in_1", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "step_cross_value_in_1", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "step_self_key_in_2", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_value_in_2", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_mask_in_2", "dtype": "bool", "shape": [2, 467]},
+        {"name": "step_cross_key_in_2", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "step_cross_value_in_2", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "step_self_key_in_3", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_value_in_3", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_mask_in_3", "dtype": "bool", "shape": [2, 467]},
+        {"name": "step_cross_key_in_3", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "step_cross_value_in_3", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "step_self_key_in_4", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_value_in_4", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_mask_in_4", "dtype": "bool", "shape": [2, 467]},
+        {"name": "step_cross_key_in_4", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "step_cross_value_in_4", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "step_self_key_in_5", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_value_in_5", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_mask_in_5", "dtype": "bool", "shape": [2, 467]},
+        {"name": "step_cross_key_in_5", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "step_cross_value_in_5", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "step_self_key_in_6", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_value_in_6", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_mask_in_6", "dtype": "bool", "shape": [2, 467]},
+        {"name": "step_cross_key_in_6", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "step_cross_value_in_6", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "step_self_key_in_7", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_value_in_7", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_mask_in_7", "dtype": "bool", "shape": [2, 467]},
+        {"name": "step_cross_key_in_7", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "step_cross_value_in_7", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "step_self_key_in_8", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_value_in_8", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_mask_in_8", "dtype": "bool", "shape": [2, 467]},
+        {"name": "step_cross_key_in_8", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "step_cross_value_in_8", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "step_self_key_in_9", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_value_in_9", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_mask_in_9", "dtype": "bool", "shape": [2, 467]},
+        {"name": "step_cross_key_in_9", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "step_cross_value_in_9", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "step_self_key_in_10", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_value_in_10", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_mask_in_10", "dtype": "bool", "shape": [2, 467]},
+        {"name": "step_cross_key_in_10", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "step_cross_value_in_10", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "step_self_key_in_11", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_value_in_11", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_mask_in_11", "dtype": "bool", "shape": [2, 467]},
+        {"name": "step_cross_key_in_11", "dtype": "bf16", "shape": [2, -1, 1, 128]},
+        {"name": "step_cross_value_in_11", "dtype": "bf16", "shape": [2, -1, 1, 128]}
+      ],
+      "outputs": [
+        {"name": "alignment", "dtype": "bf16", "shape": [2, -1]},
+        {"name": "decoder_hidden", "dtype": "bf16", "shape": [2, 768]},
+        {"name": "step_self_key_out_0", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_value_out_0", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_mask_out_0", "dtype": "bool", "shape": [2, 467]},
+        {"name": "step_self_key_out_1", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_value_out_1", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_mask_out_1", "dtype": "bool", "shape": [2, 467]},
+        {"name": "step_self_key_out_2", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_value_out_2", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_mask_out_2", "dtype": "bool", "shape": [2, 467]},
+        {"name": "step_self_key_out_3", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_value_out_3", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_mask_out_3", "dtype": "bool", "shape": [2, 467]},
+        {"name": "step_self_key_out_4", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_value_out_4", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_mask_out_4", "dtype": "bool", "shape": [2, 467]},
+        {"name": "step_self_key_out_5", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_value_out_5", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_mask_out_5", "dtype": "bool", "shape": [2, 467]},
+        {"name": "step_self_key_out_6", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_value_out_6", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_mask_out_6", "dtype": "bool", "shape": [2, 467]},
+        {"name": "step_self_key_out_7", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_value_out_7", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_mask_out_7", "dtype": "bool", "shape": [2, 467]},
+        {"name": "step_self_key_out_8", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_value_out_8", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_mask_out_8", "dtype": "bool", "shape": [2, 467]},
+        {"name": "step_self_key_out_9", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_value_out_9", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_mask_out_9", "dtype": "bool", "shape": [2, 467]},
+        {"name": "step_self_key_out_10", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_value_out_10", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_mask_out_10", "dtype": "bool", "shape": [2, 467]},
+        {"name": "step_self_key_out_11", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_value_out_11", "dtype": "bf16", "shape": [2, 467, 12, 64]},
+        {"name": "step_self_mask_out_11", "dtype": "bool", "shape": [2, 467]}
+      ],
+      "profiles": [
+        {
+        "name": "text_1_512",
+          "input_shapes": [
+            {"tensor_name": "alignment_prior", "min": [2, 1, 1], "opt": [2, 1, 64], "max": [2, 1, 512]},
+            {"tensor_name": "step_cross_key_in_0", "min": [2, 1, 1, 128], "opt": [2, 64, 1, 128], "max": [2, 512, 1, 128]},
+            {"tensor_name": "step_cross_value_in_0", "min": [2, 1, 1, 128], "opt": [2, 64, 1, 128], "max": [2, 512, 1, 128]},
+            {"tensor_name": "step_cross_key_in_1", "min": [2, 1, 1, 128], "opt": [2, 64, 1, 128], "max": [2, 512, 1, 128]},
+            {"tensor_name": "step_cross_value_in_1", "min": [2, 1, 1, 128], "opt": [2, 64, 1, 128], "max": [2, 512, 1, 128]},
+            {"tensor_name": "step_cross_key_in_2", "min": [2, 1, 1, 128], "opt": [2, 64, 1, 128], "max": [2, 512, 1, 128]},
+            {"tensor_name": "step_cross_value_in_2", "min": [2, 1, 1, 128], "opt": [2, 64, 1, 128], "max": [2, 512, 1, 128]},
+            {"tensor_name": "step_cross_key_in_3", "min": [2, 1, 1, 128], "opt": [2, 64, 1, 128], "max": [2, 512, 1, 128]},
+            {"tensor_name": "step_cross_value_in_3", "min": [2, 1, 1, 128], "opt": [2, 64, 1, 128], "max": [2, 512, 1, 128]},
+            {"tensor_name": "step_cross_key_in_4", "min": [2, 1, 1, 128], "opt": [2, 64, 1, 128], "max": [2, 512, 1, 128]},
+            {"tensor_name": "step_cross_value_in_4", "min": [2, 1, 1, 128], "opt": [2, 64, 1, 128], "max": [2, 512, 1, 128]},
+            {"tensor_name": "step_cross_key_in_5", "min": [2, 1, 1, 128], "opt": [2, 64, 1, 128], "max": [2, 512, 1, 128]},
+            {"tensor_name": "step_cross_value_in_5", "min": [2, 1, 1, 128], "opt": [2, 64, 1, 128], "max": [2, 512, 1, 128]},
+            {"tensor_name": "step_cross_key_in_6", "min": [2, 1, 1, 128], "opt": [2, 64, 1, 128], "max": [2, 512, 1, 128]},
+            {"tensor_name": "step_cross_value_in_6", "min": [2, 1, 1, 128], "opt": [2, 64, 1, 128], "max": [2, 512, 1, 128]},
+            {"tensor_name": "step_cross_key_in_7", "min": [2, 1, 1, 128], "opt": [2, 64, 1, 128], "max": [2, 512, 1, 128]},
+            {"tensor_name": "step_cross_value_in_7", "min": [2, 1, 1, 128], "opt": [2, 64, 1, 128], "max": [2, 512, 1, 128]},
+            {"tensor_name": "step_cross_key_in_8", "min": [2, 1, 1, 128], "opt": [2, 64, 1, 128], "max": [2, 512, 1, 128]},
+            {"tensor_name": "step_cross_value_in_8", "min": [2, 1, 1, 128], "opt": [2, 64, 1, 128], "max": [2, 512, 1, 128]},
+            {"tensor_name": "step_cross_key_in_9", "min": [2, 1, 1, 128], "opt": [2, 64, 1, 128], "max": [2, 512, 1, 128]},
+            {"tensor_name": "step_cross_value_in_9", "min": [2, 1, 1, 128], "opt": [2, 64, 1, 128], "max": [2, 512, 1, 128]},
+            {"tensor_name": "step_cross_key_in_10", "min": [2, 1, 1, 128], "opt": [2, 64, 1, 128], "max": [2, 512, 1, 128]},
+            {"tensor_name": "step_cross_value_in_10", "min": [2, 1, 1, 128], "opt": [2, 64, 1, 128], "max": [2, 512, 1, 128]},
+            {"tensor_name": "step_cross_key_in_11", "min": [2, 1, 1, 128], "opt": [2, 64, 1, 128], "max": [2, 512, 1, 128]},
+            {"tensor_name": "step_cross_value_in_11", "min": [2, 1, 1, 128], "opt": [2, 64, 1, 128], "max": [2, 512, 1, 128]}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "local_ar",
+      "role": "local_ar_16",
+      "file": {
+        "path": "engines/local-ar-16.plan",
+        "sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+        "size_bytes": 3
+      },
+      "inputs": [
+        {"name": "decoder_hidden", "dtype": "bf16", "shape": [2, 768]},
+        {"name": "unfinished", "dtype": "bool", "shape": [1]},
+        {"name": "finished", "dtype": "bool", "shape": [1]},
+        {"name": "forbid_eos", "dtype": "bool", "shape": [1]},
+        {"name": "rng_seed", "dtype": "int64", "shape": [1]},
+        {"name": "rng_counter", "dtype": "int64", "shape": [1]}
+      ],
+      "outputs": [
+        {"name": "codec_tokens", "dtype": "int64", "shape": [1, 8, 2]},
+        {"name": "updated_rng_counter", "dtype": "int64", "shape": [1]},
+        {"name": "invalid_rows", "dtype": "int32", "shape": [1]},
+        {"name": "end_frame_index", "dtype": "int32", "shape": [1]}
+      ],
+      "profiles": [
+        {
+          "name": "fixed",
+          "input_shapes": []
+        }
+      ]
+    },
+    {
+      "name": "nanocodec_initial",
+      "role": "nanocodec_initial_4",
+      "file": {
+        "path": "engines/nanocodec-initial-4.plan",
+        "sha256": "9999999999999999999999999999999999999999999999999999999999999999",
+        "size_bytes": 3
+      },
+      "inputs": [
+        {
+          "name": "codec_tokens",
+          "dtype": "int64",
+          "shape": [1, 8, 4]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pcm",
+          "dtype": "fp32",
+          "shape": [1, 4096]
+        },
+        {
+          "name": "valid_sample_length",
+          "dtype": "int64",
+          "shape": [1]
+        },
+        {
+          "name": "codec_state_initial_out",
+          "dtype": "fp32",
+          "shape": [1, 1]
+        }
+      ],
+      "profiles": [
+        {
+          "name": "fixed",
+          "input_shapes": []
+        }
+      ]
+    },
+    {
+      "name": "nanocodec_steady",
+      "role": "nanocodec_steady_8",
+      "file": {
+        "path": "engines/nanocodec-steady-8.plan",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "size_bytes": 3
+      },
+      "inputs": [
+        {
+          "name": "codec_tokens",
+          "dtype": "int64",
+          "shape": [1, 8, 8]
+        },
+        {
+          "name": "codec_state_steady_in",
+          "dtype": "fp32",
+          "shape": [1, 1]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pcm",
+          "dtype": "fp32",
+          "shape": [1, 8192]
+        },
+        {
+          "name": "valid_sample_length",
+          "dtype": "int64",
+          "shape": [1]
+        },
+        {
+          "name": "codec_state_steady_out",
+          "dtype": "fp32",
+          "shape": [1, 1]
+        }
+      ],
+      "profiles": [
+        {
+          "name": "fixed",
+          "input_shapes": []
+        }
+      ]
+    },
+    {
+      "name": "nanocodec_tail",
+      "role": "nanocodec_tail_1_8",
+      "file": {
+        "path": "engines/nanocodec-tail-1-8.plan",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size_bytes": 3
+      },
+      "inputs": [
+        {
+          "name": "codec_tokens",
+          "dtype": "int64",
+          "shape": [1, 8, -1]
+        },
+        {
+          "name": "codec_state_tail_in",
+          "dtype": "fp32",
+          "shape": [1, 1]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pcm",
+          "dtype": "fp32",
+          "shape": [1, -1]
+        },
+        {
+          "name": "valid_sample_length",
+          "dtype": "int64",
+          "shape": [1]
+        },
+        {
+          "name": "codec_state_tail_out",
+          "dtype": "fp32",
+          "shape": [1, 1]
+        }
+      ],
+      "profiles": [
+        {
+          "name": "tail_1_8",
+          "input_shapes": [
+            {
+              "tensor_name": "codec_tokens",
+              "min": [1, 8, 1],
+              "opt": [1, 8, 4],
+              "max": [1, 8, 8]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "kv_cache": {
+    "layout": "batch_sequence_head_dimension",
+    "dtype": "bf16",
+    "mask_dtype": "bool",
+    "layers": 12,
+    "batch_size": 2,
+    "self_attention_heads": 12,
+    "self_attention_head_dimension": 64,
+    "cross_attention_heads": 1,
+    "cross_attention_head_dimension": 128,
+    "prefix_length": 217,
+    "maximum_generated_steps": 250,
+    "self_cache_capacity": 467,
+    "update_mode": "in_place_explicit_bindings",
+    "position_semantics": "absolute_self_cache_write_index",
+    "first_step_position": 218,
+    "step_position_upper_bound_exclusive": 467,
+    "layer_bindings": [
+      {
+        "layer_index": 0,
+        "prefill_self_key_output": "prefill_self_key_0",
+        "prefill_self_value_output": "prefill_self_value_0",
+        "prefill_self_mask_output": "prefill_self_mask_0",
+        "prefill_cross_key_output": "prefill_cross_key_0",
+        "prefill_cross_value_output": "prefill_cross_value_0",
+        "step_self_key_input": "step_self_key_in_0",
+        "step_self_value_input": "step_self_value_in_0",
+        "step_self_mask_input": "step_self_mask_in_0",
+        "step_cross_key_input": "step_cross_key_in_0",
+        "step_cross_value_input": "step_cross_value_in_0",
+        "step_self_key_output": "step_self_key_out_0",
+        "step_self_value_output": "step_self_value_out_0",
+        "step_self_mask_output": "step_self_mask_out_0"
+      },
+      {
+        "layer_index": 1,
+        "prefill_self_key_output": "prefill_self_key_1",
+        "prefill_self_value_output": "prefill_self_value_1",
+        "prefill_self_mask_output": "prefill_self_mask_1",
+        "prefill_cross_key_output": "prefill_cross_key_1",
+        "prefill_cross_value_output": "prefill_cross_value_1",
+        "step_self_key_input": "step_self_key_in_1",
+        "step_self_value_input": "step_self_value_in_1",
+        "step_self_mask_input": "step_self_mask_in_1",
+        "step_cross_key_input": "step_cross_key_in_1",
+        "step_cross_value_input": "step_cross_value_in_1",
+        "step_self_key_output": "step_self_key_out_1",
+        "step_self_value_output": "step_self_value_out_1",
+        "step_self_mask_output": "step_self_mask_out_1"
+      },
+      {
+        "layer_index": 2,
+        "prefill_self_key_output": "prefill_self_key_2",
+        "prefill_self_value_output": "prefill_self_value_2",
+        "prefill_self_mask_output": "prefill_self_mask_2",
+        "prefill_cross_key_output": "prefill_cross_key_2",
+        "prefill_cross_value_output": "prefill_cross_value_2",
+        "step_self_key_input": "step_self_key_in_2",
+        "step_self_value_input": "step_self_value_in_2",
+        "step_self_mask_input": "step_self_mask_in_2",
+        "step_cross_key_input": "step_cross_key_in_2",
+        "step_cross_value_input": "step_cross_value_in_2",
+        "step_self_key_output": "step_self_key_out_2",
+        "step_self_value_output": "step_self_value_out_2",
+        "step_self_mask_output": "step_self_mask_out_2"
+      },
+      {
+        "layer_index": 3,
+        "prefill_self_key_output": "prefill_self_key_3",
+        "prefill_self_value_output": "prefill_self_value_3",
+        "prefill_self_mask_output": "prefill_self_mask_3",
+        "prefill_cross_key_output": "prefill_cross_key_3",
+        "prefill_cross_value_output": "prefill_cross_value_3",
+        "step_self_key_input": "step_self_key_in_3",
+        "step_self_value_input": "step_self_value_in_3",
+        "step_self_mask_input": "step_self_mask_in_3",
+        "step_cross_key_input": "step_cross_key_in_3",
+        "step_cross_value_input": "step_cross_value_in_3",
+        "step_self_key_output": "step_self_key_out_3",
+        "step_self_value_output": "step_self_value_out_3",
+        "step_self_mask_output": "step_self_mask_out_3"
+      },
+      {
+        "layer_index": 4,
+        "prefill_self_key_output": "prefill_self_key_4",
+        "prefill_self_value_output": "prefill_self_value_4",
+        "prefill_self_mask_output": "prefill_self_mask_4",
+        "prefill_cross_key_output": "prefill_cross_key_4",
+        "prefill_cross_value_output": "prefill_cross_value_4",
+        "step_self_key_input": "step_self_key_in_4",
+        "step_self_value_input": "step_self_value_in_4",
+        "step_self_mask_input": "step_self_mask_in_4",
+        "step_cross_key_input": "step_cross_key_in_4",
+        "step_cross_value_input": "step_cross_value_in_4",
+        "step_self_key_output": "step_self_key_out_4",
+        "step_self_value_output": "step_self_value_out_4",
+        "step_self_mask_output": "step_self_mask_out_4"
+      },
+      {
+        "layer_index": 5,
+        "prefill_self_key_output": "prefill_self_key_5",
+        "prefill_self_value_output": "prefill_self_value_5",
+        "prefill_self_mask_output": "prefill_self_mask_5",
+        "prefill_cross_key_output": "prefill_cross_key_5",
+        "prefill_cross_value_output": "prefill_cross_value_5",
+        "step_self_key_input": "step_self_key_in_5",
+        "step_self_value_input": "step_self_value_in_5",
+        "step_self_mask_input": "step_self_mask_in_5",
+        "step_cross_key_input": "step_cross_key_in_5",
+        "step_cross_value_input": "step_cross_value_in_5",
+        "step_self_key_output": "step_self_key_out_5",
+        "step_self_value_output": "step_self_value_out_5",
+        "step_self_mask_output": "step_self_mask_out_5"
+      },
+      {
+        "layer_index": 6,
+        "prefill_self_key_output": "prefill_self_key_6",
+        "prefill_self_value_output": "prefill_self_value_6",
+        "prefill_self_mask_output": "prefill_self_mask_6",
+        "prefill_cross_key_output": "prefill_cross_key_6",
+        "prefill_cross_value_output": "prefill_cross_value_6",
+        "step_self_key_input": "step_self_key_in_6",
+        "step_self_value_input": "step_self_value_in_6",
+        "step_self_mask_input": "step_self_mask_in_6",
+        "step_cross_key_input": "step_cross_key_in_6",
+        "step_cross_value_input": "step_cross_value_in_6",
+        "step_self_key_output": "step_self_key_out_6",
+        "step_self_value_output": "step_self_value_out_6",
+        "step_self_mask_output": "step_self_mask_out_6"
+      },
+      {
+        "layer_index": 7,
+        "prefill_self_key_output": "prefill_self_key_7",
+        "prefill_self_value_output": "prefill_self_value_7",
+        "prefill_self_mask_output": "prefill_self_mask_7",
+        "prefill_cross_key_output": "prefill_cross_key_7",
+        "prefill_cross_value_output": "prefill_cross_value_7",
+        "step_self_key_input": "step_self_key_in_7",
+        "step_self_value_input": "step_self_value_in_7",
+        "step_self_mask_input": "step_self_mask_in_7",
+        "step_cross_key_input": "step_cross_key_in_7",
+        "step_cross_value_input": "step_cross_value_in_7",
+        "step_self_key_output": "step_self_key_out_7",
+        "step_self_value_output": "step_self_value_out_7",
+        "step_self_mask_output": "step_self_mask_out_7"
+      },
+      {
+        "layer_index": 8,
+        "prefill_self_key_output": "prefill_self_key_8",
+        "prefill_self_value_output": "prefill_self_value_8",
+        "prefill_self_mask_output": "prefill_self_mask_8",
+        "prefill_cross_key_output": "prefill_cross_key_8",
+        "prefill_cross_value_output": "prefill_cross_value_8",
+        "step_self_key_input": "step_self_key_in_8",
+        "step_self_value_input": "step_self_value_in_8",
+        "step_self_mask_input": "step_self_mask_in_8",
+        "step_cross_key_input": "step_cross_key_in_8",
+        "step_cross_value_input": "step_cross_value_in_8",
+        "step_self_key_output": "step_self_key_out_8",
+        "step_self_value_output": "step_self_value_out_8",
+        "step_self_mask_output": "step_self_mask_out_8"
+      },
+      {
+        "layer_index": 9,
+        "prefill_self_key_output": "prefill_self_key_9",
+        "prefill_self_value_output": "prefill_self_value_9",
+        "prefill_self_mask_output": "prefill_self_mask_9",
+        "prefill_cross_key_output": "prefill_cross_key_9",
+        "prefill_cross_value_output": "prefill_cross_value_9",
+        "step_self_key_input": "step_self_key_in_9",
+        "step_self_value_input": "step_self_value_in_9",
+        "step_self_mask_input": "step_self_mask_in_9",
+        "step_cross_key_input": "step_cross_key_in_9",
+        "step_cross_value_input": "step_cross_value_in_9",
+        "step_self_key_output": "step_self_key_out_9",
+        "step_self_value_output": "step_self_value_out_9",
+        "step_self_mask_output": "step_self_mask_out_9"
+      },
+      {
+        "layer_index": 10,
+        "prefill_self_key_output": "prefill_self_key_10",
+        "prefill_self_value_output": "prefill_self_value_10",
+        "prefill_self_mask_output": "prefill_self_mask_10",
+        "prefill_cross_key_output": "prefill_cross_key_10",
+        "prefill_cross_value_output": "prefill_cross_value_10",
+        "step_self_key_input": "step_self_key_in_10",
+        "step_self_value_input": "step_self_value_in_10",
+        "step_self_mask_input": "step_self_mask_in_10",
+        "step_cross_key_input": "step_cross_key_in_10",
+        "step_cross_value_input": "step_cross_value_in_10",
+        "step_self_key_output": "step_self_key_out_10",
+        "step_self_value_output": "step_self_value_out_10",
+        "step_self_mask_output": "step_self_mask_out_10"
+      },
+      {
+        "layer_index": 11,
+        "prefill_self_key_output": "prefill_self_key_11",
+        "prefill_self_value_output": "prefill_self_value_11",
+        "prefill_self_mask_output": "prefill_self_mask_11",
+        "prefill_cross_key_output": "prefill_cross_key_11",
+        "prefill_cross_value_output": "prefill_cross_value_11",
+        "step_self_key_input": "step_self_key_in_11",
+        "step_self_value_input": "step_self_value_in_11",
+        "step_self_mask_input": "step_self_mask_in_11",
+        "step_cross_key_input": "step_cross_key_in_11",
+        "step_cross_value_input": "step_cross_value_in_11",
+        "step_self_key_output": "step_self_key_out_11",
+        "step_self_value_output": "step_self_value_out_11",
+        "step_self_mask_output": "step_self_mask_out_11"
+      }
+    ]
+  },
+  "alignment": {
+    "dtype": "bf16",
+    "source_decoder_layers": [4, 5, 8, 9],
+    "prefill_output_binding": "alignment",
+    "step_prior_input_binding": "alignment_prior",
+    "step_alignment_output_binding": "alignment",
+    "source_position_policy": "exact_frontend_span_only"
+  },
+  "sampling": {
+    "algorithm": "top_k_gumbel_max",
+    "top_k": 80,
+    "temperature": 0.6,
+    "eos_token_id": 2,
+    "forbidden_token_ids": [0, 1],
+    "invalid_distribution_policy": "fail_closed",
+    "next_embedding_location": "device",
+    "rng": {
+      "algorithm": "philox4x32-10",
+      "seed_bits": 64,
+      "counter_bits": 64,
+      "state_location": "device",
+      "ownership": "session",
+      "deterministic": true
+    }
+  },
+  "local_ar": {
+    "engine_name": "local_ar",
+    "execution": "fixed_unrolled",
+    "iterations": 16,
+    "positions": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    "codebooks_per_frame": 8,
+    "frames_per_decoder_step": 2,
+    "sampling_plugin_name": "magpie_tts_rt_plugins",
+    "invalid_rows_encoding": "cfg_row_bitmask_lsb",
+    "no_eos_frame_index": -1
+  },
+  "codec": {
+    "initial_engine_name": "nanocodec_initial",
+    "steady_engine_name": "nanocodec_steady",
+    "tail_engine_name": "nanocodec_tail",
+    "sample_rate_hz": 22050,
+    "hop_length_samples": 1024,
+    "channels": 1,
+    "pcm_format": "f32le",
+    "stateful": true,
+    "initial_frames": 4,
+    "steady_frames": 8,
+    "tail_min_frames": 1,
+    "tail_max_frames": 8,
+    "state_bindings": [
+      {
+        "logical_name": "fixture_only_causal_state_bundle",
+        "dtype": "fp32",
+        "shape": [1, 1],
+        "initial_output_binding": "codec_state_initial_out",
+        "steady_input_binding": "codec_state_steady_in",
+        "steady_output_binding": "codec_state_steady_out",
+        "tail_input_binding": "codec_state_tail_in",
+        "tail_output_binding": "codec_state_tail_out"
+      }
+    ]
+  },
+  "limits": {
+    "maximum_text_tokens": 512,
+    "maximum_decoder_steps": 250,
+    "maximum_audio_frames": 500,
+    "maximum_sessions": 1,
+    "maximum_concurrent_requests": 1,
+    "pcm_ring_capacity_frames": 8,
+    "maximum_workspace_bytes": 4294967296,
+    "maximum_device_memory_bytes": 17179869184,
+    "maximum_bundle_snapshot_bytes": 36
+  },
+  "golden_receipt": {
+    "receipt_version": 1,
+    "path": "receipts/golden.json",
+    "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "size_bytes": 3,
+    "created_at_utc": "2026-07-29T12:00:00Z",
+    "normalized_text_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "token_ids_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "baked_context_sha256": "abababababababababababababababababababababababababababababababab",
+    "seed": 123456789,
+    "decoder_tokens_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "codec_codes_sha256": "123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0",
+    "pcm_f32le_sha256": "23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01",
+    "sample_count": 12288,
+    "initial_frames": 4,
+    "steady_frames": 8,
+    "tail_min_frames": 1,
+    "tail_max_frames": 8
+  }
+}

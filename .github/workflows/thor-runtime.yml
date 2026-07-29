@@ -1,0 +1,164 @@
+name: AGX Thor runtime gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    runs-on: [self-hosted, linux, ARM64, agx-thor]
+    timeout-minutes: 45
+    env:
+      RUSTUP_TOOLCHAIN: 1.88.0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Expose the pinned local toolchains
+        run: |
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          echo "/usr/local/cuda/bin" >> "$GITHUB_PATH"
+
+      - name: Verify release identity and main ancestry
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            python3 tools/check_release_version.py --tag "$GITHUB_REF_NAME"
+            git fetch --no-tags origin \
+              main:refs/remotes/origin/main
+            git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          else
+            python3 tools/check_release_version.py
+          fi
+
+      - name: Record the execution environment
+        run: |
+          test "$(uname -m)" = "aarch64"
+          nvidia-smi --query-gpu=name,driver_version,compute_cap --format=csv
+          /usr/local/cuda/bin/nvcc --version
+          dpkg-query -W libnvinfer10
+
+      - name: Configure the complete runtime
+        run: >-
+          cmake -S . -B "$RUNNER_TEMP/mtt-build" -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DMAGPIE_TTS_RT_BUILD_RUNTIME=ON
+          -DMAGPIE_TTS_RT_BUILD_TESTS=ON
+          -DMAGPIE_TTS_RT_BUILD_GPU_TESTS=ON
+          -DCUDAToolkit_ROOT=/usr/local/cuda
+
+      - name: Build and run the AGX Thor tests
+        run: |
+          cmake --build "$RUNNER_TEMP/mtt-build"
+          ctest --test-dir "$RUNNER_TEMP/mtt-build" --output-on-failure
+
+      - name: Validate schema and generated bindings
+        run: |
+          python3 - <<'PY'
+          import json
+          from jsonschema import Draft202012Validator
+
+          with open("schemas/runtime-bundle-manifest.schema.json", encoding="utf-8") as stream:
+              schema = json.load(stream)
+          with open("tests/manifest/fixtures/minimal-valid.json", encoding="utf-8") as stream:
+              fixture = json.load(stream)
+          Draft202012Validator.check_schema(schema)
+          Draft202012Validator(schema).validate(fixture)
+          PY
+          cargo install bindgen-cli --version 0.72.1 --locked
+          tools/check_rust_bindings.sh
+          tools/check_abi_constants.py
+
+      - name: Run native contract sanitizers
+        run: |
+          for sanitizer in address,undefined thread; do
+            build_dir="$RUNNER_TEMP/mtt-sanitizer-${sanitizer//,/}-build"
+            flags="-fsanitize=$sanitizer -fno-omit-frame-pointer"
+            cmake -S . -B "$build_dir" -G Ninja \
+              -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+              -DCMAKE_C_FLAGS="$flags" \
+              -DCMAKE_CXX_FLAGS="$flags" \
+              -DCMAKE_EXE_LINKER_FLAGS="$flags" \
+              -DMAGPIE_TTS_RT_BUILD_RUNTIME=OFF \
+              -DMAGPIE_TTS_RT_BUILD_TESTS=ON \
+              -DMAGPIE_TTS_RT_WARNINGS_AS_ERRORS=OFF
+            cmake --build "$build_dir"
+            ctest --test-dir "$build_dir" --output-on-failure
+          done
+
+      - name: Install and test the CMake package
+        run: |
+          cmake --install "$RUNNER_TEMP/mtt-build" \
+            --prefix "$RUNNER_TEMP/mtt-install"
+          cmake -S tests/packaging/cmake-consumer \
+            -B "$RUNNER_TEMP/mtt-cmake-consumer" -G Ninja \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/mtt-install" \
+            -DMagpieTTSRT_CUDA_ROOT=/usr/local/cuda
+          cmake --build "$RUNNER_TEMP/mtt-cmake-consumer"
+          LD_LIBRARY_PATH="$RUNNER_TEMP/mtt-install/lib" \
+            "$RUNNER_TEMP/mtt-cmake-consumer/mtt_cmake_package_consumer"
+
+      - name: Test the pkg-config package
+        run: |
+          export PKG_CONFIG_PATH="$RUNNER_TEMP/mtt-install/lib/pkgconfig"
+          cc -std=c11 -Wall -Wextra -Wpedantic -Werror \
+            tests/packaging/pkg-config-consumer.c \
+            $(pkg-config --cflags --libs magpie-tts-rt) \
+            -o "$RUNNER_TEMP/mtt-pkg-config-consumer"
+          LD_LIBRARY_PATH="$RUNNER_TEMP/mtt-install/lib" \
+            "$RUNNER_TEMP/mtt-pkg-config-consumer"
+
+      - name: Check the exported native ABI
+        run: |
+          test "$(
+            nm -D --defined-only \
+              "$RUNNER_TEMP/mtt-install/lib/libmagpie_tts_rt.so" |
+              awk '{print $3}'
+          )" = "mtt_get_api"
+          dynamic="$(
+            readelf -d "$RUNNER_TEMP/mtt-install/lib/libmagpie_tts_rt.so"
+          )"
+          grep -Fq "Library soname: [libmagpie_tts_rt.so.0]" <<< "$dynamic"
+          grep -Fq "Shared library: [libcudart.so.13]" <<< "$dynamic"
+          grep -Fq "Shared library: [libnvinfer.so.10]" <<< "$dynamic"
+          if grep -Eq "\\((RPATH|RUNPATH)\\)" <<< "$dynamic"; then
+            echo "installed runtime must not contain RPATH or RUNPATH" >&2
+            exit 1
+          fi
+
+      - name: Test the Rust ownership wrapper against the runtime
+        working-directory: rust
+        env:
+          MAGPIE_TTS_RT_LIB_DIR: ${{ runner.temp }}/mtt-install/lib
+          LD_LIBRARY_PATH: ${{ runner.temp }}/mtt-install/lib
+          MAGPIE_TTS_RT_RUN_THOR_TEST: "1"
+        run: |
+          cargo fmt --all --check
+          cargo test --workspace --all-features --locked
+          cargo clippy --workspace --all-features --all-targets --locked -- \
+            -D warnings
+          RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
+          cargo package -p magpie-tts-rt-sys --locked
+          cargo package -p magpie-tts-rt --list
+
+      - name: Create a checksummed install artifact
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          cd "$RUNNER_TEMP"
+          archive="magpie-tts-rt-${GITHUB_REF_NAME}-linux-aarch64.tar.gz"
+          tar -C mtt-install -czf "$archive" .
+          sha256sum "$archive" > "$archive.sha256"
+
+      - uses: actions/upload-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          name: magpie-tts-rt-${{ github.ref_name }}-linux-aarch64
+          path: |
+            ${{ runner.temp }}/magpie-tts-rt-${{ github.ref_name }}-linux-aarch64.tar.gz
+            ${{ runner.temp }}/magpie-tts-rt-${{ github.ref_name }}-linux-aarch64.tar.gz.sha256
+          if-no-files-found: error

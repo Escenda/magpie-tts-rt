@@ -1,0 +1,8 @@
+MagpieTTS-RT
+Copyright 2026 MagpieTTS-RT contributors
+
+MagpieTTS-RT is an independent community project. It is not an NVIDIA product
+and is not endorsed by or affiliated with NVIDIA.
+
+This repository does not distribute MagpieTTS model weights. Model weights and
+derived engine artifacts remain subject to their applicable model licenses.

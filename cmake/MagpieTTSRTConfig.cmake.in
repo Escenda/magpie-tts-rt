@@ -1,0 +1,209 @@
+@PACKAGE_INIT@
+
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  set(MagpieTTSRT_FOUND FALSE)
+  set(MagpieTTSRT_NOT_FOUND_MESSAGE "MagpieTTS-RT supports Linux only")
+  return()
+endif()
+
+function(
+  _magpie_tts_rt_require_elf_soname
+  library_path
+  expected_soname
+  result_variable
+)
+  set("${result_variable}" TRUE PARENT_SCOPE)
+  if(NOT CMAKE_READELF)
+    find_program(CMAKE_READELF NAMES readelf)
+  endif()
+  if(NOT CMAKE_READELF)
+    set("${result_variable}" FALSE PARENT_SCOPE)
+    set(
+      MagpieTTSRT_NOT_FOUND_MESSAGE
+      "readelf is required to verify CUDA and TensorRT ABI majors"
+      PARENT_SCOPE
+    )
+    return()
+  endif()
+  execute_process(
+    COMMAND "${CMAKE_READELF}" -d "${library_path}"
+    RESULT_VARIABLE _mtt_readelf_result
+    OUTPUT_VARIABLE _mtt_readelf_output
+    ERROR_VARIABLE _mtt_readelf_error
+  )
+  if(NOT _mtt_readelf_result EQUAL 0)
+    set("${result_variable}" FALSE PARENT_SCOPE)
+    set(
+      MagpieTTSRT_NOT_FOUND_MESSAGE
+      "Unable to inspect ${library_path}: ${_mtt_readelf_error}"
+      PARENT_SCOPE
+    )
+    return()
+  endif()
+  string(
+    REGEX MATCH
+    "\\(SONAME\\)[^\n]*"
+    _mtt_soname_line
+    "${_mtt_readelf_output}"
+  )
+  string(
+    FIND
+    "${_mtt_soname_line}"
+    "[${expected_soname}]"
+    _mtt_expected_soname
+  )
+  if(_mtt_soname_line STREQUAL "" OR _mtt_expected_soname EQUAL -1)
+    set("${result_variable}" FALSE PARENT_SCOPE)
+    set(
+      MagpieTTSRT_NOT_FOUND_MESSAGE
+      "${library_path} must have ELF SONAME ${expected_soname}"
+      PARENT_SCOPE
+    )
+  endif()
+endfunction()
+
+# The exported runtime has a DT_NEEDED dependency on TensorRT. Recreate the
+# imported target named by MagpieTTSRTTargets.cmake without embedding the build
+# host's absolute TensorRT path in the installed package.
+if(TARGET MagpieTTSRT_tensorrt_nvinfer)
+  get_target_property(
+    _mtt_existing_tensorrt
+    MagpieTTSRT_tensorrt_nvinfer
+    IMPORTED_LOCATION
+  )
+  if(NOT _mtt_existing_tensorrt)
+    set(MagpieTTSRT_FOUND FALSE)
+    set(
+      MagpieTTSRT_NOT_FOUND_MESSAGE
+      "Existing MagpieTTSRT_tensorrt_nvinfer target has no imported location"
+    )
+    return()
+  endif()
+  _magpie_tts_rt_require_elf_soname(
+    "${_mtt_existing_tensorrt}"
+    "libnvinfer.so.10"
+    _mtt_tensorrt_soname_ok
+  )
+  if(NOT _mtt_tensorrt_soname_ok)
+    set(MagpieTTSRT_FOUND FALSE)
+    return()
+  endif()
+else()
+  find_library(
+    MagpieTTSRT_TENSORRT_NVINFER_LIBRARY
+    NAMES nvinfer libnvinfer.so.10
+    NAMES_PER_DIR
+    HINTS
+      "${MagpieTTSRT_TENSORRT_ROOT}"
+      "$ENV{TensorRT_ROOT}"
+      "$ENV{TENSORRT_ROOT}"
+    PATH_SUFFIXES
+      lib
+      lib64
+      lib/aarch64-linux-gnu
+      lib/x86_64-linux-gnu
+      aarch64-linux-gnu
+      x86_64-linux-gnu
+  )
+  if(NOT MagpieTTSRT_TENSORRT_NVINFER_LIBRARY)
+    set(MagpieTTSRT_FOUND FALSE)
+    set(
+      MagpieTTSRT_NOT_FOUND_MESSAGE
+      "TensorRT nvinfer was not found; set MagpieTTSRT_TENSORRT_ROOT"
+    )
+    return()
+  endif()
+  _magpie_tts_rt_require_elf_soname(
+    "${MagpieTTSRT_TENSORRT_NVINFER_LIBRARY}"
+    "libnvinfer.so.10"
+    _mtt_tensorrt_soname_ok
+  )
+  if(NOT _mtt_tensorrt_soname_ok)
+    set(MagpieTTSRT_FOUND FALSE)
+    return()
+  endif()
+  add_library(MagpieTTSRT_tensorrt_nvinfer SHARED IMPORTED)
+  set_target_properties(
+    MagpieTTSRT_tensorrt_nvinfer
+    PROPERTIES
+      IMPORTED_LOCATION "${MagpieTTSRT_TENSORRT_NVINFER_LIBRARY}"
+  )
+endif()
+
+if(TARGET MagpieTTSRT_cuda_cudart)
+  get_target_property(
+    _mtt_existing_cudart
+    MagpieTTSRT_cuda_cudart
+    IMPORTED_LOCATION
+  )
+  if(NOT _mtt_existing_cudart)
+    set(MagpieTTSRT_FOUND FALSE)
+    set(
+      MagpieTTSRT_NOT_FOUND_MESSAGE
+      "Existing MagpieTTSRT_cuda_cudart target has no imported location"
+    )
+    return()
+  endif()
+  _magpie_tts_rt_require_elf_soname(
+    "${_mtt_existing_cudart}"
+    "libcudart.so.13"
+    _mtt_cudart_soname_ok
+  )
+  if(NOT _mtt_cudart_soname_ok)
+    set(MagpieTTSRT_FOUND FALSE)
+    return()
+  endif()
+else()
+  find_library(
+    MagpieTTSRT_CUDA_CUDART_LIBRARY
+    NAMES cudart libcudart.so.13
+    NAMES_PER_DIR
+    HINTS
+      "${MagpieTTSRT_CUDA_ROOT}"
+      "$ENV{CUDAToolkit_ROOT}"
+      "$ENV{CUDA_PATH}"
+      "/usr/local/cuda"
+    PATH_SUFFIXES
+      lib
+      lib64
+      targets/aarch64-linux/lib
+      targets/x86_64-linux/lib
+  )
+  if(NOT MagpieTTSRT_CUDA_CUDART_LIBRARY)
+    set(MagpieTTSRT_FOUND FALSE)
+    set(
+      MagpieTTSRT_NOT_FOUND_MESSAGE
+      "CUDA Runtime was not found; set MagpieTTSRT_CUDA_ROOT"
+    )
+    return()
+  endif()
+  _magpie_tts_rt_require_elf_soname(
+    "${MagpieTTSRT_CUDA_CUDART_LIBRARY}"
+    "libcudart.so.13"
+    _mtt_cudart_soname_ok
+  )
+  if(NOT _mtt_cudart_soname_ok)
+    set(MagpieTTSRT_FOUND FALSE)
+    return()
+  endif()
+  add_library(MagpieTTSRT_cuda_cudart SHARED IMPORTED)
+  set_target_properties(
+    MagpieTTSRT_cuda_cudart
+    PROPERTIES
+      IMPORTED_LOCATION "${MagpieTTSRT_CUDA_CUDART_LIBRARY}"
+  )
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/MagpieTTSRTTargets.cmake")
+
+set(MagpieTTSRT_runtime_FOUND FALSE)
+if(TARGET MagpieTTSRT::runtime)
+  set(MagpieTTSRT_runtime_FOUND TRUE)
+endif()
+foreach(_mtt_component IN LISTS MagpieTTSRT_FIND_COMPONENTS)
+  if(NOT _mtt_component STREQUAL "runtime")
+    set("MagpieTTSRT_${_mtt_component}_FOUND" FALSE)
+  endif()
+endforeach()
+
+check_required_components(MagpieTTSRT)

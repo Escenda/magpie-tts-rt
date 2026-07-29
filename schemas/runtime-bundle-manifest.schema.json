@@ -1,0 +1,1649 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Escenda/magpie-tts-rt/schemas/runtime-bundle-manifest.schema.json",
+  "title": "MagpieTTS-RT runtime bundle manifest",
+  "description": "Fail-closed contract for one immutable TensorRT runtime bundle. Runtime code must also enforce the cross-field invariants implemented by the C++ parser.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "bundle_id",
+    "created_at_utc",
+    "runtime",
+    "artifacts",
+    "classifier_free_guidance",
+    "engines",
+    "kv_cache",
+    "alignment",
+    "sampling",
+    "local_ar",
+    "codec",
+    "limits",
+    "golden_receipt"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "bundle_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "created_at_utc": {
+      "$ref": "#/$defs/utcTimestamp"
+    },
+    "runtime": {
+      "$ref": "#/$defs/runtimeFingerprint"
+    },
+    "artifacts": {
+      "$ref": "#/$defs/artifacts"
+    },
+    "classifier_free_guidance": {
+      "$ref": "#/$defs/classifierFreeGuidance"
+    },
+    "engines": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": {
+        "$ref": "#/$defs/engine"
+      },
+      "allOf": [
+        {
+          "contains": {
+            "type": "object",
+            "required": ["role"],
+            "properties": {
+              "role": {
+                "const": "text_encoder"
+              }
+            }
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": ["role"],
+            "properties": {
+              "role": {
+                "const": "main_decoder_prefill"
+              }
+            }
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": ["role"],
+            "properties": {
+              "role": {
+                "const": "main_decoder_step"
+              }
+            }
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": ["role"],
+            "properties": {
+              "role": {
+                "const": "local_ar_16"
+              }
+            }
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": ["role"],
+            "properties": {
+              "role": {
+                "const": "nanocodec_initial_4"
+              }
+            }
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": ["role"],
+            "properties": {
+              "role": {
+                "const": "nanocodec_steady_8"
+              }
+            }
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": ["role"],
+            "properties": {
+              "role": {
+                "const": "nanocodec_tail_1_8"
+              }
+            }
+          },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      ]
+    },
+    "kv_cache": {
+      "$ref": "#/$defs/kvCache"
+    },
+    "alignment": {
+      "$ref": "#/$defs/alignment"
+    },
+    "sampling": {
+      "$ref": "#/$defs/sampling"
+    },
+    "local_ar": {
+      "$ref": "#/$defs/localAr"
+    },
+    "codec": {
+      "$ref": "#/$defs/codec"
+    },
+    "limits": {
+      "$ref": "#/$defs/limits"
+    },
+    "golden_receipt": {
+      "$ref": "#/$defs/goldenReceipt"
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*[\\u0000-\\u001F\\u007F]).+$"
+    },
+    "numericVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+(?:\\.[0-9]+)+(?:[-+][A-Za-z0-9._-]+)?$"
+    },
+    "utcTimestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "uint32": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "positiveUint32": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4294967295
+    },
+    "uint64": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "positiveUint64": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 18446744073709551615
+    },
+    "dtype": {
+      "enum": [
+        "fp32",
+        "fp16",
+        "bf16",
+        "int64",
+        "int32",
+        "int8",
+        "uint8",
+        "bool"
+      ]
+    },
+    "fileArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes"],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size_bytes": {
+          "$ref": "#/$defs/positiveUint64"
+        }
+      }
+    },
+    "runtimeFingerprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "os_name",
+        "os_version",
+        "architecture",
+        "endianness",
+        "cuda_version",
+        "tensorrt_version",
+        "driver_version",
+        "gpu_name",
+        "gpu_compute_capability",
+        "plugin_abi_version"
+      ],
+      "properties": {
+        "os_name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "os_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "architecture": {
+          "enum": ["aarch64", "x86_64"]
+        },
+        "endianness": {
+          "enum": ["little", "big"]
+        },
+        "cuda_version": {
+          "$ref": "#/$defs/numericVersion"
+        },
+        "tensorrt_version": {
+          "$ref": "#/$defs/numericVersion"
+        },
+        "driver_version": {
+          "$ref": "#/$defs/numericVersion"
+        },
+        "gpu_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "gpu_compute_capability": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+$"
+        },
+        "plugin_abi_version": {
+          "$ref": "#/$defs/positiveUint32"
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "export", "tokenizer", "plugin"],
+      "properties": {
+        "model": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["model_id", "revision", "file"],
+          "properties": {
+            "model_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "revision": {
+              "type": "string",
+              "minLength": 1
+            },
+            "file": {
+              "$ref": "#/$defs/fileArtifact"
+            }
+          }
+        },
+        "export": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "format",
+            "source_revision",
+            "voice_id",
+            "baked_context_length",
+            "baked_context_sha256",
+            "audio_bos_baked",
+            "file"
+          ],
+          "properties": {
+            "format": {
+              "$ref": "#/$defs/identifier"
+            },
+            "source_revision": {
+              "type": "string",
+              "minLength": 1
+            },
+            "voice_id": {
+              "const": "sofia"
+            },
+            "baked_context_length": {
+              "const": 217
+            },
+            "baked_context_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "audio_bos_baked": {
+              "const": true
+            },
+            "file": {
+              "$ref": "#/$defs/fileArtifact"
+            }
+          }
+        },
+        "tokenizer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "vocabulary_size", "file"],
+          "properties": {
+            "kind": {
+              "$ref": "#/$defs/identifier"
+            },
+            "vocabulary_size": {
+              "$ref": "#/$defs/positiveUint32"
+            },
+            "file": {
+              "$ref": "#/$defs/fileArtifact"
+            }
+          }
+        },
+        "plugin": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "abi_version", "file"],
+          "properties": {
+            "name": {
+              "$ref": "#/$defs/identifier"
+            },
+            "abi_version": {
+              "$ref": "#/$defs/positiveUint32"
+            },
+            "file": {
+              "$ref": "#/$defs/fileArtifact"
+            }
+          }
+        }
+      }
+    },
+    "classifierFreeGuidance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "row_order",
+        "conditional_row_index",
+        "conditional_condition_source",
+        "conditional_mask_source",
+        "unconditional_row_index",
+        "unconditional_condition_source",
+        "unconditional_mask_source"
+      ],
+      "properties": {
+        "row_order": {
+          "const": "conditional_then_unconditional"
+        },
+        "conditional_row_index": {
+          "const": 0
+        },
+        "conditional_condition_source": {
+          "const": "text_encoder_output"
+        },
+        "conditional_mask_source": {
+          "const": "text_mask"
+        },
+        "unconditional_row_index": {
+          "const": 1
+        },
+        "unconditional_condition_source": {
+          "const": "all_zero"
+        },
+        "unconditional_mask_source": {
+          "const": "all_false"
+        }
+      }
+    },
+    "declaredShape": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "anyOf": [
+          {
+            "const": -1
+          },
+          {
+            "minimum": 1
+          }
+        ]
+      }
+    },
+    "concreteShape": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "tensor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "dtype", "shape"],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "dtype": {
+          "$ref": "#/$defs/dtype"
+        },
+        "shape": {
+          "$ref": "#/$defs/declaredShape"
+        }
+      }
+    },
+    "shapeRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tensor_name", "min", "opt", "max"],
+      "properties": {
+        "tensor_name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "min": {
+          "$ref": "#/$defs/concreteShape"
+        },
+        "opt": {
+          "$ref": "#/$defs/concreteShape"
+        },
+        "max": {
+          "$ref": "#/$defs/concreteShape"
+        }
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "input_shapes"],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "input_shapes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/shapeRange"
+          }
+        }
+      }
+    },
+    "textEncoderProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "input_shapes"],
+      "properties": {
+        "name": {
+          "const": "text_1_512"
+        },
+        "input_shapes": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "oneOf": [
+              {
+                "const": {
+                  "tensor_name": "text_token_ids",
+                  "min": [1, 1],
+                  "opt": [1, 64],
+                  "max": [1, 512]
+                }
+              },
+              {
+                "const": {
+                  "tensor_name": "text_mask",
+                  "min": [1, 1],
+                  "opt": [1, 64],
+                  "max": [1, 512]
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "prefillProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "input_shapes"],
+      "properties": {
+        "name": {
+          "const": "text_1_512"
+        },
+        "input_shapes": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "oneOf": [
+              {
+                "const": {
+                  "tensor_name": "condition",
+                  "min": [2, 1, 768],
+                  "opt": [2, 64, 768],
+                  "max": [2, 512, 768]
+                }
+              },
+              {
+                "const": {
+                  "tensor_name": "condition_mask",
+                  "min": [2, 1],
+                  "opt": [2, 64],
+                  "max": [2, 512]
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "stepProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "input_shapes"],
+      "properties": {
+        "name": {
+          "const": "text_1_512"
+        },
+        "input_shapes": {
+          "type": "array",
+          "minItems": 25,
+          "maxItems": 25,
+          "uniqueItems": true,
+          "items": {
+            "oneOf": [
+              {
+                "const": {
+                  "tensor_name": "alignment_prior",
+                  "min": [2, 1, 1],
+                  "opt": [2, 1, 64],
+                  "max": [2, 1, 512]
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["tensor_name", "min", "opt", "max"],
+                "properties": {
+                  "tensor_name": {
+                    "type": "string",
+                    "pattern": "^step_cross_(key|value)_in_([0-9]|1[01])$"
+                  },
+                  "min": {
+                    "const": [2, 1, 1, 128]
+                  },
+                  "opt": {
+                    "const": [2, 64, 1, 128]
+                  },
+                  "max": {
+                    "const": [2, 512, 1, 128]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "fixedProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "input_shapes"],
+      "properties": {
+        "name": {
+          "const": "fixed"
+        },
+        "input_shapes": {
+          "const": []
+        }
+      }
+    },
+    "tailProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "input_shapes"],
+      "properties": {
+        "name": {
+          "const": "tail_1_8"
+        },
+        "input_shapes": {
+          "const": [
+            {
+              "tensor_name": "codec_tokens",
+              "min": [1, 8, 1],
+              "opt": [1, 8, 4],
+              "max": [1, 8, 8]
+            }
+          ]
+        }
+      }
+    },
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "role", "file", "inputs", "outputs", "profiles"],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "role": {
+          "enum": [
+            "text_encoder",
+            "main_decoder_prefill",
+            "main_decoder_step",
+            "local_ar_16",
+            "nanocodec_initial_4",
+            "nanocodec_steady_8",
+            "nanocodec_tail_1_8"
+          ]
+        },
+        "file": {
+          "$ref": "#/$defs/fileArtifact"
+        },
+        "inputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/tensor"
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/tensor"
+          }
+        },
+        "profiles": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/profile"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["role"],
+            "properties": {
+              "role": {
+                "const": "text_encoder"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "inputs": {
+                "minItems": 1,
+                "maxItems": 2,
+                "allOf": [
+                  {
+                    "contains": {
+                      "required": ["name", "dtype", "shape"],
+                      "properties": {
+                        "name": {"const": "text_token_ids"},
+                        "dtype": {"const": "int64"},
+                        "shape": {"const": [1, -1]}
+                      }
+                    }
+                  },
+                  {
+                    "contains": {
+                      "required": ["name", "dtype", "shape"],
+                      "properties": {
+                        "name": {"const": "text_mask"},
+                        "dtype": {"const": "bool"},
+                        "shape": {"const": [1, -1]}
+                      }
+                    }
+                  }
+                ]
+              },
+              "outputs": {
+                "minItems": 1,
+                "maxItems": 1,
+                "contains": {
+                  "required": ["name", "dtype", "shape"],
+                  "properties": {
+                    "name": {"const": "text_condition"},
+                    "dtype": {"const": "bf16"},
+                    "shape": {"const": [1, -1, 768]}
+                  }
+                }
+              },
+              "profiles": {
+                "minItems": 1,
+                "maxItems": 1,
+                "items": {
+                  "$ref": "#/$defs/textEncoderProfile"
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["role"],
+            "properties": {
+              "role": {
+                "const": "main_decoder_prefill"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "inputs": {
+                "minItems": 2,
+                "maxItems": 2,
+                "allOf": [
+                  {
+                    "contains": {
+                      "required": ["name", "dtype", "shape"],
+                      "properties": {
+                        "name": {"const": "condition"},
+                        "dtype": {"const": "bf16"},
+                        "shape": {"const": [2, -1, 768]}
+                      }
+                    }
+                  },
+                  {
+                    "contains": {
+                      "required": ["name", "dtype", "shape"],
+                      "properties": {
+                        "name": {"const": "condition_mask"},
+                        "dtype": {"const": "bool"},
+                        "shape": {"const": [2, -1]}
+                      }
+                    }
+                  }
+                ]
+              },
+              "outputs": {
+                "minItems": 62,
+                "maxItems": 62,
+                "allOf": [
+                  {
+                    "contains": {
+                      "required": ["name", "dtype", "shape"],
+                      "properties": {
+                        "name": {"const": "last_hidden"},
+                        "dtype": {"const": "bf16"},
+                        "shape": {"const": [2, 1, 768]}
+                      }
+                    }
+                  },
+                  {
+                    "contains": {
+                      "required": ["name", "dtype", "shape"],
+                      "properties": {
+                        "name": {"const": "alignment"},
+                        "dtype": {"const": "bf16"},
+                        "shape": {"const": [2, -1]}
+                      }
+                    }
+                  }
+                ]
+              },
+              "profiles": {
+                "minItems": 1,
+                "maxItems": 1,
+                "items": {
+                  "$ref": "#/$defs/prefillProfile"
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["role"],
+            "properties": {
+              "role": {
+                "const": "main_decoder_step"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "inputs": {
+                "minItems": 63,
+                "maxItems": 63,
+                "allOf": [
+                  {
+                    "contains": {
+                      "required": ["name", "dtype", "shape"],
+                      "properties": {
+                        "name": {"const": "previous_codec_tokens"},
+                        "dtype": {"const": "int64"},
+                        "shape": {"const": [1, 8, 2]}
+                      }
+                    }
+                  },
+                  {
+                    "contains": {
+                      "required": ["name", "dtype", "shape"],
+                      "properties": {
+                        "name": {"const": "position"},
+                        "dtype": {"const": "int64"},
+                        "shape": {"const": []}
+                      }
+                    }
+                  },
+                  {
+                    "contains": {
+                      "required": ["name", "dtype", "shape"],
+                      "properties": {
+                        "name": {"const": "alignment_prior"},
+                        "dtype": {"const": "bf16"},
+                        "shape": {"const": [2, 1, -1]}
+                      }
+                    }
+                  }
+                ]
+              },
+              "outputs": {
+                "minItems": 38,
+                "maxItems": 38,
+                "allOf": [
+                  {
+                    "contains": {
+                      "required": ["name", "dtype", "shape"],
+                      "properties": {
+                        "name": {"const": "decoder_hidden"},
+                        "dtype": {"const": "bf16"},
+                        "shape": {"const": [2, 768]}
+                      }
+                    }
+                  },
+                  {
+                    "contains": {
+                      "required": ["name", "dtype", "shape"],
+                      "properties": {
+                        "name": {"const": "alignment"},
+                        "dtype": {"const": "bf16"},
+                        "shape": {"const": [2, -1]}
+                      }
+                    }
+                  }
+                ]
+              },
+              "profiles": {
+                "minItems": 1,
+                "maxItems": 1,
+                "items": {
+                  "$ref": "#/$defs/stepProfile"
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["role"],
+            "properties": {
+              "role": {
+                "const": "local_ar_16"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "inputs": {
+                "minItems": 6,
+                "maxItems": 6,
+                "allOf": [
+                  {"contains": {"required": ["name", "dtype", "shape"], "properties": {"name": {"const": "decoder_hidden"}, "dtype": {"const": "bf16"}, "shape": {"const": [2, 768]}}}},
+                  {"contains": {"required": ["name", "dtype", "shape"], "properties": {"name": {"const": "unfinished"}, "dtype": {"const": "bool"}, "shape": {"const": [1]}}}},
+                  {"contains": {"required": ["name", "dtype", "shape"], "properties": {"name": {"const": "finished"}, "dtype": {"const": "bool"}, "shape": {"const": [1]}}}},
+                  {"contains": {"required": ["name", "dtype", "shape"], "properties": {"name": {"const": "forbid_eos"}, "dtype": {"const": "bool"}, "shape": {"const": [1]}}}},
+                  {"contains": {"required": ["name", "dtype", "shape"], "properties": {"name": {"const": "rng_seed"}, "dtype": {"const": "int64"}, "shape": {"const": [1]}}}},
+                  {"contains": {"required": ["name", "dtype", "shape"], "properties": {"name": {"const": "rng_counter"}, "dtype": {"const": "int64"}, "shape": {"const": [1]}}}}
+                ]
+              },
+              "outputs": {
+                "minItems": 4,
+                "maxItems": 4,
+                "allOf": [
+                  {"contains": {"required": ["name", "dtype", "shape"], "properties": {"name": {"const": "codec_tokens"}, "dtype": {"const": "int64"}, "shape": {"const": [1, 8, 2]}}}},
+                  {"contains": {"required": ["name", "dtype", "shape"], "properties": {"name": {"const": "updated_rng_counter"}, "dtype": {"const": "int64"}, "shape": {"const": [1]}}}},
+                  {"contains": {"required": ["name", "dtype", "shape"], "properties": {"name": {"const": "invalid_rows"}, "dtype": {"const": "int32"}, "shape": {"const": [1]}}}},
+                  {"contains": {"required": ["name", "dtype", "shape"], "properties": {"name": {"const": "end_frame_index"}, "dtype": {"const": "int32"}, "shape": {"const": [1]}}}}
+                ]
+              },
+              "profiles": {
+                "minItems": 1,
+                "maxItems": 1,
+                "items": {
+                  "$ref": "#/$defs/fixedProfile"
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["role"],
+            "properties": {
+              "role": {
+                "enum": [
+                  "nanocodec_initial_4",
+                  "nanocodec_steady_8",
+                  "nanocodec_tail_1_8"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "inputs": {
+                "minItems": 1,
+                "contains": {
+                  "required": ["name", "dtype"],
+                  "properties": {
+                    "name": {"const": "codec_tokens"},
+                    "dtype": {"const": "int64"}
+                  }
+                }
+              },
+              "outputs": {
+                "minItems": 3,
+                "allOf": [
+                  {
+                    "contains": {
+                      "required": ["name", "dtype"],
+                      "properties": {
+                        "name": {"const": "pcm"},
+                        "dtype": {"const": "fp32"}
+                      }
+                    }
+                  },
+                  {
+                    "contains": {
+                      "required": ["name", "dtype", "shape"],
+                      "properties": {
+                        "name": {"const": "valid_sample_length"},
+                        "dtype": {"const": "int64"},
+                        "shape": {"const": [1]}
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["role"],
+            "properties": {
+              "role": {"const": "nanocodec_initial_4"}
+            }
+          },
+          "then": {
+            "properties": {
+              "inputs": {
+                "minItems": 1,
+                "maxItems": 1,
+                "contains": {
+                  "required": ["name", "shape"],
+                  "properties": {
+                    "name": {"const": "codec_tokens"},
+                    "shape": {"const": [1, 8, 4]}
+                  }
+                }
+              },
+              "outputs": {
+                "contains": {
+                  "required": ["name", "shape"],
+                  "properties": {
+                    "name": {"const": "pcm"},
+                    "shape": {"const": [1, 4096]}
+                  }
+                }
+              },
+              "profiles": {
+                "minItems": 1,
+                "maxItems": 1,
+                "items": {
+                  "$ref": "#/$defs/fixedProfile"
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["role"],
+            "properties": {
+              "role": {"const": "nanocodec_steady_8"}
+            }
+          },
+          "then": {
+            "properties": {
+              "inputs": {
+                "minItems": 2,
+                "contains": {
+                  "required": ["name", "shape"],
+                  "properties": {
+                    "name": {"const": "codec_tokens"},
+                    "shape": {"const": [1, 8, 8]}
+                  }
+                }
+              },
+              "outputs": {
+                "contains": {
+                  "required": ["name", "shape"],
+                  "properties": {
+                    "name": {"const": "pcm"},
+                    "shape": {"const": [1, 8192]}
+                  }
+                }
+              },
+              "profiles": {
+                "minItems": 1,
+                "maxItems": 1,
+                "items": {
+                  "$ref": "#/$defs/fixedProfile"
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["role"],
+            "properties": {
+              "role": {"const": "nanocodec_tail_1_8"}
+            }
+          },
+          "then": {
+            "properties": {
+              "inputs": {
+                "minItems": 2,
+                "contains": {
+                  "required": ["name", "shape"],
+                  "properties": {
+                    "name": {"const": "codec_tokens"},
+                    "shape": {"const": [1, 8, -1]}
+                  }
+                }
+              },
+              "outputs": {
+                "contains": {
+                  "required": ["name", "shape"],
+                  "properties": {
+                    "name": {"const": "pcm"},
+                    "shape": {"const": [1, -1]}
+                  }
+                }
+              },
+              "profiles": {
+                "minItems": 1,
+                "maxItems": 1,
+                "items": {
+                  "$ref": "#/$defs/tailProfile"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "kvLayerBindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "layer_index",
+        "prefill_self_key_output",
+        "prefill_self_value_output",
+        "prefill_self_mask_output",
+        "prefill_cross_key_output",
+        "prefill_cross_value_output",
+        "step_self_key_input",
+        "step_self_value_input",
+        "step_self_mask_input",
+        "step_cross_key_input",
+        "step_cross_value_input",
+        "step_self_key_output",
+        "step_self_value_output",
+        "step_self_mask_output"
+      ],
+      "properties": {
+        "layer_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 11
+        },
+        "prefill_self_key_output": {
+          "$ref": "#/$defs/identifier"
+        },
+        "prefill_self_value_output": {
+          "$ref": "#/$defs/identifier"
+        },
+        "prefill_self_mask_output": {
+          "$ref": "#/$defs/identifier"
+        },
+        "prefill_cross_key_output": {
+          "$ref": "#/$defs/identifier"
+        },
+        "prefill_cross_value_output": {
+          "$ref": "#/$defs/identifier"
+        },
+        "step_self_key_input": {
+          "$ref": "#/$defs/identifier"
+        },
+        "step_self_value_input": {
+          "$ref": "#/$defs/identifier"
+        },
+        "step_self_mask_input": {
+          "$ref": "#/$defs/identifier"
+        },
+        "step_cross_key_input": {
+          "$ref": "#/$defs/identifier"
+        },
+        "step_cross_value_input": {
+          "$ref": "#/$defs/identifier"
+        },
+        "step_self_key_output": {
+          "$ref": "#/$defs/identifier"
+        },
+        "step_self_value_output": {
+          "$ref": "#/$defs/identifier"
+        },
+        "step_self_mask_output": {
+          "$ref": "#/$defs/identifier"
+        }
+      }
+    },
+    "kvCache": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "layout",
+        "dtype",
+        "mask_dtype",
+        "layers",
+        "batch_size",
+        "self_attention_heads",
+        "self_attention_head_dimension",
+        "cross_attention_heads",
+        "cross_attention_head_dimension",
+        "prefix_length",
+        "maximum_generated_steps",
+        "self_cache_capacity",
+        "update_mode",
+        "position_semantics",
+        "first_step_position",
+        "step_position_upper_bound_exclusive",
+        "layer_bindings"
+      ],
+      "properties": {
+        "layout": {
+          "const": "batch_sequence_head_dimension"
+        },
+        "dtype": {
+          "$ref": "#/$defs/dtype"
+        },
+        "mask_dtype": {
+          "const": "bool"
+        },
+        "layers": {
+          "const": 12
+        },
+        "batch_size": {
+          "const": 2
+        },
+        "self_attention_heads": {
+          "const": 12
+        },
+        "self_attention_head_dimension": {
+          "const": 64
+        },
+        "cross_attention_heads": {
+          "const": 1
+        },
+        "cross_attention_head_dimension": {
+          "const": 128
+        },
+        "prefix_length": {
+          "const": 217
+        },
+        "maximum_generated_steps": {
+          "const": 250
+        },
+        "self_cache_capacity": {
+          "const": 467
+        },
+        "update_mode": {
+          "const": "in_place_explicit_bindings"
+        },
+        "position_semantics": {
+          "const": "absolute_self_cache_write_index"
+        },
+        "first_step_position": {
+          "const": 218
+        },
+        "step_position_upper_bound_exclusive": {
+          "const": 467
+        },
+        "layer_bindings": {
+          "type": "array",
+          "minItems": 12,
+          "maxItems": 12,
+          "items": {
+            "$ref": "#/$defs/kvLayerBindings"
+          }
+        }
+      }
+    },
+    "alignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dtype",
+        "source_decoder_layers",
+        "prefill_output_binding",
+        "step_prior_input_binding",
+        "step_alignment_output_binding",
+        "source_position_policy"
+      ],
+      "properties": {
+        "dtype": {
+          "const": "bf16"
+        },
+        "source_decoder_layers": {
+          "const": [4, 5, 8, 9]
+        },
+        "prefill_output_binding": {
+          "const": "alignment"
+        },
+        "step_prior_input_binding": {
+          "const": "alignment_prior"
+        },
+        "step_alignment_output_binding": {
+          "const": "alignment"
+        },
+        "source_position_policy": {
+          "const": "exact_frontend_span_only"
+        }
+      }
+    },
+    "rng": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "seed_bits",
+        "counter_bits",
+        "state_location",
+        "ownership",
+        "deterministic"
+      ],
+      "properties": {
+        "algorithm": {
+          "const": "philox4x32-10"
+        },
+        "seed_bits": {
+          "const": 64
+        },
+        "counter_bits": {
+          "const": 64
+        },
+        "state_location": {
+          "const": "device"
+        },
+        "ownership": {
+          "const": "session"
+        },
+        "deterministic": {
+          "const": true
+        }
+      }
+    },
+    "sampling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "top_k",
+        "temperature",
+        "eos_token_id",
+        "forbidden_token_ids",
+        "invalid_distribution_policy",
+        "next_embedding_location",
+        "rng"
+      ],
+      "properties": {
+        "algorithm": {
+          "const": "top_k_gumbel_max"
+        },
+        "top_k": {
+          "const": 80
+        },
+        "temperature": {
+          "const": 0.6
+        },
+        "eos_token_id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2023
+        },
+        "forbidden_token_ids": {
+          "type": "array",
+          "maxItems": 1944,
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2023
+          }
+        },
+        "invalid_distribution_policy": {
+          "const": "fail_closed"
+        },
+        "next_embedding_location": {
+          "const": "device"
+        },
+        "rng": {
+          "$ref": "#/$defs/rng"
+        }
+      }
+    },
+    "localAr": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "engine_name",
+        "execution",
+        "iterations",
+        "positions",
+        "codebooks_per_frame",
+        "frames_per_decoder_step",
+        "sampling_plugin_name",
+        "invalid_rows_encoding",
+        "no_eos_frame_index"
+      ],
+      "properties": {
+        "engine_name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "execution": {
+          "const": "fixed_unrolled"
+        },
+        "iterations": {
+          "const": 16
+        },
+        "positions": {
+          "const": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        },
+        "codebooks_per_frame": {
+          "const": 8
+        },
+        "frames_per_decoder_step": {
+          "const": 2
+        },
+        "sampling_plugin_name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "invalid_rows_encoding": {
+          "const": "cfg_row_bitmask_lsb"
+        },
+        "no_eos_frame_index": {
+          "const": -1
+        }
+      }
+    },
+    "codecStateBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "logical_name",
+        "dtype",
+        "shape",
+        "initial_output_binding",
+        "steady_input_binding",
+        "steady_output_binding",
+        "tail_input_binding",
+        "tail_output_binding"
+      ],
+      "properties": {
+        "logical_name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "dtype": {
+          "$ref": "#/$defs/dtype"
+        },
+        "shape": {
+          "$ref": "#/$defs/declaredShape"
+        },
+        "initial_output_binding": {
+          "$ref": "#/$defs/identifier"
+        },
+        "steady_input_binding": {
+          "$ref": "#/$defs/identifier"
+        },
+        "steady_output_binding": {
+          "$ref": "#/$defs/identifier"
+        },
+        "tail_input_binding": {
+          "$ref": "#/$defs/identifier"
+        },
+        "tail_output_binding": {
+          "$ref": "#/$defs/identifier"
+        }
+      }
+    },
+    "codec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "initial_engine_name",
+        "steady_engine_name",
+        "tail_engine_name",
+        "sample_rate_hz",
+        "hop_length_samples",
+        "channels",
+        "pcm_format",
+        "stateful",
+        "initial_frames",
+        "steady_frames",
+        "tail_min_frames",
+        "tail_max_frames",
+        "state_bindings"
+      ],
+      "properties": {
+        "initial_engine_name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "steady_engine_name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "tail_engine_name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "sample_rate_hz": {
+          "const": 22050
+        },
+        "hop_length_samples": {
+          "const": 1024
+        },
+        "channels": {
+          "const": 1
+        },
+        "pcm_format": {
+          "const": "f32le"
+        },
+        "stateful": {
+          "const": true
+        },
+        "initial_frames": {
+          "const": 4
+        },
+        "steady_frames": {
+          "const": 8
+        },
+        "tail_min_frames": {
+          "const": 1
+        },
+        "tail_max_frames": {
+          "const": 8
+        },
+        "state_bindings": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/codecStateBinding"
+          }
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maximum_text_tokens",
+        "maximum_decoder_steps",
+        "maximum_audio_frames",
+        "maximum_sessions",
+        "maximum_concurrent_requests",
+        "pcm_ring_capacity_frames",
+        "maximum_workspace_bytes",
+        "maximum_device_memory_bytes",
+        "maximum_bundle_snapshot_bytes"
+      ],
+      "properties": {
+        "maximum_text_tokens": {
+          "const": 512
+        },
+        "maximum_decoder_steps": {
+          "const": 250
+        },
+        "maximum_audio_frames": {
+          "const": 500
+        },
+        "maximum_sessions": {
+          "$ref": "#/$defs/positiveUint32"
+        },
+        "maximum_concurrent_requests": {
+          "$ref": "#/$defs/positiveUint32"
+        },
+        "pcm_ring_capacity_frames": {
+          "const": 8
+        },
+        "maximum_workspace_bytes": {
+          "$ref": "#/$defs/positiveUint64"
+        },
+        "maximum_device_memory_bytes": {
+          "$ref": "#/$defs/positiveUint64"
+        },
+        "maximum_bundle_snapshot_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 17179869184
+        }
+      }
+    },
+    "goldenReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "receipt_version",
+        "path",
+        "sha256",
+        "size_bytes",
+        "created_at_utc",
+        "normalized_text_sha256",
+        "token_ids_sha256",
+        "baked_context_sha256",
+        "seed",
+        "decoder_tokens_sha256",
+        "codec_codes_sha256",
+        "pcm_f32le_sha256",
+        "sample_count",
+        "initial_frames",
+        "steady_frames",
+        "tail_min_frames",
+        "tail_max_frames"
+      ],
+      "properties": {
+        "receipt_version": {
+          "const": 1
+        },
+        "path": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size_bytes": {
+          "$ref": "#/$defs/positiveUint64"
+        },
+        "created_at_utc": {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        "normalized_text_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "token_ids_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "baked_context_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "seed": {
+          "$ref": "#/$defs/uint64"
+        },
+        "decoder_tokens_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "codec_codes_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "pcm_f32le_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sample_count": {
+          "$ref": "#/$defs/positiveUint64"
+        },
+        "initial_frames": {
+          "const": 4
+        },
+        "steady_frames": {
+          "const": 8
+        },
+        "tail_min_frames": {
+          "const": 1
+        },
+        "tail_max_frames": {
+          "const": 8
+        }
+      }
+    }
+  }
+}
