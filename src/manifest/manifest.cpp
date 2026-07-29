@@ -240,7 +240,8 @@ void require_exact_keys(
     const ManifestStage stage,
     const std::string& path) {
   const std::string parsed = parse_nonempty_string(value, stage, path);
-  for (const unsigned char byte : parsed) {
+  for (const char raw_byte : parsed) {
+    const auto byte = static_cast<unsigned char>(raw_byte);
     if (byte <= 0x1FU || byte == 0x7FU) {
       fail(
           stage,

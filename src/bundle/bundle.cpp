@@ -109,7 +109,8 @@ constexpr std::size_t kReadBufferBytes = 64 * 1024;
       generic_path.find('\\') != std::string::npos) {
     return false;
   }
-  for (const unsigned char byte : generic_path) {
+  for (const char raw_byte : generic_path) {
+    const auto byte = static_cast<unsigned char>(raw_byte);
     if (byte <= 0x1FU || byte == 0x7FU) {
       return false;
     }
