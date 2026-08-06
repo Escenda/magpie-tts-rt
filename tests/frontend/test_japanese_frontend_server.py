@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import io
 import json
+import unittest
 from dataclasses import dataclass
-
-import pytest
 
 from tools.frontend.japanese_frontend import (
     AlignmentProof,
@@ -89,51 +88,59 @@ def _records(output: io.StringIO) -> list[dict]:
     return [json.loads(line) for line in output.getvalue().splitlines()]
 
 
-def test_server_stays_loaded_and_returns_exact_progress() -> None:
-    source = io.BytesIO(
-        b'{"schema_version":1,"request_id":"a","text":"\\u3042"}\n'
-        b'{"schema_version":1,"request_id":"b","text":"\\u5931\\u6557"}\n'
-    )
-    output = io.StringIO()
-    serve(_Frontend(), "1" * 64, source, output)
-    records = _records(output)
-    assert records[0] == {
-        "schema_version": 1,
-        "type": "ready",
-        "tokenizer_identity_sha256": "1" * 64,
-        "tokenizer_vocabulary_size": 3_357,
-        "text_embedding_rows": 3_359,
-        "bos_token_id": 3_357,
-        "eos_token_id": 3_358,
-        "japanese_global_pad_token_id": 1_015,
-    }
-    assert records[1]["type"] == "prepared_segments"
-    assert (
-        records[1]["segmentation_mode"]
-        == "independent_sentence_segments_v1"
-    )
-    assert records[1]["source_text"] == "あ"
-    assert records[1]["segments"][0]["global_token_ids"] == [3_358]
-    assert records[1]["segments"][0]["progress"][-1] == {
-        "committed_text_tokens": 1,
-        "source_char_end": 1,
-        "source_utf8_end": 3,
-    }
-    assert records[2]["type"] == "error"
-    assert records[2]["request_id"] == "b"
-    assert records[2]["error_code"] == "ValueError"
+class JapaneseFrontendServerTests(unittest.TestCase):
+    def test_server_stays_loaded_and_returns_exact_progress(self) -> None:
+        source = io.BytesIO(
+            b'{"schema_version":1,"request_id":"a","text":"\\u3042"}\n'
+            b'{"schema_version":1,"request_id":"b","text":"\\u5931\\u6557"}\n'
+        )
+        output = io.StringIO()
+        serve(_Frontend(), "1" * 64, source, output)
+        records = _records(output)
+        self.assertEqual(
+            records[0],
+            {
+                "schema_version": 1,
+                "type": "ready",
+                "tokenizer_identity_sha256": "1" * 64,
+                "tokenizer_vocabulary_size": 3_357,
+                "text_embedding_rows": 3_359,
+                "bos_token_id": 3_357,
+                "eos_token_id": 3_358,
+                "japanese_global_pad_token_id": 1_015,
+            },
+        )
+        self.assertEqual(records[1]["type"], "prepared_segments")
+        self.assertEqual(
+            records[1]["segmentation_mode"],
+            "independent_sentence_segments_v1",
+        )
+        self.assertEqual(records[1]["source_text"], "あ")
+        self.assertEqual(
+            records[1]["segments"][0]["global_token_ids"],
+            [3_358],
+        )
+        self.assertEqual(
+            records[1]["segments"][0]["progress"][-1],
+            {
+                "committed_text_tokens": 1,
+                "source_char_end": 1,
+                "source_utf8_end": 3,
+            },
+        )
+        self.assertEqual(records[2]["type"], "error")
+        self.assertEqual(records[2]["request_id"], "b")
+        self.assertEqual(records[2]["error_code"], "ValueError")
 
-
-@pytest.mark.parametrize(
-    "line",
-    [
-        b"{}\n",
-        b'{"schema_version":2,"request_id":"a","text":"x"}\n',
-        b'{"schema_version":1,"request_id":"","text":"x"}\n',
-        b'{"schema_version":1,"request_id":"a","text":"x"}',
-        b"\xff\n",
-    ],
-)
-def test_protocol_errors_are_process_fatal(line: bytes) -> None:
-    with pytest.raises(ProtocolError):
-        _request(line)
+    def test_protocol_errors_are_process_fatal(self) -> None:
+        lines = (
+            b"{}\n",
+            b'{"schema_version":2,"request_id":"a","text":"x"}\n',
+            b'{"schema_version":1,"request_id":"","text":"x"}\n',
+            b'{"schema_version":1,"request_id":"a","text":"x"}',
+            b"\xff\n",
+        )
+        for line in lines:
+            with self.subTest(line=line):
+                with self.assertRaises(ProtocolError):
+                    _request(line)
