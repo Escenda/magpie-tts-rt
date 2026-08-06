@@ -1,0 +1,257 @@
+{
+  "schema_version": 1,
+  "bundle_id": "magpie-v2607-sofia-thor-sm110-v1",
+  "created_at_utc": "2026-07-30T04:58:21Z",
+  "source_model": {
+    "model_id": "nvidia/magpie_tts_multilingual_357m",
+    "version": "v2607",
+    "revision": "5023df68bd3f5b5ce6d666a50979bc501af145cc",
+    "source_sha256": "ec675fa8c02b9c1d5382c5c2b5a6acec6492c1e8344866c07cf3892185d18953"
+  },
+  "export": {
+    "format": "magpie_tts_rt_export_v1",
+    "source_revision": "9ae3e66b7314b0358c96bce47fbac56d78728bcd",
+    "voice_id": "sofia",
+    "baked_context_length": 217,
+    "baked_context_sha256": "aee360ccdeeb96a145efbce176ffe5d444215bdd5bc1a7bc8af8744df53d7b8d",
+    "audio_bos_baked": true,
+    "receipt_artifact_role": "runtime_bundle_export"
+  },
+  "tokenizer": {
+    "kind": "japanese_phoneme",
+    "tokenizer_vocabulary_size": 3357,
+    "text_embedding_rows": 3359,
+    "special_tokens": {
+      "bos_token_id": 3357,
+      "eos_token_id": 3358,
+      "japanese_global_pad_token_id": 1015
+    },
+    "identity_sha256": "abfe10eadb6900f68a7bd65f8f63e593d6ad0e967bb3d3532d3674960f0c57ad"
+  },
+  "plugin": {
+    "name": "magpie_tts_rt_plugins"
+  },
+  "classifier_free_guidance": {
+    "row_order": "conditional_then_unconditional",
+    "conditional_row_index": 0,
+    "conditional_condition_source": "text_encoder_output",
+    "conditional_mask_source": "text_mask",
+    "unconditional_row_index": 1,
+    "unconditional_condition_source": "all_zero",
+    "unconditional_mask_source": "first_true_rest_false"
+  },
+  "kv_cache": {
+    "layout": "batch_sequence_head_dimension",
+    "prefix_length": 217,
+    "maximum_generated_steps": 250,
+    "update_mode": "in_place_explicit_bindings",
+    "position_semantics": "absolute_self_cache_write_index",
+    "first_step_position": 218,
+    "step_position_upper_bound_exclusive": 467
+  },
+  "alignment": {
+    "dtype": "bf16",
+    "source_decoder_layers": [
+      4,
+      5,
+      8,
+      9
+    ],
+    "prefill_output_binding": "alignment",
+    "step_prior_input_binding": "alignment_prior",
+    "step_alignment_output_binding": "alignment",
+    "prior_epsilon": 0.1,
+    "initial_attended": 1,
+    "ignored_terminal_tokens": 3,
+    "short_text_no_prior_max_tokens": 5,
+    "lookahead": 6,
+    "sink_threshold": 4,
+    "source_position_policy": "exact_frontend_span_only"
+  },
+  "sampling": {
+    "algorithm": "top_k_gumbel_max",
+    "top_k": 80,
+    "temperature": 0.6,
+    "eos_token_id": 2017,
+    "forbidden_token_ids": [
+      2016,
+      2018,
+      2019,
+      2020,
+      2021,
+      2022,
+      2023
+    ],
+    "invalid_distribution_policy": "fail_closed",
+    "next_embedding_location": "device",
+    "rng": {
+      "algorithm": "philox4x32-10",
+      "seed_bits": 64,
+      "counter_bits": 64,
+      "state_location": "device",
+      "ownership": "session",
+      "deterministic": true
+    }
+  },
+  "local_ar": {
+    "engine_name": "local_ar",
+    "execution": "fixed_unrolled",
+    "iterations": 16,
+    "positions": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    "position_embedding": {
+      "kind": "learned_absolute",
+      "positions": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "source_shape": [
+        18,
+        768
+      ],
+      "dtype": "bf16",
+      "source_table_sha256": "1db63ebd4ceffba52e03cf67c9d186f3b7e38bb0c6eb9056a93ceeb55a4a695e"
+    },
+    "codebooks_per_frame": 8,
+    "frames_per_decoder_step": 2,
+    "sampling_plugin_name": "MagpieLocalARSampling",
+    "invalid_rows_encoding": "cfg_row_bitmask_lsb",
+    "no_eos_frame_index": -1
+  },
+  "codec": {
+    "initial_engine_name": "nanocodec_initial",
+    "steady_engine_name": "nanocodec_steady",
+    "tail_engine_name": "nanocodec_tail",
+    "sample_rate_hz": 22050,
+    "hop_length_samples": 1024,
+    "channels": 1,
+    "pcm_format": "f32le",
+    "stateful": true,
+    "initial_frames": 4,
+    "steady_frames": 8,
+    "tail_min_frames": 1,
+    "tail_max_frames": 8,
+    "eos_frame_is_audio": false,
+    "zero_frame_finalization": "control_marker_without_codec_invocation"
+  },
+  "limits": {
+    "maximum_text_tokens": 512,
+    "maximum_decoder_steps": 250,
+    "maximum_audio_frames": 500,
+    "maximum_sessions": 1,
+    "maximum_concurrent_requests": 1,
+    "pcm_ring_capacity_frames": 8,
+    "maximum_workspace_bytes": 4294967296,
+    "maximum_device_memory_bytes": 17179869184
+  },
+  "destinations": {
+    "source_model_acceptance_receipt": "receipts/source-model-acceptance.json",
+    "export_receipt": "receipts/consolidated-export.json",
+    "tokenizer_identity_receipt": "receipts/tokenizer-identity.json",
+    "plugin_build_receipt": "receipts/plugin-build.json",
+    "plugin": "lib/libmagpie_tts_rt_plugins.so",
+    "golden_fixture": "fixtures/golden-input.json",
+    "golden_receipt": "receipts/golden.json",
+    "licenses": [
+      {
+        "role": "project_license",
+        "path": "licenses/MagpieTTS-RT-LICENSE"
+      },
+      {
+        "role": "project_notice",
+        "path": "licenses/MagpieTTS-RT-NOTICE"
+      },
+      {
+        "role": "pytorch_license",
+        "path": "licenses/PyTorch-LICENSE"
+      },
+      {
+        "role": "cutlass_license",
+        "path": "licenses/CUTLASS-LICENSE"
+      },
+      {
+        "role": "cuda_eula",
+        "path": "licenses/CUDA-EULA.txt"
+      },
+      {
+        "role": "cuda_notice",
+        "path": "licenses/CUDA-NOTICE"
+      },
+      {
+        "role": "nvidia_open_model_license",
+        "path": "licenses/NVIDIA-Open-Model-License-Agreement-2025-10-24.pdf"
+      },
+      {
+        "role": "nvidia_model_notice",
+        "path": "licenses/NVIDIA-Model-NOTICE"
+      }
+    ],
+    "engines": [
+      {
+        "name": "text_encoder",
+        "role": "text_encoder",
+        "path": "engines/text-encoder.plan"
+      },
+      {
+        "name": "main_decoder_prefill",
+        "role": "main_decoder_prefill",
+        "path": "engines/main-decoder-prefill.plan"
+      },
+      {
+        "name": "main_decoder_step",
+        "role": "main_decoder_step",
+        "path": "engines/main-decoder-step.plan"
+      },
+      {
+        "name": "local_ar",
+        "role": "local_ar_16",
+        "path": "engines/local-ar.plan"
+      },
+      {
+        "name": "nanocodec_initial",
+        "role": "nanocodec_initial_4",
+        "path": "engines/nanocodec-initial-4.plan"
+      },
+      {
+        "name": "nanocodec_steady",
+        "role": "nanocodec_steady_8",
+        "path": "engines/nanocodec-steady-8.plan"
+      },
+      {
+        "name": "nanocodec_tail",
+        "role": "nanocodec_tail_1_8",
+        "path": "engines/nanocodec-tail-1-8.plan"
+      }
+    ]
+  }
+}

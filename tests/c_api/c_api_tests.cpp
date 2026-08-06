@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <string_view>
 
 #include "magpie_tts_rt/magpie_tts_rt.h"
@@ -83,9 +84,9 @@ void test_runtime_validation_and_lifecycle() {
   error = new_error();
   require(
       api.model_load(runtime, &model_desc, &model, &error) ==
-      MTT_STATUS_UNAVAILABLE);
+      MTT_STATUS_IO_ERROR);
   require(model == nullptr);
-  require(error.code == MTT_STATUS_UNAVAILABLE);
+  require(error.code == MTT_STATUS_IO_ERROR);
   require(std::strlen(error.message) > 0);
 
   const std::array<char, 3> embedded_nul{'a', '\0', 'b'};
@@ -171,6 +172,36 @@ void test_request_descriptor_header_precedes_payload_access() {
   desc.struct_size = sizeof(desc);
   desc.text_token_ids = &token;
   desc.text_token_count = MTT_MAX_TEXT_TOKENS + 1;
+  error = new_error();
+  require(
+      api.request_start(session, &desc, &request, &error) ==
+      MTT_STATUS_INVALID_ARGUMENT);
+  require(request == nullptr);
+  require(error.code == MTT_STATUS_INVALID_ARGUMENT);
+
+  desc.text_token_count = 1;
+  const std::int64_t negative_token = -1;
+  desc.text_token_ids = &negative_token;
+  error = new_error();
+  require(
+      api.request_start(session, &desc, &request, &error) ==
+      MTT_STATUS_INVALID_ARGUMENT);
+  require(request == nullptr);
+  require(error.code == MTT_STATUS_INVALID_ARGUMENT);
+
+  const std::int64_t wider_than_int32 =
+      static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::max()) + 1;
+  desc.text_token_ids = &wider_than_int32;
+  error = new_error();
+  require(
+      api.request_start(session, &desc, &request, &error) ==
+      MTT_STATUS_INVALID_ARGUMENT);
+  require(request == nullptr);
+  require(error.code == MTT_STATUS_INVALID_ARGUMENT);
+
+  desc.text_token_ids = &token;
+  desc.random_seed =
+      static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()) + 1;
   error = new_error();
   require(
       api.request_start(session, &desc, &request, &error) ==

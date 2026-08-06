@@ -7,7 +7,6 @@
 #include <cmath>
 #include <initializer_list>
 #include <limits>
-#include <regex>
 #include <set>
 #include <sstream>
 #include <tuple>
@@ -20,6 +19,8 @@
 #include <nlohmann/json.hpp>
 #include <sys/stat.h>
 #include <unistd.h>
+
+#include "validation/character_validation.hpp"
 
 namespace magpie_tts_rt {
 namespace {
@@ -156,8 +157,7 @@ void require_exact_keys(
     const ManifestStage stage,
     const std::string& path) {
   const std::string parsed = parse_nonempty_string(value, stage, path);
-  static const std::regex pattern(R"([A-Za-z0-9][A-Za-z0-9._-]{0,127})");
-  if (!std::regex_match(parsed, pattern)) {
+  if (!character_validation::is_identifier(parsed)) {
     fail(
         stage,
         ManifestErrorCode::invalid_value,
@@ -172,8 +172,7 @@ void require_exact_keys(
     const ManifestStage stage,
     const std::string& path) {
   const std::string parsed = parse_nonempty_string(value, stage, path);
-  static const std::regex pattern(R"([0-9a-f]{64})");
-  if (!std::regex_match(parsed, pattern)) {
+  if (!character_validation::is_lowercase_sha256(parsed)) {
     fail(
         stage,
         ManifestErrorCode::invalid_value,
@@ -183,14 +182,33 @@ void require_exact_keys(
   return parsed;
 }
 
+[[nodiscard]] std::string parse_git_sha1(
+    const Json& value,
+    const ManifestStage stage,
+    const std::string& path) {
+  const std::string parsed = parse_nonempty_string(value, stage, path);
+  const bool valid =
+      parsed.size() == 40U &&
+      std::all_of(parsed.begin(), parsed.end(), [](const char character) {
+        return (character >= '0' && character <= '9') ||
+               (character >= 'a' && character <= 'f');
+      });
+  if (!valid) {
+    fail(
+        stage,
+        ManifestErrorCode::invalid_value,
+        path,
+        "Git revision must be exactly 40 lowercase hexadecimal characters");
+  }
+  return parsed;
+}
+
 [[nodiscard]] std::string parse_numeric_version(
     const Json& value,
     const ManifestStage stage,
     const std::string& path) {
   const std::string parsed = parse_nonempty_string(value, stage, path);
-  static const std::regex pattern(
-      R"([0-9]+(?:\.[0-9]+)+(?:[-+][A-Za-z0-9._-]+)?)");
-  if (!std::regex_match(parsed, pattern)) {
+  if (!character_validation::is_dotted_numeric_version(parsed)) {
     fail(
         stage,
         ManifestErrorCode::invalid_value,
@@ -205,9 +223,7 @@ void require_exact_keys(
     const ManifestStage stage,
     const std::string& path) {
   const std::string parsed = parse_nonempty_string(value, stage, path);
-  static const std::regex pattern(
-      R"([0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\.[0-9]+)?Z)");
-  if (!std::regex_match(parsed, pattern)) {
+  if (!character_validation::is_rfc3339_utc_lexeme(parsed)) {
     fail(
         stage,
         ManifestErrorCode::invalid_value,
@@ -401,6 +417,24 @@ template <typename Integer>
   return found->second;
 }
 
+[[nodiscard]] TensorMemoryLocation parse_tensor_memory_location(
+    const Json& value,
+    const ManifestStage stage,
+    const std::string& path) {
+  const std::string parsed = parse_nonempty_string(value, stage, path);
+  if (parsed == "device") {
+    return TensorMemoryLocation::device;
+  }
+  if (parsed == "host") {
+    return TensorMemoryLocation::host;
+  }
+  fail(
+      stage,
+      ManifestErrorCode::invalid_value,
+      path,
+      "tensor location must be 'device' or 'host'");
+}
+
 [[nodiscard]] EngineRole parse_engine_role(
     const Json& value,
     const std::string& path) {
@@ -442,6 +476,62 @@ template <typename Integer>
   };
 }
 
+[[nodiscard]] std::vector<LicenseArtifact> parse_licenses(
+    const Json& value,
+    const std::string& path) {
+  constexpr ManifestStage stage = ManifestStage::licenses;
+  constexpr std::array<std::string_view, 8> expected_roles{
+      "project_license",
+      "project_notice",
+      "pytorch_license",
+      "cutlass_license",
+      "cuda_eula",
+      "cuda_notice",
+      "nvidia_open_model_license",
+      "nvidia_model_notice",
+  };
+  if (!value.is_array()) {
+    fail(
+        stage,
+        ManifestErrorCode::type_mismatch,
+        path,
+        "licenses must be an array");
+  }
+  if (value.size() != expected_roles.size()) {
+    fail(
+        stage,
+        ManifestErrorCode::invariant_violation,
+        path,
+        "licenses must contain the canonical eight-role inventory");
+  }
+  std::vector<LicenseArtifact> licenses;
+  licenses.reserve(expected_roles.size());
+  for (std::size_t index = 0; index < expected_roles.size(); ++index) {
+    const Json& item = value.at(index);
+    const std::string item_path = index_path(path, index);
+    require_exact_keys(item, stage, item_path, {"role", "file"});
+    const std::string role = parse_identifier(
+        member(item, "role"),
+        stage,
+        child_path(item_path, "role"));
+    if (role != expected_roles.at(index)) {
+      fail(
+          stage,
+          ManifestErrorCode::invariant_violation,
+          child_path(item_path, "role"),
+          "license role is absent, duplicated, or outside canonical order");
+    }
+    licenses.push_back(LicenseArtifact{
+        .role = role,
+        .file = parse_file_artifact(
+            member(item, "file"),
+            stage,
+            child_path(item_path, "file")),
+    });
+  }
+  return licenses;
+}
+
 [[nodiscard]] RuntimeFingerprint parse_runtime_fingerprint(
     const Json& value,
     const std::string& path) {
@@ -475,8 +565,7 @@ template <typename Integer>
       member(value, "gpu_compute_capability"),
       stage,
       child_path(path, "gpu_compute_capability"));
-  static const std::regex compute_capability_pattern(R"([0-9]+\.[0-9]+)");
-  if (!std::regex_match(compute_capability, compute_capability_pattern)) {
+  if (!character_validation::is_major_minor_version(compute_capability)) {
     fail(
         stage,
         ManifestErrorCode::invalid_value,
@@ -514,19 +603,35 @@ template <typename Integer>
     const Json& value,
     const std::string& path) {
   constexpr ManifestStage stage = ManifestStage::artifacts;
-  require_exact_keys(value, stage, path, {"model", "export", "tokenizer", "plugin"});
-
-  const Json& model_json = member(value, "model");
-  const std::string model_path = child_path(path, "model");
   require_exact_keys(
-      model_json, stage, model_path, {"model_id", "revision", "file"});
-  ModelArtifact model{
+      value, stage, path, {"source_model", "export", "tokenizer", "plugin"});
+
+  const Json& model_json = member(value, "source_model");
+  const std::string model_path = child_path(path, "source_model");
+  require_exact_keys(
+      model_json,
+      stage,
+      model_path,
+      {"model_id",
+       "version",
+       "revision",
+       "source_sha256",
+       "acceptance_receipt"});
+  SourceModelArtifact source_model{
       .model_id = parse_nonempty_string(
           member(model_json, "model_id"), stage, child_path(model_path, "model_id")),
-      .revision = parse_nonempty_string(
+      .version = parse_nonempty_string(
+          member(model_json, "version"), stage, child_path(model_path, "version")),
+      .revision = parse_git_sha1(
           member(model_json, "revision"), stage, child_path(model_path, "revision")),
-      .file =
-          parse_file_artifact(member(model_json, "file"), stage, child_path(model_path, "file")),
+      .source_sha256 = parse_sha256(
+          member(model_json, "source_sha256"),
+          stage,
+          child_path(model_path, "source_sha256")),
+      .acceptance_receipt = parse_file_artifact(
+          member(model_json, "acceptance_receipt"),
+          stage,
+          child_path(model_path, "acceptance_receipt")),
   };
 
   const Json& export_json = member(value, "export");
@@ -541,10 +646,18 @@ template <typename Integer>
        "baked_context_length",
        "baked_context_sha256",
        "audio_bos_baked",
-       "file"});
+       "export_receipt"});
+  const std::string export_format = parse_identifier(
+      member(export_json, "format"), stage, child_path(export_path, "format"));
+  if (export_format != "magpie_tts_rt_export_v1") {
+    fail(
+        stage,
+        ManifestErrorCode::invalid_value,
+        child_path(export_path, "format"),
+        "schema version 1 requires export format 'magpie_tts_rt_export_v1'");
+  }
   ExportArtifact export_artifact{
-      .format = parse_identifier(
-          member(export_json, "format"), stage, child_path(export_path, "format")),
+      .format = export_format,
       .source_revision = parse_nonempty_string(
           member(export_json, "source_revision"),
           stage,
@@ -565,8 +678,10 @@ template <typename Integer>
           member(export_json, "audio_bos_baked"),
           stage,
           child_path(export_path, "audio_bos_baked")),
-      .file = parse_file_artifact(
-          member(export_json, "file"), stage, child_path(export_path, "file")),
+      .export_receipt = parse_file_artifact(
+          member(export_json, "export_receipt"),
+          stage,
+          child_path(export_path, "export_receipt")),
   };
   if (export_artifact.voice_id != "sofia") {
     fail(
@@ -596,23 +711,108 @@ template <typename Integer>
       tokenizer_json,
       stage,
       tokenizer_path,
-      {"kind", "vocabulary_size", "file"});
+      {"kind",
+       "tokenizer_vocabulary_size",
+       "text_embedding_rows",
+       "special_tokens",
+       "identity_sha256",
+       "identity_receipt"});
+  const Json& special_tokens_json = member(tokenizer_json, "special_tokens");
+  const std::string special_tokens_path =
+      child_path(tokenizer_path, "special_tokens");
+  require_exact_keys(
+      special_tokens_json,
+      stage,
+      special_tokens_path,
+      {"bos_token_id",
+       "eos_token_id",
+       "japanese_global_pad_token_id"});
   TokenizerArtifact tokenizer{
       .kind = parse_identifier(
           member(tokenizer_json, "kind"), stage, child_path(tokenizer_path, "kind")),
-      .vocabulary_size = parse_positive_integer<std::uint32_t>(
-          member(tokenizer_json, "vocabulary_size"),
+      .tokenizer_vocabulary_size = parse_positive_integer<std::uint32_t>(
+          member(tokenizer_json, "tokenizer_vocabulary_size"),
           stage,
-          child_path(tokenizer_path, "vocabulary_size")),
-      .file = parse_file_artifact(
-          member(tokenizer_json, "file"),
+          child_path(tokenizer_path, "tokenizer_vocabulary_size")),
+      .text_embedding_rows = parse_positive_integer<std::uint32_t>(
+          member(tokenizer_json, "text_embedding_rows"),
           stage,
-          child_path(tokenizer_path, "file")),
+          child_path(tokenizer_path, "text_embedding_rows")),
+      .bos_token_id = parse_unsigned_integer<std::uint32_t>(
+          member(special_tokens_json, "bos_token_id"),
+          stage,
+          child_path(special_tokens_path, "bos_token_id")),
+      .eos_token_id = parse_unsigned_integer<std::uint32_t>(
+          member(special_tokens_json, "eos_token_id"),
+          stage,
+          child_path(special_tokens_path, "eos_token_id")),
+      .japanese_global_pad_token_id =
+          parse_unsigned_integer<std::uint32_t>(
+              member(
+                  special_tokens_json,
+                  "japanese_global_pad_token_id"),
+              stage,
+              child_path(
+                  special_tokens_path,
+                  "japanese_global_pad_token_id")),
+      .identity_sha256 = parse_sha256(
+          member(tokenizer_json, "identity_sha256"),
+          stage,
+          child_path(tokenizer_path, "identity_sha256")),
+      .identity_receipt = parse_file_artifact(
+          member(tokenizer_json, "identity_receipt"),
+          stage,
+          child_path(tokenizer_path, "identity_receipt")),
   };
+  if (tokenizer.tokenizer_vocabulary_size >=
+      tokenizer.text_embedding_rows) {
+    fail(
+        stage,
+        ManifestErrorCode::invariant_violation,
+        child_path(tokenizer_path, "text_embedding_rows"),
+        "text embedding rows must include authenticated special-token rows");
+  }
+  if (tokenizer.bos_token_id < tokenizer.tokenizer_vocabulary_size ||
+      tokenizer.bos_token_id >= tokenizer.text_embedding_rows) {
+    fail(
+        stage,
+        ManifestErrorCode::invariant_violation,
+        child_path(special_tokens_path, "bos_token_id"),
+        "BOS must identify a special text-embedding row");
+  }
+  if (tokenizer.eos_token_id < tokenizer.tokenizer_vocabulary_size ||
+      tokenizer.eos_token_id >= tokenizer.text_embedding_rows) {
+    fail(
+        stage,
+        ManifestErrorCode::invariant_violation,
+        child_path(special_tokens_path, "eos_token_id"),
+        "EOS must identify a special text-embedding row");
+  }
+  if (tokenizer.bos_token_id == tokenizer.eos_token_id) {
+    fail(
+        stage,
+        ManifestErrorCode::invariant_violation,
+        special_tokens_path,
+        "BOS and EOS identifiers must differ");
+  }
+  if (tokenizer.japanese_global_pad_token_id >=
+      tokenizer.tokenizer_vocabulary_size) {
+    fail(
+        stage,
+        ManifestErrorCode::invariant_violation,
+        child_path(
+            special_tokens_path,
+            "japanese_global_pad_token_id"),
+        "the Japanese pad identifier must be a normal tokenizer row");
+  }
 
   const Json& plugin_json = member(value, "plugin");
   const std::string plugin_path = child_path(path, "plugin");
-  require_exact_keys(plugin_json, stage, plugin_path, {"name", "abi_version", "file"});
+  require_exact_keys(
+      plugin_json,
+      stage,
+      plugin_path,
+      {"name", "abi_version", "file", "build_receipt"});
   PluginArtifact plugin{
       .name = parse_identifier(
           member(plugin_json, "name"), stage, child_path(plugin_path, "name")),
@@ -622,10 +822,14 @@ template <typename Integer>
           child_path(plugin_path, "abi_version")),
       .file = parse_file_artifact(
           member(plugin_json, "file"), stage, child_path(plugin_path, "file")),
+      .build_receipt = parse_file_artifact(
+          member(plugin_json, "build_receipt"),
+          stage,
+          child_path(plugin_path, "build_receipt")),
   };
 
   return ArtifactsManifest{
-      .model = std::move(model),
+      .source_model = std::move(source_model),
       .export_artifact = std::move(export_artifact),
       .tokenizer = std::move(tokenizer),
       .plugin = std::move(plugin),
@@ -695,12 +899,12 @@ template <typename Integer>
   if (manifest.conditional_condition_source != "text_encoder_output" ||
       manifest.conditional_mask_source != "text_mask" ||
       manifest.unconditional_condition_source != "all_zero" ||
-      manifest.unconditional_mask_source != "all_false") {
+      manifest.unconditional_mask_source != "first_true_rest_false") {
     fail(
         stage,
         ManifestErrorCode::invariant_violation,
         path,
-        "CFG row construction must use text encoder output/text mask for row 0 and all-zero/all-false tensors for row 1");
+        "CFG row construction must use text encoder output/text mask for row 0 and an all-zero condition with only mask position zero true for row 1");
   }
   return manifest;
 }
@@ -775,17 +979,56 @@ template <typename Integer>
   return shape;
 }
 
+[[nodiscard]] std::vector<std::int64_t> parse_profile_values(
+    const Json& value,
+    const ManifestStage stage,
+    const std::string& path) {
+  if (!value.is_array() || value.empty()) {
+    fail(
+        stage,
+        ManifestErrorCode::type_mismatch,
+        path,
+        "profile values must be a non-empty array");
+  }
+  std::vector<std::int64_t> values;
+  values.reserve(value.size());
+  for (std::size_t index = 0; index < value.size(); ++index) {
+    const Json& item = value.at(index);
+    if (!item.is_number_integer()) {
+      fail(
+          stage,
+          ManifestErrorCode::type_mismatch,
+          index_path(path, index),
+          "profile value must be an integer");
+    }
+    values.push_back(item.get<std::int64_t>());
+  }
+  return values;
+}
+
 [[nodiscard]] TensorSpec parse_tensor_spec(
     const Json& value,
     const std::string& path) {
   constexpr ManifestStage stage = ManifestStage::tensor;
-  require_exact_keys(value, stage, path, {"name", "dtype", "shape"});
+  require_exact_keys(
+      value,
+      stage,
+      path,
+      {"name", "dtype", "shape", "location", "shape_inference_io"});
   return TensorSpec{
       .name =
           parse_identifier(member(value, "name"), stage, child_path(path, "name")),
       .dtype = parse_dtype(member(value, "dtype"), stage, child_path(path, "dtype")),
       .shape =
           parse_declared_shape(member(value, "shape"), stage, child_path(path, "shape")),
+      .location = parse_tensor_memory_location(
+          member(value, "location"),
+          stage,
+          child_path(path, "location")),
+      .shape_inference_io = parse_boolean(
+          member(value, "shape_inference_io"),
+          stage,
+          child_path(path, "shape_inference_io")),
   };
 }
 
@@ -855,11 +1098,48 @@ template <typename Integer>
   return range;
 }
 
+[[nodiscard]] TensorValueRange parse_value_range(
+    const Json& value,
+    const std::string& path) {
+  constexpr ManifestStage stage = ManifestStage::tensor;
+  require_exact_keys(value, stage, path, {"tensor_name", "min", "opt", "max"});
+  TensorValueRange range{
+      .tensor_name = parse_identifier(
+          member(value, "tensor_name"), stage, child_path(path, "tensor_name")),
+      .minimum = parse_profile_values(
+          member(value, "min"), stage, child_path(path, "min")),
+      .optimum = parse_profile_values(
+          member(value, "opt"), stage, child_path(path, "opt")),
+      .maximum = parse_profile_values(
+          member(value, "max"), stage, child_path(path, "max")),
+  };
+  if (range.minimum.size() != range.optimum.size() ||
+      range.optimum.size() != range.maximum.size()) {
+    fail(
+        stage,
+        ManifestErrorCode::invariant_violation,
+        path,
+        "profile value min/opt/max lengths must match");
+  }
+  for (std::size_t index = 0; index < range.minimum.size(); ++index) {
+    if (range.minimum.at(index) > range.optimum.at(index) ||
+        range.optimum.at(index) > range.maximum.at(index)) {
+      fail(
+          stage,
+          ManifestErrorCode::invariant_violation,
+          index_path(child_path(path, "opt"), index),
+          "profile values must satisfy min <= opt <= max");
+    }
+  }
+  return range;
+}
+
 [[nodiscard]] OptimizationProfile parse_profile(
     const Json& value,
     const std::string& path) {
   constexpr ManifestStage stage = ManifestStage::tensor;
-  require_exact_keys(value, stage, path, {"name", "input_shapes"});
+  require_exact_keys(
+      value, stage, path, {"name", "input_shapes", "input_values"});
   const Json& ranges_json = member(value, "input_shapes");
   const std::string ranges_path = child_path(path, "input_shapes");
   if (!ranges_json.is_array()) {
@@ -874,6 +1154,7 @@ template <typename Integer>
       .name =
           parse_identifier(member(value, "name"), stage, child_path(path, "name")),
       .input_shapes = {},
+      .input_values = {},
   };
   std::unordered_set<std::string> tensor_names;
   profile.input_shapes.reserve(ranges_json.size());
@@ -888,6 +1169,29 @@ template <typename Integer>
           "profile tensor name is duplicated");
     }
     profile.input_shapes.emplace_back(std::move(range));
+  }
+  const Json& values_json = member(value, "input_values");
+  const std::string values_path = child_path(path, "input_values");
+  if (!values_json.is_array()) {
+    fail(
+        stage,
+        ManifestErrorCode::type_mismatch,
+        values_path,
+        "input_values must be an array");
+  }
+  tensor_names.clear();
+  profile.input_values.reserve(values_json.size());
+  for (std::size_t index = 0; index < values_json.size(); ++index) {
+    TensorValueRange range =
+        parse_value_range(values_json.at(index), index_path(values_path, index));
+    if (!tensor_names.emplace(range.tensor_name).second) {
+      fail(
+          stage,
+          ManifestErrorCode::duplicate_value,
+          child_path(index_path(values_path, index), "tensor_name"),
+          "profile tensor name is duplicated");
+    }
+    profile.input_values.emplace_back(std::move(range));
   }
   return profile;
 }
@@ -913,6 +1217,17 @@ void validate_profile_against_inputs(
         ManifestErrorCode::invariant_violation,
         child_path(path, "input_shapes"),
         "every dynamic engine input must have exactly one shape range, and static inputs must not have one");
+  }
+  const std::size_t shape_input_count = static_cast<std::size_t>(
+      std::count_if(inputs.begin(), inputs.end(), [](const TensorSpec& input) {
+        return input.shape_inference_io;
+      }));
+  if (profile.input_values.size() != shape_input_count) {
+    fail(
+        stage,
+        ManifestErrorCode::invariant_violation,
+        child_path(path, "input_values"),
+        "every shape engine input must have exactly one value range, and ordinary inputs must not have one");
   }
 
   for (std::size_t range_index = 0; range_index < profile.input_shapes.size();
@@ -965,6 +1280,55 @@ void validate_profile_against_inputs(
       }
     }
   }
+  for (std::size_t range_index = 0;
+       range_index < profile.input_values.size();
+       ++range_index) {
+    const TensorValueRange& range =
+        profile.input_values.at(range_index);
+    const auto input = input_by_name.find(range.tensor_name);
+    if (input == input_by_name.end()) {
+      fail(
+          stage,
+          ManifestErrorCode::invariant_violation,
+          child_path(
+              index_path(child_path(path, "input_values"), range_index),
+              "tensor_name"),
+          "profile references a tensor that is not an engine input");
+    }
+    const TensorSpec& spec = *input->second;
+    if (!spec.shape_inference_io) {
+      fail(
+          stage,
+          ManifestErrorCode::invariant_violation,
+          child_path(
+              index_path(child_path(path, "input_values"), range_index),
+              "tensor_name"),
+          "ordinary engine inputs must not appear in a value profile");
+    }
+    std::uint64_t expected_values = 1;
+    for (const std::int64_t dimension : spec.shape) {
+      if (dimension <= 0 ||
+          expected_values >
+              std::numeric_limits<std::uint64_t>::max() /
+                  static_cast<std::uint64_t>(dimension)) {
+        fail(
+            stage,
+            ManifestErrorCode::invariant_violation,
+            child_path(
+                index_path(child_path(path, "input_values"), range_index),
+                "tensor_name"),
+            "shape input must have a fixed, representable value count");
+      }
+      expected_values *= static_cast<std::uint64_t>(dimension);
+    }
+    if (expected_values != range.minimum.size()) {
+      fail(
+          stage,
+          ManifestErrorCode::invariant_violation,
+          index_path(child_path(path, "input_values"), range_index),
+          "profile value count does not match the shape input");
+    }
+  }
 }
 
 [[nodiscard]] EngineManifest parse_engine(
@@ -997,6 +1361,41 @@ void validate_profile_against_inputs(
           ManifestErrorCode::duplicate_value,
           child_path(path, "outputs"),
           "input and output tensor names must be disjoint");
+    }
+  }
+  for (const TensorSpec& input : engine.inputs) {
+    const bool is_position_shape_input =
+        engine.role == EngineRole::main_decoder_step &&
+        input.name == "position";
+    if (is_position_shape_input) {
+      if (input.dtype != TensorDataType::int64 ||
+          !input.shape.empty() ||
+          input.location != TensorMemoryLocation::host ||
+          !input.shape_inference_io) {
+        fail(
+            ManifestStage::tensor,
+            ManifestErrorCode::invariant_violation,
+            child_path(path, "inputs"),
+            "main_decoder_step/position must be the scalar int64 HOST shape input");
+      }
+    } else if (
+        input.location != TensorMemoryLocation::device ||
+        input.shape_inference_io) {
+      fail(
+          ManifestStage::tensor,
+          ManifestErrorCode::invariant_violation,
+          child_path(path, "inputs"),
+          "only main_decoder_step/position may be a HOST shape input");
+    }
+  }
+  for (const TensorSpec& output : engine.outputs) {
+    if (output.location != TensorMemoryLocation::device ||
+        output.shape_inference_io) {
+      fail(
+          ManifestStage::tensor,
+          ManifestErrorCode::invariant_violation,
+          child_path(path, "outputs"),
+          "all engine outputs must be ordinary CUDA device tensors");
     }
   }
 
@@ -1402,6 +1801,12 @@ void validate_profile_against_inputs(
        "prefill_output_binding",
        "step_prior_input_binding",
        "step_alignment_output_binding",
+       "prior_epsilon",
+       "initial_attended",
+       "ignored_terminal_tokens",
+       "short_text_no_prior_max_tokens",
+       "lookahead",
+       "sink_threshold",
        "source_position_policy"});
   const Json& source_layers_json = member(value, "source_decoder_layers");
   const std::string source_layers_path =
@@ -1437,6 +1842,76 @@ void validate_profile_against_inputs(
         source_layers_path,
         "schema version 1 requires alignment layers [4, 5, 8, 9]");
   }
+  const double prior_epsilon = parse_positive_number(
+      member(value, "prior_epsilon"),
+      stage,
+      child_path(path, "prior_epsilon"));
+  if (prior_epsilon != 0.1) {
+    fail(
+        stage,
+        ManifestErrorCode::invariant_violation,
+        child_path(path, "prior_epsilon"),
+        "canonical v1 alignment requires prior_epsilon exactly equal to JSON number 0.1");
+  }
+  const std::uint32_t initial_attended =
+      parse_positive_integer<std::uint32_t>(
+          member(value, "initial_attended"),
+          stage,
+          child_path(path, "initial_attended"));
+  if (initial_attended != 1) {
+    fail(
+        stage,
+        ManifestErrorCode::invariant_violation,
+        child_path(path, "initial_attended"),
+        "canonical v1 alignment requires initial_attended=1");
+  }
+  const std::uint32_t ignored_terminal_tokens =
+      parse_positive_integer<std::uint32_t>(
+          member(value, "ignored_terminal_tokens"),
+          stage,
+          child_path(path, "ignored_terminal_tokens"));
+  if (ignored_terminal_tokens != 3) {
+    fail(
+        stage,
+        ManifestErrorCode::invariant_violation,
+        child_path(path, "ignored_terminal_tokens"),
+        "canonical v1 alignment requires ignored_terminal_tokens=3");
+  }
+  const std::uint32_t short_text_no_prior_max_tokens =
+      parse_positive_integer<std::uint32_t>(
+          member(value, "short_text_no_prior_max_tokens"),
+          stage,
+          child_path(path, "short_text_no_prior_max_tokens"));
+  if (short_text_no_prior_max_tokens != 5) {
+    fail(
+        stage,
+        ManifestErrorCode::invariant_violation,
+        child_path(path, "short_text_no_prior_max_tokens"),
+        "canonical v1 alignment requires short_text_no_prior_max_tokens=5");
+  }
+  const std::uint32_t lookahead = parse_positive_integer<std::uint32_t>(
+      member(value, "lookahead"),
+      stage,
+      child_path(path, "lookahead"));
+  if (lookahead != 6) {
+    fail(
+        stage,
+        ManifestErrorCode::invariant_violation,
+        child_path(path, "lookahead"),
+        "canonical v1 alignment requires lookahead=6");
+  }
+  const std::uint32_t sink_threshold =
+      parse_positive_integer<std::uint32_t>(
+          member(value, "sink_threshold"),
+          stage,
+          child_path(path, "sink_threshold"));
+  if (sink_threshold != 4) {
+    fail(
+        stage,
+        ManifestErrorCode::invariant_violation,
+        child_path(path, "sink_threshold"),
+        "canonical v1 alignment requires sink_threshold=4");
+  }
   const std::string source_position_policy = parse_nonempty_string(
       member(value, "source_position_policy"),
       stage,
@@ -1463,6 +1938,12 @@ void validate_profile_against_inputs(
           member(value, "step_alignment_output_binding"),
           stage,
           child_path(path, "step_alignment_output_binding")),
+      .prior_epsilon = prior_epsilon,
+      .initial_attended = initial_attended,
+      .ignored_terminal_tokens = ignored_terminal_tokens,
+      .short_text_no_prior_max_tokens = short_text_no_prior_max_tokens,
+      .lookahead = lookahead,
+      .sink_threshold = sink_threshold,
       .source_position_policy = source_position_policy,
   };
   if (manifest.dtype != TensorDataType::bf16 ||
@@ -1577,7 +2058,15 @@ void validate_profile_against_inputs(
         child_path(path, "algorithm"),
         "sampling algorithm must be 'top_k_gumbel_max'");
   }
+  constexpr std::uint32_t local_ar_codebook_size = 2016;
   constexpr std::uint32_t local_ar_vocabulary_size = 2024;
+  constexpr std::uint32_t canonical_audio_eos_id = 2017;
+  constexpr std::array<std::uint32_t, 7>
+      canonical_static_forbidden_token_ids{
+          2016, 2018, 2019, 2020, 2021, 2022, 2023};
+  static_assert(
+      canonical_static_forbidden_token_ids.front() ==
+      local_ar_codebook_size);
   constexpr std::uint32_t canonical_top_k = 80;
   constexpr double canonical_temperature = 0.6;
   const std::uint32_t top_k = parse_positive_integer<std::uint32_t>(
@@ -1603,12 +2092,12 @@ void validate_profile_against_inputs(
   }
   const std::uint32_t eos_token_id = parse_unsigned_integer<std::uint32_t>(
       member(value, "eos_token_id"), stage, child_path(path, "eos_token_id"));
-  if (eos_token_id >= local_ar_vocabulary_size) {
+  if (eos_token_id != canonical_audio_eos_id) {
     fail(
         stage,
-        ManifestErrorCode::invalid_value,
+        ManifestErrorCode::invariant_violation,
         child_path(path, "eos_token_id"),
-        "EOS token id must be less than the Local AR vocabulary size 2024");
+        "canonical Sofia v1 sampling requires AUDIO_EOS=2017");
   }
 
   const Json& forbidden_json = member(value, "forbidden_token_ids");
@@ -1655,6 +2144,17 @@ void validate_profile_against_inputs(
         ManifestErrorCode::invariant_violation,
         forbidden_path,
         "static forbidden tokens leave fewer than top_k=80 eligible candidates");
+  }
+  if (!std::equal(
+          forbidden.begin(),
+          forbidden.end(),
+          canonical_static_forbidden_token_ids.begin(),
+          canonical_static_forbidden_token_ids.end())) {
+    fail(
+        stage,
+        ManifestErrorCode::invariant_violation,
+        forbidden_path,
+        "canonical Sofia v1 sampling must permit codec IDs 0..2015, reserve AUDIO_EOS=2017, and forbid exactly [2016,2018,2019,2020,2021,2022,2023]");
   }
 
   const std::string invalid_policy = parse_nonempty_string(
@@ -1704,6 +2204,7 @@ void validate_profile_against_inputs(
        "execution",
        "iterations",
        "positions",
+       "position_embedding",
        "codebooks_per_frame",
        "frames_per_decoder_step",
        "sampling_plugin_name",
@@ -1774,12 +2275,104 @@ void validate_profile_against_inputs(
     positions.push_back(position);
   }
 
+  const Json& position_embedding_json = member(value, "position_embedding");
+  const std::string position_embedding_path =
+      child_path(path, "position_embedding");
+  require_exact_keys(
+      position_embedding_json,
+      stage,
+      position_embedding_path,
+      {"kind", "positions", "source_shape", "dtype", "source_table_sha256"});
+  const std::string position_embedding_kind = parse_nonempty_string(
+      member(position_embedding_json, "kind"),
+      stage,
+      child_path(position_embedding_path, "kind"));
+  if (position_embedding_kind != "learned_absolute") {
+    fail(
+        stage,
+        ManifestErrorCode::invalid_value,
+        child_path(position_embedding_path, "kind"),
+        "Local AR position embedding must be learned absolute");
+  }
+  const Json& embedding_positions_json =
+      member(position_embedding_json, "positions");
+  const std::string embedding_positions_path =
+      child_path(position_embedding_path, "positions");
+  if (!embedding_positions_json.is_array() ||
+      embedding_positions_json.size() != 16) {
+    fail(
+        stage,
+        ManifestErrorCode::invalid_value,
+        embedding_positions_path,
+        "position embedding positions must contain exactly 16 entries");
+  }
+  std::vector<std::uint32_t> embedding_positions;
+  embedding_positions.reserve(16);
+  for (std::size_t index = 0; index < embedding_positions_json.size(); ++index) {
+    const std::uint32_t position = parse_unsigned_integer<std::uint32_t>(
+        embedding_positions_json.at(index),
+        stage,
+        index_path(embedding_positions_path, index));
+    if (position != index) {
+      fail(
+          stage,
+          ManifestErrorCode::invariant_violation,
+          index_path(embedding_positions_path, index),
+          "position embedding rows must be the ordered sequence 0 through 15");
+    }
+    embedding_positions.push_back(position);
+  }
+  const Json& source_shape_json = member(position_embedding_json, "source_shape");
+  const std::string source_shape_path =
+      child_path(position_embedding_path, "source_shape");
+  if (!source_shape_json.is_array() || source_shape_json.size() != 2 ||
+      !source_shape_json.at(0).is_number_integer() ||
+      !source_shape_json.at(1).is_number_integer() ||
+      source_shape_json.at(0).get<std::int64_t>() != 18 ||
+      source_shape_json.at(1).get<std::int64_t>() != 768) {
+    fail(
+        stage,
+        ManifestErrorCode::invalid_value,
+        source_shape_path,
+        "Local AR position embedding source shape must be [18, 768]");
+  }
+  const TensorDataType position_embedding_dtype = parse_dtype(
+      member(position_embedding_json, "dtype"),
+      stage,
+      child_path(position_embedding_path, "dtype"));
+  if (position_embedding_dtype != TensorDataType::bf16) {
+    fail(
+        stage,
+        ManifestErrorCode::invalid_value,
+        child_path(position_embedding_path, "dtype"),
+        "Local AR position embedding must use BF16");
+  }
+  constexpr std::string_view canonical_position_table_sha256 =
+      "1db63ebd4ceffba52e03cf67c9d186f3b7e38bb0c6eb9056a93ceeb55a4a695e";
+  const std::string position_table_sha256 = parse_sha256(
+      member(position_embedding_json, "source_table_sha256"),
+      stage,
+      child_path(position_embedding_path, "source_table_sha256"));
+  if (position_table_sha256 != canonical_position_table_sha256) {
+    fail(
+        stage,
+        ManifestErrorCode::invariant_violation,
+        child_path(position_embedding_path, "source_table_sha256"),
+        "canonical Sofia v1 Local AR requires the accepted [18,768] BF16 position-embedding table");
+  }
+
   return LocalArManifest{
       .engine_name = parse_identifier(
           member(value, "engine_name"), stage, child_path(path, "engine_name")),
       .execution = execution,
       .iterations = iterations,
       .positions = std::move(positions),
+      .position_embedding_kind = position_embedding_kind,
+      .position_embedding_positions = std::move(embedding_positions),
+      .position_embedding_source_shape = {18, 768},
+      .position_embedding_dtype = position_embedding_dtype,
+      .position_embedding_source_table_sha256 =
+          std::move(position_table_sha256),
       .codebooks_per_frame = parse_positive_integer<std::uint32_t>(
           member(value, "codebooks_per_frame"),
           stage,
@@ -1795,6 +2388,127 @@ void validate_profile_against_inputs(
       .invalid_rows_encoding = invalid_rows_encoding,
       .no_eos_frame_index = -1,
   };
+}
+
+[[nodiscard]] CodecStateBinding canonical_codec_state_binding(
+    std::string logical_name,
+    const std::int64_t channels,
+    const std::int64_t history_samples) {
+  const std::string input_binding = "state_in." + logical_name;
+  const std::string output_binding = "state_out." + logical_name;
+  return CodecStateBinding{
+      .logical_name = std::move(logical_name),
+      .dtype = TensorDataType::fp32,
+      .shape = {1, channels, history_samples},
+      .initial_output_binding = output_binding,
+      .steady_input_binding = input_binding,
+      .steady_output_binding = output_binding,
+      .tail_input_binding = input_binding,
+      .tail_output_binding = output_binding,
+  };
+}
+
+[[nodiscard]] std::vector<CodecStateBinding>
+canonical_codec_state_bindings() {
+  constexpr std::array<std::int64_t, 5> stage_channels{
+      432, 216, 108, 54, 27};
+  constexpr std::array<std::int64_t, 5> stage_overlaps{8, 8, 4, 2, 2};
+  constexpr std::array<std::int64_t, 3> branch_kernels{3, 7, 11};
+  constexpr std::array<std::int64_t, 3> block_dilations{1, 3, 5};
+
+  std::vector<CodecStateBinding> result;
+  result.reserve(97);
+  result.push_back(
+      canonical_codec_state_binding("pre_conv.input_history", 32, 6));
+  for (std::size_t stage = 0; stage < stage_channels.size(); ++stage) {
+    result.push_back(canonical_codec_state_binding(
+        "upsample_convs." + std::to_string(stage) + ".pending_overlap",
+        stage_channels.at(stage),
+        stage_overlaps.at(stage)));
+  }
+  for (std::size_t stage = 0; stage < stage_channels.size(); ++stage) {
+    for (std::size_t branch = 0; branch < branch_kernels.size(); ++branch) {
+      const std::int64_t kernel_size = branch_kernels.at(branch);
+      for (std::size_t block = 0; block < block_dilations.size(); ++block) {
+        const std::string prefix =
+            "residual_layers." + std::to_string(stage) + ".branches." +
+            std::to_string(branch) + ".residual_blocks." +
+            std::to_string(block);
+        result.push_back(canonical_codec_state_binding(
+            prefix + ".input_conv.input_history",
+            stage_channels.at(stage),
+            (kernel_size - 1) * block_dilations.at(block)));
+        result.push_back(canonical_codec_state_binding(
+            prefix + ".skip_conv.input_history",
+            stage_channels.at(stage),
+            kernel_size - 1));
+      }
+    }
+  }
+  result.push_back(
+      canonical_codec_state_binding("post_conv.input_history", 27, 2));
+  if (result.size() != 97) {
+    fail(
+        ManifestStage::codec,
+        ManifestErrorCode::invariant_violation,
+        "/codec/state_bindings",
+        "internal canonical NanoCodec state registry is incomplete");
+  }
+  return result;
+}
+
+void require_canonical_codec_state_bindings(
+    const std::vector<CodecStateBinding>& actual,
+    const std::string& path) {
+  const std::vector<CodecStateBinding> expected =
+      canonical_codec_state_bindings();
+  if (actual.size() != expected.size()) {
+    fail(
+        ManifestStage::codec,
+        ManifestErrorCode::invariant_violation,
+        path,
+        "canonical v1 NanoCodec requires exactly 97 explicit state bindings");
+  }
+  for (std::size_t index = 0; index < expected.size(); ++index) {
+    const CodecStateBinding& actual_state = actual.at(index);
+    const CodecStateBinding& expected_state = expected.at(index);
+    const std::string binding_path = index_path(path, index);
+    const auto require_equal =
+        [&binding_path](const bool equal, const std::string_view field) {
+          if (!equal) {
+            fail(
+                ManifestStage::codec,
+                ManifestErrorCode::invariant_violation,
+                child_path(binding_path, field),
+                "NanoCodec state binding differs from the canonical v1 registry");
+          }
+        };
+    require_equal(
+        actual_state.logical_name == expected_state.logical_name,
+        "logical_name");
+    require_equal(actual_state.dtype == expected_state.dtype, "dtype");
+    require_equal(actual_state.shape == expected_state.shape, "shape");
+    require_equal(
+        actual_state.initial_output_binding ==
+            expected_state.initial_output_binding,
+        "initial_output_binding");
+    require_equal(
+        actual_state.steady_input_binding ==
+            expected_state.steady_input_binding,
+        "steady_input_binding");
+    require_equal(
+        actual_state.steady_output_binding ==
+            expected_state.steady_output_binding,
+        "steady_output_binding");
+    require_equal(
+        actual_state.tail_input_binding ==
+            expected_state.tail_input_binding,
+        "tail_input_binding");
+    require_equal(
+        actual_state.tail_output_binding ==
+            expected_state.tail_output_binding,
+        "tail_output_binding");
+  }
 }
 
 [[nodiscard]] CodecManifest parse_codec(
@@ -1817,6 +2531,8 @@ void validate_profile_against_inputs(
        "steady_frames",
        "tail_min_frames",
        "tail_max_frames",
+       "eos_frame_is_audio",
+       "zero_frame_finalization",
        "state_bindings"});
 
   const std::string pcm_format = parse_nonempty_string(
@@ -1853,6 +2569,29 @@ void validate_profile_against_inputs(
         path,
         "NanoCodec schedule must be initial=4, steady=8, tail=1..8");
   }
+  const bool eos_frame_is_audio = parse_boolean(
+      member(value, "eos_frame_is_audio"),
+      stage,
+      child_path(path, "eos_frame_is_audio"));
+  if (eos_frame_is_audio) {
+    fail(
+        stage,
+        ManifestErrorCode::invariant_violation,
+        child_path(path, "eos_frame_is_audio"),
+        "AUDIO_EOS is a control token and must not be decoded as an audio frame");
+  }
+  const std::string zero_frame_finalization = parse_identifier(
+      member(value, "zero_frame_finalization"),
+      stage,
+      child_path(path, "zero_frame_finalization"));
+  if (zero_frame_finalization !=
+      "control_marker_without_codec_invocation") {
+    fail(
+        stage,
+        ManifestErrorCode::invariant_violation,
+        child_path(path, "zero_frame_finalization"),
+        "residual zero frames must emit a FINAL control marker without invoking NanoCodec");
+  }
   const std::uint32_t channels = parse_positive_integer<std::uint32_t>(
       member(value, "channels"), stage, child_path(path, "channels"));
   if (channels != 1) {
@@ -1865,12 +2604,12 @@ void validate_profile_against_inputs(
 
   const Json& state_bindings_json = member(value, "state_bindings");
   const std::string state_bindings_path = child_path(path, "state_bindings");
-  if (!state_bindings_json.is_array() || state_bindings_json.empty()) {
+  if (!state_bindings_json.is_array() || state_bindings_json.size() != 97) {
     fail(
         stage,
         ManifestErrorCode::invariant_violation,
         state_bindings_path,
-        "state_bindings must explicitly enumerate at least one NanoCodec state");
+        "canonical v1 NanoCodec requires exactly 97 explicit state bindings");
   }
   std::vector<CodecStateBinding> state_bindings;
   std::unordered_set<std::string> logical_names;
@@ -1941,6 +2680,9 @@ void validate_profile_against_inputs(
         .tail_output_binding = std::move(names.at(4)),
     });
   }
+  require_canonical_codec_state_bindings(
+      state_bindings,
+      state_bindings_path);
 
   CodecManifest manifest{
       .initial_engine_name = parse_identifier(
@@ -1968,6 +2710,8 @@ void validate_profile_against_inputs(
       .steady_frames = steady_frames,
       .tail_min_frames = tail_min_frames,
       .tail_max_frames = tail_max_frames,
+      .eos_frame_is_audio = eos_frame_is_audio,
+      .zero_frame_finalization = zero_frame_finalization,
       .state_bindings = std::move(state_bindings),
   };
   if (manifest.sample_rate_hz != 22050 ||
@@ -2038,12 +2782,13 @@ void validate_profile_against_inputs(
               stage,
               child_path(path, "maximum_bundle_snapshot_bytes")),
   };
-  if (limits.maximum_concurrent_requests > limits.maximum_sessions) {
+  if (limits.maximum_concurrent_requests !=
+      kMaximumActiveRequestsPerSession) {
     fail(
         stage,
         ManifestErrorCode::invariant_violation,
         child_path(path, "maximum_concurrent_requests"),
-        "maximum_concurrent_requests must not exceed maximum_sessions");
+        "schema version 1 requires one active request per session");
   }
   if (limits.pcm_ring_capacity_frames != 8) {
     fail(
@@ -2089,12 +2834,15 @@ void validate_profile_against_inputs(
        "seed",
        "decoder_tokens_sha256",
        "codec_codes_sha256",
+       "codec_frame_count",
        "pcm_f32le_sha256",
        "sample_count",
        "initial_frames",
        "steady_frames",
        "tail_min_frames",
-       "tail_max_frames"});
+       "tail_max_frames",
+       "eos_frame_is_audio",
+       "zero_frame_finalization"});
   const std::uint32_t receipt_version = parse_positive_integer<std::uint32_t>(
       member(value, "receipt_version"), stage, child_path(path, "receipt_version"));
   if (receipt_version != 1) {
@@ -2129,7 +2877,7 @@ void validate_profile_against_inputs(
           member(value, "baked_context_sha256"),
           stage,
           child_path(path, "baked_context_sha256")),
-      .seed = parse_unsigned_integer<std::uint64_t>(
+      .seed = parse_unsigned_integer<std::uint32_t>(
           member(value, "seed"), stage, child_path(path, "seed")),
       .decoder_tokens_sha256 = parse_sha256(
           member(value, "decoder_tokens_sha256"),
@@ -2139,6 +2887,10 @@ void validate_profile_against_inputs(
           member(value, "codec_codes_sha256"),
           stage,
           child_path(path, "codec_codes_sha256")),
+      .codec_frame_count = parse_positive_integer<std::uint64_t>(
+          member(value, "codec_frame_count"),
+          stage,
+          child_path(path, "codec_frame_count")),
       .pcm_f32le_sha256 = parse_sha256(
           member(value, "pcm_f32le_sha256"),
           stage,
@@ -2153,6 +2905,14 @@ void validate_profile_against_inputs(
           member(value, "tail_min_frames"), stage, child_path(path, "tail_min_frames")),
       .tail_max_frames = parse_positive_integer<std::uint32_t>(
           member(value, "tail_max_frames"), stage, child_path(path, "tail_max_frames")),
+      .eos_frame_is_audio = parse_boolean(
+          member(value, "eos_frame_is_audio"),
+          stage,
+          child_path(path, "eos_frame_is_audio")),
+      .zero_frame_finalization = parse_identifier(
+          member(value, "zero_frame_finalization"),
+          stage,
+          child_path(path, "zero_frame_finalization")),
   };
 }
 
@@ -2323,7 +3083,7 @@ void validate_canonical_engine_contracts(
       text_encoder,
       true,
       "text_token_ids",
-      TensorDataType::int64,
+      TensorDataType::int32,
       {{{1, -1}}},
       ManifestStage::engine,
       "/engines/text_encoder/inputs/text_token_ids");
@@ -2400,7 +3160,7 @@ void validate_canonical_engine_contracts(
   const EngineManifest& step =
       require_engine(manifest, EngineRole::main_decoder_step);
   std::vector<std::string> step_inputs{
-      "previous_codec_tokens", "position", "alignment_prior"};
+      "previous_codec_tokens", "position", "condition_mask", "alignment_prior"};
   std::vector<std::string> step_outputs{"decoder_hidden", "alignment"};
   for (const KvLayerBindings& layer : manifest.kv_cache.layer_bindings) {
     step_inputs.push_back(layer.step_self_key_input);
@@ -2432,6 +3192,14 @@ void validate_canonical_engine_contracts(
       {std::vector<std::int64_t>{}},
       ManifestStage::engine,
       "/engines/main_decoder_step/inputs/position");
+  require_tensor_contract(
+      step,
+      true,
+      "condition_mask",
+      TensorDataType::boolean,
+      {{{2, -1}}},
+      ManifestStage::engine,
+      "/engines/main_decoder_step/inputs/condition_mask");
   require_tensor_contract(
       step,
       true,
@@ -2651,6 +3419,26 @@ struct CanonicalProfileRange {
   return *found;
 }
 
+[[nodiscard]] const TensorValueRange& require_profile_value_range(
+    const OptimizationProfile& profile,
+    const std::string& tensor_name,
+    const std::string& path) {
+  const auto found = std::find_if(
+      profile.input_values.begin(),
+      profile.input_values.end(),
+      [&tensor_name](const TensorValueRange& range) {
+        return range.tensor_name == tensor_name;
+      });
+  if (found == profile.input_values.end()) {
+    fail(
+        ManifestStage::tensor,
+        ManifestErrorCode::missing_field,
+        path,
+        "canonical optimization-profile value range is missing");
+  }
+  return *found;
+}
+
 void require_canonical_profile(
     const EngineManifest& engine,
     const std::string_view expected_name,
@@ -2709,6 +3497,38 @@ void require_canonical_profile(
           range_path,
           "optimization-profile min/opt/max does not match the canonical v1 range");
     }
+  }
+  if (engine.role == EngineRole::main_decoder_step) {
+    if (profile.input_values.size() != 1) {
+      fail(
+          ManifestStage::tensor,
+          ManifestErrorCode::invariant_violation,
+          child_path(index_path(path, 0), "input_values"),
+          "Main Decoder step must authenticate one position value range");
+    }
+    const std::string position_name = "position";
+    const std::string position_path = child_path(
+        child_path(index_path(path, 0), "input_values"),
+        position_name);
+    const TensorValueRange& position = require_profile_value_range(
+        profile,
+        position_name,
+        position_path);
+    if (position.minimum != std::vector<std::int64_t>{218} ||
+        position.optimum != std::vector<std::int64_t>{342} ||
+        position.maximum != std::vector<std::int64_t>{466}) {
+      fail(
+          ManifestStage::tensor,
+          ManifestErrorCode::invariant_violation,
+          position_path,
+          "Main Decoder step position values must be min/opt/max 218/342/466");
+    }
+  } else if (!profile.input_values.empty()) {
+    fail(
+        ManifestStage::tensor,
+        ManifestErrorCode::invariant_violation,
+        child_path(index_path(path, 0), "input_values"),
+        "only Main Decoder step may expose a shape-input value range");
   }
 }
 
@@ -2797,6 +3617,11 @@ void validate_connected_text_profile_axes(
       require_engine(manifest, EngineRole::main_decoder_step);
   require_same_text_span(
       step,
+      "condition_mask",
+      1,
+      "/engines/main_decoder_step/profiles/0/input_shapes/condition_mask");
+  require_same_text_span(
+      step,
       "alignment_prior",
       2,
       "/engines/main_decoder_step/profiles/0/input_shapes/alignment_prior");
@@ -2844,10 +3669,11 @@ void validate_canonical_profile_contracts(
       "/engines/main_decoder_prefill/profiles");
 
   std::vector<CanonicalProfileRange> step_ranges{
+      {"condition_mask", {2, 1}, {2, 64}, {2, 512}},
       {"alignment_prior", {2, 1, 1}, {2, 1, 64}, {2, 1, 512}},
   };
   step_ranges.reserve(
-      1U + (manifest.kv_cache.layer_bindings.size() * 2U));
+      2U + (manifest.kv_cache.layer_bindings.size() * 2U));
   for (const KvLayerBindings& layer : manifest.kv_cache.layer_bindings) {
     step_ranges.push_back(
         {layer.step_cross_key_input,
@@ -2907,25 +3733,36 @@ void validate_cross_field_invariants(const RuntimeBundleManifest& manifest) {
         total_snapshot_bytes += size_bytes;
       };
   add_snapshot_size(
-      manifest.artifacts.model.file.size_bytes,
-      "/artifacts/model/file/size_bytes");
+      manifest.artifacts.source_model.acceptance_receipt.size_bytes,
+      "/artifacts/source_model/acceptance_receipt/size_bytes");
   add_snapshot_size(
-      manifest.artifacts.export_artifact.file.size_bytes,
-      "/artifacts/export/file/size_bytes");
+      manifest.artifacts.export_artifact.export_receipt.size_bytes,
+      "/artifacts/export/export_receipt/size_bytes");
   add_snapshot_size(
-      manifest.artifacts.tokenizer.file.size_bytes,
-      "/artifacts/tokenizer/file/size_bytes");
+      manifest.artifacts.tokenizer.identity_receipt.size_bytes,
+      "/artifacts/tokenizer/identity_receipt/size_bytes");
   add_snapshot_size(
       manifest.artifacts.plugin.file.size_bytes,
       "/artifacts/plugin/file/size_bytes");
+  add_snapshot_size(
+      manifest.artifacts.plugin.build_receipt.size_bytes,
+      "/artifacts/plugin/build_receipt/size_bytes");
   for (std::size_t index = 0; index < manifest.engines.size(); ++index) {
     add_snapshot_size(
         manifest.engines.at(index).file.size_bytes,
         index_path("/engines", index) + "/file/size_bytes");
   }
+  for (std::size_t index = 0; index < manifest.licenses.size(); ++index) {
+    add_snapshot_size(
+        manifest.licenses.at(index).file.size_bytes,
+        index_path("/licenses", index) + "/file/size_bytes");
+  }
   add_snapshot_size(
       manifest.golden_receipt.size_bytes,
       "/golden_receipt/size_bytes");
+  add_snapshot_size(
+      manifest.golden_fixture.size_bytes,
+      "/golden_fixture/size_bytes");
   if (total_snapshot_bytes !=
       manifest.limits.maximum_bundle_snapshot_bytes) {
     fail(
@@ -2966,12 +3803,13 @@ void validate_cross_field_invariants(const RuntimeBundleManifest& manifest) {
       EngineRole::local_ar_16,
       ManifestStage::local_ar,
       "/local_ar/engine_name");
-  if (manifest.local_ar.sampling_plugin_name != manifest.artifacts.plugin.name) {
+  if (manifest.local_ar.sampling_plugin_name !=
+      "MagpieLocalARSampling") {
     fail(
         ManifestStage::local_ar,
         ManifestErrorCode::invariant_violation,
         "/local_ar/sampling_plugin_name",
-        "sampling plugin must reference artifacts.plugin.name");
+        "sampling plugin must select the canonical authenticated creator");
   }
   if (manifest.local_ar.codebooks_per_frame != 8 ||
       manifest.local_ar.frames_per_decoder_step != 2) {
@@ -3004,12 +3842,36 @@ void validate_cross_field_invariants(const RuntimeBundleManifest& manifest) {
   if (manifest.golden_receipt.initial_frames != manifest.codec.initial_frames ||
       manifest.golden_receipt.steady_frames != manifest.codec.steady_frames ||
       manifest.golden_receipt.tail_min_frames != manifest.codec.tail_min_frames ||
-      manifest.golden_receipt.tail_max_frames != manifest.codec.tail_max_frames) {
+      manifest.golden_receipt.tail_max_frames != manifest.codec.tail_max_frames ||
+      manifest.golden_receipt.eos_frame_is_audio !=
+          manifest.codec.eos_frame_is_audio ||
+      manifest.golden_receipt.zero_frame_finalization !=
+          manifest.codec.zero_frame_finalization) {
     fail(
         ManifestStage::golden_receipt,
         ManifestErrorCode::invariant_violation,
         "/golden_receipt",
-        "golden receipt chunk schedule must exactly match codec schedule");
+        "golden receipt stream contract must exactly match the codec contract");
+  }
+  if (manifest.golden_receipt.codec_frame_count >
+          std::numeric_limits<std::uint64_t>::max() /
+              manifest.codec.hop_length_samples ||
+      manifest.golden_receipt.codec_frame_count *
+              manifest.codec.hop_length_samples !=
+          manifest.golden_receipt.sample_count) {
+    fail(
+        ManifestStage::golden_receipt,
+        ManifestErrorCode::invariant_violation,
+        "/golden_receipt/sample_count",
+        "golden PCM sample count must equal codec_frame_count times hop_length_samples");
+  }
+  if (manifest.golden_receipt.codec_frame_count >
+      manifest.limits.maximum_audio_frames) {
+    fail(
+        ManifestStage::golden_receipt,
+        ManifestErrorCode::invariant_violation,
+        "/golden_receipt/codec_frame_count",
+        "golden codec frame count exceeds the runtime audio-frame limit");
   }
   if (manifest.limits.maximum_text_tokens != 512 ||
       manifest.limits.maximum_decoder_steps !=
@@ -3221,6 +4083,8 @@ std::string_view to_string(const ManifestStage stage) noexcept {
       return "artifacts";
     case ManifestStage::classifier_free_guidance:
       return "classifier_free_guidance";
+    case ManifestStage::licenses:
+      return "licenses";
     case ManifestStage::engine:
       return "engine";
     case ManifestStage::tensor:
@@ -3237,6 +4101,8 @@ std::string_view to_string(const ManifestStage stage) noexcept {
       return "codec";
     case ManifestStage::limits:
       return "limits";
+    case ManifestStage::golden_fixture:
+      return "golden_fixture";
     case ManifestStage::golden_receipt:
       return "golden_receipt";
     case ManifestStage::runtime_compatibility:
@@ -3331,6 +4197,17 @@ std::string_view to_string(const TensorDataType value) noexcept {
   return "unknown";
 }
 
+std::string_view to_string(
+    const TensorMemoryLocation value) noexcept {
+  switch (value) {
+    case TensorMemoryLocation::device:
+      return "device";
+    case TensorMemoryLocation::host:
+      return "host";
+  }
+  return "unknown";
+}
+
 std::string_view to_string(const EngineRole value) noexcept {
   switch (value) {
     case EngineRole::text_encoder:
@@ -3403,6 +4280,7 @@ RuntimeBundleManifest parse_runtime_bundle_manifest(
        "runtime",
        "artifacts",
        "classifier_free_guidance",
+       "licenses",
        "engines",
        "kv_cache",
        "alignment",
@@ -3410,6 +4288,7 @@ RuntimeBundleManifest parse_runtime_bundle_manifest(
        "local_ar",
        "codec",
        "limits",
+       "golden_fixture",
        "golden_receipt"});
 
   const std::uint32_t schema_version = parse_positive_integer<std::uint32_t>(
@@ -3433,6 +4312,7 @@ RuntimeBundleManifest parse_runtime_bundle_manifest(
       .classifier_free_guidance = parse_classifier_free_guidance(
           member(root, "classifier_free_guidance"),
           "/classifier_free_guidance"),
+      .licenses = parse_licenses(member(root, "licenses"), "/licenses"),
       .engines = parse_engines(member(root, "engines"), "/engines"),
       .kv_cache = parse_kv_cache(member(root, "kv_cache"), "/kv_cache"),
       .alignment = parse_alignment(member(root, "alignment"), "/alignment"),
@@ -3440,6 +4320,10 @@ RuntimeBundleManifest parse_runtime_bundle_manifest(
       .local_ar = parse_local_ar(member(root, "local_ar"), "/local_ar"),
       .codec = parse_codec(member(root, "codec"), "/codec"),
       .limits = parse_limits(member(root, "limits"), "/limits"),
+      .golden_fixture = parse_file_artifact(
+          member(root, "golden_fixture"),
+          ManifestStage::golden_fixture,
+          "/golden_fixture"),
       .golden_receipt =
           parse_golden_receipt(member(root, "golden_receipt"), "/golden_receipt"),
   };

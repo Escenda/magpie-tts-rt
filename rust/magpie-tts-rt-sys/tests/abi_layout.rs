@@ -26,6 +26,23 @@ fn v1_struct_layout_matches_the_public_c_header_on_64_bit_targets() {
     );
     assert_eq!(offset_of!(sys::mtt_model_desc_v1_t, reserved), 64);
 
+    assert_eq!(size_of::<sys::mtt_model_info_v1_t>(), 136);
+    assert_eq!(align_of::<sys::mtt_model_info_v1_t>(), 8);
+    assert_eq!(
+        offset_of!(sys::mtt_model_info_v1_t, tokenizer_vocabulary_size),
+        8
+    );
+    assert_eq!(
+        offset_of!(sys::mtt_model_info_v1_t, text_embedding_rows),
+        12
+    );
+    assert_eq!(offset_of!(sys::mtt_model_info_v1_t, eos_token_id), 20);
+    assert_eq!(
+        offset_of!(sys::mtt_model_info_v1_t, tokenizer_identity_sha256),
+        68
+    );
+    assert_eq!(offset_of!(sys::mtt_model_info_v1_t, reserved), 104);
+
     assert_eq!(size_of::<sys::mtt_session_desc_v1_t>(), 48);
     assert_eq!(align_of::<sys::mtt_session_desc_v1_t>(), 8);
     assert_eq!(offset_of!(sys::mtt_session_desc_v1_t, reserved), 16);
@@ -52,15 +69,30 @@ fn v1_struct_layout_matches_the_public_c_header_on_64_bit_targets() {
     );
     assert_eq!(offset_of!(sys::mtt_request_snapshot_v1_t, reserved), 568);
 
+    assert_eq!(size_of::<sys::mtt_alignment_event_v1_t>(), 40);
+    assert_eq!(align_of::<sys::mtt_alignment_event_v1_t>(), 8);
+    assert_eq!(offset_of!(sys::mtt_alignment_event_v1_t, sample_index), 8);
+    assert_eq!(
+        offset_of!(sys::mtt_alignment_event_v1_t, committed_text_tokens),
+        16
+    );
+    assert_eq!(offset_of!(sys::mtt_alignment_event_v1_t, reserved), 24);
+
     assert_eq!(size_of::<sys::mtt_audio_lease_v1_t>(), 104);
     assert_eq!(align_of::<sys::mtt_audio_lease_v1_t>(), 8);
     assert_eq!(offset_of!(sys::mtt_audio_lease_v1_t, samples), 16);
-    assert_eq!(offset_of!(sys::mtt_audio_lease_v1_t, reserved), 72);
+    assert_eq!(offset_of!(sys::mtt_audio_lease_v1_t, alignment_events), 72);
+    assert_eq!(
+        offset_of!(sys::mtt_audio_lease_v1_t, alignment_event_count),
+        80
+    );
+    assert_eq!(offset_of!(sys::mtt_audio_lease_v1_t, reserved), 88);
 
-    assert_eq!(size_of::<sys::mtt_api_v1_t>(), 112);
+    assert_eq!(size_of::<sys::mtt_api_v1_t>(), 120);
     assert_eq!(align_of::<sys::mtt_api_v1_t>(), 8);
     assert_eq!(offset_of!(sys::mtt_api_v1_t, runtime_create), 8);
-    assert_eq!(offset_of!(sys::mtt_api_v1_t, audio_release), 104);
+    assert_eq!(offset_of!(sys::mtt_api_v1_t, model_get_info), 40);
+    assert_eq!(offset_of!(sys::mtt_api_v1_t, audio_release), 112);
 }
 
 #[test]

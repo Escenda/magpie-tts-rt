@@ -218,6 +218,8 @@ impl fmt::Display for NativeError {
     }
 }
 
+impl error::Error for NativeError {}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Error {
     AbiNegotiation {

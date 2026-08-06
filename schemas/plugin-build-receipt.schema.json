@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Escenda/magpie-tts-rt/schemas/plugin-build-receipt.schema.json",
+  "title": "MagpieTTS-RT plugin build receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "status", "artifact", "source", "toolchain", "build"],
+  "properties": {
+    "schema_version": {"const": "magpie-tts-rt.plugin-build.v1"},
+    "status": {"const": "recorded"},
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["filename", "size_bytes", "sha256", "soname", "needed"],
+      "properties": {
+          "filename": {"const": "libmagpie_tts_rt_plugins.so.0.1.0"},
+        "size_bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "soname": {"const": "libmagpie_tts_rt_plugins.so.0"},
+        "needed": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "source": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "prefixItems": [
+        {"$ref": "#/$defs/cmakeSource"},
+        {"$ref": "#/$defs/versionMapSource"},
+        {"$ref": "#/$defs/pluginHeaderSource"},
+        {"$ref": "#/$defs/pluginCudaSource"},
+        {"$ref": "#/$defs/pluginPrivateHeaderSource"}
+      ],
+      "items": false
+    },
+    "toolchain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cxx_path", "cxx_version", "nvcc_path", "nvcc_version", "linker_path", "linker_version", "readelf_path", "ninja_path", "ninja_version", "cmake_path", "cmake_version", "cuda_architecture"],
+      "properties": {
+        "cxx_path": {"type": "string", "pattern": "^/"},
+        "cxx_version": {"type": "string", "minLength": 1},
+        "nvcc_path": {"type": "string", "pattern": "^/"},
+        "nvcc_version": {"type": "string", "minLength": 1},
+        "linker_path": {"type": "string", "pattern": "^/"},
+        "linker_version": {"type": "string", "minLength": 1},
+        "readelf_path": {"type": "string", "pattern": "^/"},
+        "ninja_path": {"type": "string", "pattern": "^/"},
+        "ninja_version": {"type": "string", "minLength": 1},
+        "cmake_path": {"type": "string", "pattern": "^/"},
+        "cmake_version": {"type": "string", "minLength": 1},
+        "cuda_architecture": {"const": "110"}
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["build_type", "tf32_policy", "cutlass_archive_sha256", "compile_command", "link_command", "cmake_definitions"],
+      "properties": {
+        "build_type": {"const": "Release"},
+        "tf32_policy": {"const": "disabled"},
+        "cutlass_archive_sha256": {"const": "5288044d2d5e81632ac0c812b6b85c744901a7d3fd11c9119f18f71c3cef5f79"},
+        "compile_command": {
+          "type": "string",
+          "minLength": 1,
+          "allOf": [
+            {"pattern": "\\$\\{SOURCE_ROOT\\}/plugins/local_ar_plugins\\.cu"},
+            {"pattern": "--frandom-seed=magpie_tts_rt_plugins_v1"},
+            {"pattern": "compute_110,sm_110"}
+          ]
+        },
+        "link_command": {
+          "type": "string",
+          "minLength": 1,
+          "allOf": [
+            {"pattern": "--no-undefined"},
+            {"pattern": "--strip-all"},
+            {"pattern": "\\$\\{SOURCE_ROOT\\}/cmake/magpie_tts_rt_plugins\\.map"}
+          ]
+        },
+        "cmake_definitions": {
+          "const": [
+            "CMAKE_BUILD_TYPE=Release",
+            "CMAKE_CUDA_ARCHITECTURES=110",
+            "MAGPIE_TTS_RT_WARNINGS_AS_ERRORS=ON"
+          ]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sourceArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "size_bytes", "sha256"],
+      "properties": {
+        "path": {"type": "string"},
+        "size_bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "cmakeSource": {
+      "allOf": [
+        {"$ref": "#/$defs/sourceArtifact"},
+        {"properties": {"path": {"const": "CMakeLists.txt"}}}
+      ]
+    },
+    "versionMapSource": {
+      "allOf": [
+        {"$ref": "#/$defs/sourceArtifact"},
+        {"properties": {"path": {"const": "cmake/magpie_tts_rt_plugins.map"}}}
+      ]
+    },
+    "pluginHeaderSource": {
+      "allOf": [
+        {"$ref": "#/$defs/sourceArtifact"},
+        {"properties": {"path": {"const": "include/magpie_tts_rt/magpie_tts_rt_plugin.h"}}}
+      ]
+    },
+    "pluginCudaSource": {
+      "allOf": [
+        {"$ref": "#/$defs/sourceArtifact"},
+        {"properties": {"path": {"const": "plugins/local_ar_plugins.cu"}}}
+      ]
+    },
+    "pluginPrivateHeaderSource": {
+      "allOf": [
+        {"$ref": "#/$defs/sourceArtifact"},
+        {"properties": {"path": {"const": "plugins/local_ar_plugins.hpp"}}}
+      ]
+    }
+  }
+}

@@ -1,0 +1,7 @@
+MagpieTTS-RT links the CUDA 13.2 static runtime components
+libcudart_static.a, libcudadevrt.a, and libculibos.a into its distributed
+runtime/plugin binaries. These components are listed as redistributable CUDA
+Toolkit components in Attachment A of the accompanying EULA.txt.
+
+Source: NVIDIA CUDA Toolkit 13.2 installed EULA
+Last updated by NVIDIA: January 26, 2026

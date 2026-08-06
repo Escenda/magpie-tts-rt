@@ -69,6 +69,15 @@ static mtt_status_t unavailable_model_destroy(
   return write_unavailable(error, MTT_ERROR_STAGE_MODEL);
 }
 
+static mtt_status_t unavailable_model_get_info(
+    mtt_model_t* model,
+    mtt_model_info_v1_t* info,
+    mtt_error_v1_t* error) {
+  (void)model;
+  (void)info;
+  return write_unavailable(error, MTT_ERROR_STAGE_MODEL);
+}
+
 static mtt_status_t unavailable_session_create(
     mtt_model_t* model,
     const mtt_session_desc_v1_t* desc,
@@ -170,6 +179,7 @@ MTT_API mtt_status_t mtt_get_api(
   api->runtime_destroy = unavailable_runtime_destroy;
   api->model_load = unavailable_model_load;
   api->model_destroy = unavailable_model_destroy;
+  api->model_get_info = unavailable_model_get_info;
   api->session_create = unavailable_session_create;
   api->session_destroy = unavailable_session_destroy;
   api->request_start = unavailable_request_start;

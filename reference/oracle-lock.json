@@ -1,0 +1,196 @@
+{
+  "schema_version": 1,
+  "model": {
+    "model_id": "nvidia/magpie_tts_multilingual_357m",
+    "version": "v2607",
+    "revision": "5023df68bd3f5b5ce6d666a50979bc501af145cc",
+    "file_name": "magpie_tts_multilingual_357m.nemo",
+    "sha256": "ec675fa8c02b9c1d5382c5c2b5a6acec6492c1e8344866c07cf3892185d18953",
+    "size_bytes": 1470208000,
+    "license": {
+      "name": "NVIDIA Open Model License Agreement",
+      "version": "2025-10-24",
+      "document_file_name": "NVIDIA-Open-Model-License-Agreement-2025-10-24.pdf",
+      "document_sha256": "4d2fb590aa9b30c47f2058bff17291df7fa2aa0c1bd775a20703da9bb267cfab",
+      "required_notice_file_name": "NOTICE",
+      "required_notice_sha256": "5fc60716a9ba57f3792e71ed776b4065671c64d0c2db716698f4d646ad833eb1"
+    },
+    "active_config_policy": "last_tar_member",
+    "active_config_sha256": "9577bfa4769981849feccd6a54d38425d81fff41ac16c282f60be97faf46ebe4",
+    "config_member_sha256": [
+      "fda01948a40a04316b26553b53546cbd2103952b8d0e2813176ea33852bb96a2",
+      "7f21112e0f220f349ecd82f70d2f2ee619e8f68a1f60f3c2b5091fa41adb64b4",
+      "6b0dd49c3bdac3e5770561f791bccbe5cc70599d64586c953c1aae7ed2a2289f",
+      "a942d5c9867b02f05d480463fdf6beadb55bb791f6da7e59a8da9a9892eec107",
+      "9577bfa4769981849feccd6a54d38425d81fff41ac16c282f60be97faf46ebe4"
+    ]
+  },
+  "codec": {
+    "model_id": "nvidia/nemo-nano-codec-22khz-1.89kbps-21.5fps",
+    "revision": "3c482a402a3c4cf33690a2c0f0a7d41afea6bd6a",
+    "file_name": "nemo-nano-codec-22khz-1.89kbps-21.5fps.nemo",
+    "sha256": "28c2518de3e3d5a2c7d9bca40a7ebc0644eb76c60b890970365325bdd8e9f099",
+    "size_bytes": 425021440
+  },
+  "frontend": {
+    "aggregate_vocabulary_size": 3357,
+    "text_embedding_rows": 3359,
+    "bos_token_id": 3357,
+    "eos_token_id": 3358,
+    "text_token_dtype": "int32",
+    "japanese": {
+      "tokenizer_name": "japanese_phoneme",
+      "global_offset": 842,
+      "local_vocabulary_size": 175,
+      "global_pad_token_id": 1015,
+      "token_table_sha256": "9af1bd917616f46c00d9a15604524b85a2c98e7d22615da1489778ca079215c4",
+      "token_table_canonicalization": "utf8_json_sorted_keys_compact_rows_in_local_id_order",
+      "long_vowel_mark_effective_local_token_id": 165,
+      "pyopenjtalk": {
+        "version": "0.4.1",
+        "source_tag": "v0.4.1",
+        "source_revision": "0f0fc44e782a8134cd9a51d80b57b48a7c95bb80",
+        "open_jtalk_submodule_revision": "462fc38e7520aa89e4d32b2611749208528c901e",
+        "dictionary": {
+          "directory_name": "open_jtalk_dic_utf_8-1.11",
+          "manifest_canonicalization": "utf8_json_sorted_keys_compact_rows_in_path_order",
+          "manifest_sha256": "8333d0224ea34a7a11818422793104d67e49d67eba75fb0d46f25bc63b0881d2",
+          "files": [
+            {
+              "path": "COPYING",
+              "size_bytes": 5865,
+              "sha256": "f4eca42ebd930e2c6e57fca58319d989bebcd1510cb7714b149c50f5425135ea"
+            },
+            {
+              "path": "char.bin",
+              "size_bytes": 262496,
+              "sha256": "888ee94c5a8a7a26d24ab3f1b7155441351954fd51ea06b4a2f78bd742492b2f"
+            },
+            {
+              "path": "left-id.def",
+              "size_bytes": 77672,
+              "sha256": "db1adac8a7f9e5854cd82ea044c85115249206c8181b9d88cf92ae2ee5e87b84"
+            },
+            {
+              "path": "matrix.bin",
+              "size_bytes": 3792262,
+              "sha256": "62fd16b4f64c851d5dc352ef0d5740c5fc83ddc7c203b2b0b1fc5271969a14ce"
+            },
+            {
+              "path": "pos-id.def",
+              "size_bytes": 1923,
+              "sha256": "3460aa742053085af47cdfc889a1e0e6f557e89b406e501ba81c9ccc286de0c7"
+            },
+            {
+              "path": "rewrite.def",
+              "size_bytes": 7457,
+              "sha256": "7f7c8dfbfe24092e8a149a9b6e0a3a7f1c2cf37d6c3dc29d1cccc6c004da9c1c"
+            },
+            {
+              "path": "right-id.def",
+              "size_bytes": 77672,
+              "sha256": "db1adac8a7f9e5854cd82ea044c85115249206c8181b9d88cf92ae2ee5e87b84"
+            },
+            {
+              "path": "sys.dic",
+              "size_bytes": 103073776,
+              "sha256": "ca57d9029691a70a5dfb99afc2844180256161d7130da65b1a867510e129b9a6"
+            },
+            {
+              "path": "unk.dic",
+              "size_bytes": 5690,
+              "sha256": "ce97851ecda075914fa3ffe7294a1ab34ee4f6d56ba6bf9197d74143b5dffbfe"
+            }
+          ]
+        }
+      },
+      "golden": {
+        "raw_text": "こんにちは。",
+        "g2p_tokens": [
+          "0",
+          "コ",
+          "1",
+          "ン",
+          "1",
+          "ニ",
+          "1",
+          "チ",
+          "1",
+          "ワ",
+          "。"
+        ],
+        "local_token_ids": [
+          0,
+          1,
+          21,
+          2,
+          83,
+          2,
+          45,
+          2,
+          35,
+          2,
+          81,
+          139,
+          0
+        ],
+        "global_token_ids_with_eos": [
+          842,
+          843,
+          863,
+          844,
+          925,
+          844,
+          887,
+          844,
+          877,
+          844,
+          923,
+          981,
+          842,
+          3358
+        ]
+      }
+    },
+    "dependencies": {
+      "nemo": "3.1.0+9ae3e66b7",
+      "transformers": "5.14.1",
+      "tokenizers": "0.22.2",
+      "huggingface_hub": "1.25.1",
+      "omegaconf": "2.3.0",
+      "byt5_small_revision": "68377bdc18a2ffec8a0533fef03b1c513a4dd49d"
+    }
+  },
+  "oracle_source": {
+    "repository": "https://github.com/NVIDIA/NeMo.git",
+    "base_revision": "9ae3e66b7314b0358c96bce47fbac56d78728bcd",
+    "optimized_source_bundle_sha256": "5b3764e89637e04da5eade67bcf5b58e58b8a7cf476004a85744a8be7c2e050e",
+    "files": {
+      "nemo/collections/tts/models/easy_magpietts_inference.py": "f839df234fffd1dd4b580347179f0bab6a7ac8b413df6cd906711c32483c253e",
+      "nemo/collections/tts/models/magpietts.py": "afe3b366d54b5781537a47bc1d5f04e7103278deede71d78bd3477566b843b23",
+      "nemo/collections/tts/models/magpietts_preference_optimization.py": "8d6a2e18d524c8251dc66871bc45c21c7795c19efcf17f1b37db041995bf7b4a",
+      "nemo/collections/tts/modules/ffn_modules.py": "07b720b29fc5734e9e8a5719954633d9af2a63e72e16e479df1b1de478bb3cdd",
+      "nemo/collections/tts/modules/magpietts_fused_sampling.py": "37319d969757d09df7790eba125f3aa1cc23c655bba6f1fe5c955b93295a48b5",
+      "nemo/collections/tts/modules/magpietts_inference/inference.py": "f0fb1abbac7ae03f3ebf9c8cf782f1d1cb19611d15fbce037d970b3cc11d45c5",
+      "nemo/collections/tts/modules/magpietts_inference/utils.py": "1e5df09e621af24e49bd828c96c6f6f06e06c69d77ea1c98643202721f52f38b",
+      "nemo/collections/tts/modules/magpietts_modules.py": "97a42d01794ab67be1d39a33b01f805b0e493703f3c0962f96cb39e7f2522a88",
+      "nemo/collections/tts/modules/streaming_codec.py": "8d250cd451b10f0291c8507a8c5383d568bf34b7bc02a31f8c3e64d7b787a249",
+      "nemo/collections/tts/modules/streaming_synthesis.py": "d977f970bf1240511cb647f00cbfed1a6985f7ed341f475d3714337cf0323715",
+      "nemo/collections/tts/modules/transformer_2501.py": "6597935c779aaf89ed0b0dac136f86a0fdb3a08640de25303818da234de070dc"
+    }
+  },
+  "acceptance": {
+    "receipt_name": "source-model-acceptance-sofia-v2-provenance.json",
+    "receipt_sha256": "8d324dd6f08b9ab79c7d01028a5640410575ece4b69fa50cc03c286e52772981",
+    "receipt_size_bytes": 8367,
+    "speaker_name": "Sofia",
+    "speaker_index": 4,
+    "local_ar_seed": 20260729,
+    "sample_rate_hz": 22050,
+    "samples_per_codec_frame": 1024,
+    "first_codec_frames": 4,
+    "steady_codec_frames": 8,
+    "tail_codec_frames_min": 1,
+    "tail_codec_frames_max": 8
+  }
+}

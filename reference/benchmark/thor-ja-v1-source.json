@@ -1,0 +1,661 @@
+{
+  "schema_version": "magpie-tts-rt.benchmark-source.v1",
+  "corpus_id": "thor-ja-v1",
+  "tokenizer_identity_sha256": "abfe10eadb6900f68a7bd65f8f63e593d6ad0e967bb3d3532d3674960f0c57ad",
+  "normal_case_count": 108,
+  "cases": [
+    {
+      "case_id": "short-001",
+      "category": "short",
+      "source_text": "はい。",
+      "random_seed": 1001
+    },
+    {
+      "case_id": "short-002",
+      "category": "short",
+      "source_text": "うん。",
+      "random_seed": 1002
+    },
+    {
+      "case_id": "short-003",
+      "category": "short",
+      "source_text": "了解。",
+      "random_seed": 1003
+    },
+    {
+      "case_id": "short-004",
+      "category": "short",
+      "source_text": "大丈夫。",
+      "random_seed": 1004
+    },
+    {
+      "case_id": "short-005",
+      "category": "short",
+      "source_text": "ありがとう。",
+      "random_seed": 1005
+    },
+    {
+      "case_id": "short-006",
+      "category": "short",
+      "source_text": "待って。",
+      "random_seed": 1006
+    },
+    {
+      "case_id": "short-007",
+      "category": "short",
+      "source_text": "そうだね。",
+      "random_seed": 1007
+    },
+    {
+      "case_id": "short-008",
+      "category": "short",
+      "source_text": "わかったよ。",
+      "random_seed": 1008
+    },
+    {
+      "case_id": "short-009",
+      "category": "short",
+      "source_text": "もう一度お願い。",
+      "random_seed": 1009
+    },
+    {
+      "case_id": "short-010",
+      "category": "short",
+      "source_text": "少し考えるね。",
+      "random_seed": 1010
+    },
+    {
+      "case_id": "short-011",
+      "category": "short",
+      "source_text": "今確認するよ。",
+      "random_seed": 1011
+    },
+    {
+      "case_id": "short-012",
+      "category": "short",
+      "source_text": "できたよ。",
+      "random_seed": 1012
+    },
+    {
+      "case_id": "filler-001",
+      "category": "filler",
+      "source_text": "あー。",
+      "random_seed": 2001
+    },
+    {
+      "case_id": "filler-002",
+      "category": "filler",
+      "source_text": "えっと。",
+      "random_seed": 2002
+    },
+    {
+      "case_id": "filler-003",
+      "category": "filler",
+      "source_text": "うーん。",
+      "random_seed": 2003
+    },
+    {
+      "case_id": "filler-004",
+      "category": "filler",
+      "source_text": "そうだな。",
+      "random_seed": 2004
+    },
+    {
+      "case_id": "filler-005",
+      "category": "filler",
+      "source_text": "あのね。",
+      "random_seed": 2005
+    },
+    {
+      "case_id": "filler-006",
+      "category": "filler",
+      "source_text": "なるほど。",
+      "random_seed": 2006
+    },
+    {
+      "case_id": "filler-007",
+      "category": "filler",
+      "source_text": "ええと。",
+      "random_seed": 2007
+    },
+    {
+      "case_id": "filler-008",
+      "category": "filler",
+      "source_text": "まあね。",
+      "random_seed": 2008
+    },
+    {
+      "case_id": "filler-009",
+      "category": "filler",
+      "source_text": "おっと。",
+      "random_seed": 2009
+    },
+    {
+      "case_id": "filler-010",
+      "category": "filler",
+      "source_text": "ほら。",
+      "random_seed": 2010
+    },
+    {
+      "case_id": "filler-011",
+      "category": "filler",
+      "source_text": "よいしょ。",
+      "random_seed": 2011
+    },
+    {
+      "case_id": "filler-012",
+      "category": "filler",
+      "source_text": "さてと。",
+      "random_seed": 2012
+    },
+    {
+      "case_id": "conversation-001",
+      "category": "conversation",
+      "source_text": "今日は何を手伝えばいいかな。",
+      "random_seed": 3001
+    },
+    {
+      "case_id": "conversation-002",
+      "category": "conversation",
+      "source_text": "さっきの話をもう少し詳しく教えて。",
+      "random_seed": 3002
+    },
+    {
+      "case_id": "conversation-003",
+      "category": "conversation",
+      "source_text": "それなら、先に状況を確認してみるね。",
+      "random_seed": 3003
+    },
+    {
+      "case_id": "conversation-004",
+      "category": "conversation",
+      "source_text": "今の説明でわかりにくいところはあった？",
+      "random_seed": 3004
+    },
+    {
+      "case_id": "conversation-005",
+      "category": "conversation",
+      "source_text": "急がなくていいから、順番に話してね。",
+      "random_seed": 3005
+    },
+    {
+      "case_id": "conversation-006",
+      "category": "conversation",
+      "source_text": "その考え方はいいね、続きを聞かせて。",
+      "random_seed": 3006
+    },
+    {
+      "case_id": "conversation-007",
+      "category": "conversation",
+      "source_text": "今は答えを急がずに、一緒に整理しよう。",
+      "random_seed": 3007
+    },
+    {
+      "case_id": "conversation-008",
+      "category": "conversation",
+      "source_text": "前に話した内容も踏まえて考えてみるよ。",
+      "random_seed": 3008
+    },
+    {
+      "case_id": "conversation-009",
+      "category": "conversation",
+      "source_text": "聞き取れなかったから、もう一回言ってくれる？",
+      "random_seed": 3009
+    },
+    {
+      "case_id": "conversation-010",
+      "category": "conversation",
+      "source_text": "今のところ、特に問題は見つかっていないよ。",
+      "random_seed": 3010
+    },
+    {
+      "case_id": "conversation-011",
+      "category": "conversation",
+      "source_text": "それは面白いね、どうしてそう思ったの？",
+      "random_seed": 3011
+    },
+    {
+      "case_id": "conversation-012",
+      "category": "conversation",
+      "source_text": "準備ができたら、いつでも声をかけてね。",
+      "random_seed": 3012
+    },
+    {
+      "case_id": "punctuation-001",
+      "category": "punctuation",
+      "source_text": "「本当に大丈夫？」と、もう一度たずねた。",
+      "random_seed": 4001
+    },
+    {
+      "case_id": "punctuation-002",
+      "category": "punctuation",
+      "source_text": "注意！前方に障害物があります。",
+      "random_seed": 4002
+    },
+    {
+      "case_id": "punctuation-003",
+      "category": "punctuation",
+      "source_text": "右、左、中央の順に確認する。",
+      "random_seed": 4003
+    },
+    {
+      "case_id": "punctuation-004",
+      "category": "punctuation",
+      "source_text": "結果は、成功・保留・失敗の三種類です。",
+      "random_seed": 4004
+    },
+    {
+      "case_id": "punctuation-005",
+      "category": "punctuation",
+      "source_text": "次の項目【音声】【映像】【位置】を確認する。",
+      "random_seed": 4005
+    },
+    {
+      "case_id": "punctuation-006",
+      "category": "punctuation",
+      "source_text": "うーん……少しだけ待ってね。",
+      "random_seed": 4006
+    },
+    {
+      "case_id": "punctuation-007",
+      "category": "punctuation",
+      "source_text": "確認したいのは、速度・向き・距離です。",
+      "random_seed": 4007
+    },
+    {
+      "case_id": "punctuation-008",
+      "category": "punctuation",
+      "source_text": "「止まって」と言われたら、すぐに停止する。",
+      "random_seed": 4008
+    },
+    {
+      "case_id": "punctuation-009",
+      "category": "punctuation",
+      "source_text": "準備よし、通信よし、では始めよう！",
+      "random_seed": 4009
+    },
+    {
+      "case_id": "punctuation-010",
+      "category": "punctuation",
+      "source_text": "回答は「はい」か「いいえ」でお願い。",
+      "random_seed": 4010
+    },
+    {
+      "case_id": "punctuation-011",
+      "category": "punctuation",
+      "source_text": "作業前（安全確認）、作業中（監視）、作業後（停止）を守る。",
+      "random_seed": 4011
+    },
+    {
+      "case_id": "punctuation-012",
+      "category": "punctuation",
+      "source_text": "質問は三つあります。一つ目は場所、二つ目は時間、三つ目は理由です。",
+      "random_seed": 4012
+    },
+    {
+      "case_id": "number-unit-001",
+      "category": "number_unit",
+      "source_text": "前へ3メートル進む。",
+      "random_seed": 5001
+    },
+    {
+      "case_id": "number-unit-002",
+      "category": "number_unit",
+      "source_text": "壁まで20センチです。",
+      "random_seed": 5002
+    },
+    {
+      "case_id": "number-unit-003",
+      "category": "number_unit",
+      "source_text": "10秒後にもう一度確認する。",
+      "random_seed": 5003
+    },
+    {
+      "case_id": "number-unit-004",
+      "category": "number_unit",
+      "source_text": "音声は48キロヘルツで処理する。",
+      "random_seed": 5004
+    },
+    {
+      "case_id": "number-unit-005",
+      "category": "number_unit",
+      "source_text": "空きメモリは24ギガバイトです。",
+      "random_seed": 5005
+    },
+    {
+      "case_id": "number-unit-006",
+      "category": "number_unit",
+      "source_text": "開始時刻は12時30分です。",
+      "random_seed": 5006
+    },
+    {
+      "case_id": "number-unit-007",
+      "category": "number_unit",
+      "source_text": "ロボットを2台ずつ確認する。",
+      "random_seed": 5007
+    },
+    {
+      "case_id": "number-unit-008",
+      "category": "number_unit",
+      "source_text": "右へ120度回転する。",
+      "random_seed": 5008
+    },
+    {
+      "case_id": "number-unit-009",
+      "category": "number_unit",
+      "source_text": "電池残量は5パーセントです。",
+      "random_seed": 5009
+    },
+    {
+      "case_id": "number-unit-010",
+      "category": "number_unit",
+      "source_text": "7月30日の午後に試験する。",
+      "random_seed": 5010
+    },
+    {
+      "case_id": "number-unit-011",
+      "category": "number_unit",
+      "source_text": "応答時間は100ミリ秒以内を目指す。",
+      "random_seed": 5011
+    },
+    {
+      "case_id": "number-unit-012",
+      "category": "number_unit",
+      "source_text": "騒音は25デシベルでした。",
+      "random_seed": 5012
+    },
+    {
+      "case_id": "latin-001",
+      "category": "latin_abbreviation",
+      "source_text": "GPUの使用率を確認する。",
+      "random_seed": 6001
+    },
+    {
+      "case_id": "latin-002",
+      "category": "latin_abbreviation",
+      "source_text": "CPUの温度を表示して。",
+      "random_seed": 6002
+    },
+    {
+      "case_id": "latin-003",
+      "category": "latin_abbreviation",
+      "source_text": "USBマイクを接続した。",
+      "random_seed": 6003
+    },
+    {
+      "case_id": "latin-004",
+      "category": "latin_abbreviation",
+      "source_text": "ROSノードの状態を調べる。",
+      "random_seed": 6004
+    },
+    {
+      "case_id": "latin-005",
+      "category": "latin_abbreviation",
+      "source_text": "CUDAの初期化を待っている。",
+      "random_seed": 6005
+    },
+    {
+      "case_id": "latin-006",
+      "category": "latin_abbreviation",
+      "source_text": "TTSの最初の音声を早くしたい。",
+      "random_seed": 6006
+    },
+    {
+      "case_id": "latin-007",
+      "category": "latin_abbreviation",
+      "source_text": "ASRの確定結果を受け取った。",
+      "random_seed": 6007
+    },
+    {
+      "case_id": "latin-008",
+      "category": "latin_abbreviation",
+      "source_text": "APIの応答を記録する。",
+      "random_seed": 6008
+    },
+    {
+      "case_id": "latin-009",
+      "category": "latin_abbreviation",
+      "source_text": "URLを声に出して読まないで。",
+      "random_seed": 6009
+    },
+    {
+      "case_id": "latin-010",
+      "category": "latin_abbreviation",
+      "source_text": "JSONの設定を読み込む。",
+      "random_seed": 6010
+    },
+    {
+      "case_id": "latin-011",
+      "category": "latin_abbreviation",
+      "source_text": "HTTPの接続を確認する。",
+      "random_seed": 6011
+    },
+    {
+      "case_id": "latin-012",
+      "category": "latin_abbreviation",
+      "source_text": "MCPから利用できる道具を調べて。",
+      "random_seed": 6012
+    },
+    {
+      "case_id": "spatial-001",
+      "category": "spatial",
+      "source_text": "机の右側には何がありますか。",
+      "random_seed": 7001
+    },
+    {
+      "case_id": "spatial-002",
+      "category": "spatial",
+      "source_text": "ドアの左にある箱を教えて。",
+      "random_seed": 7002
+    },
+    {
+      "case_id": "spatial-003",
+      "category": "spatial",
+      "source_text": "私の前に人は立っていますか。",
+      "random_seed": 7003
+    },
+    {
+      "case_id": "spatial-004",
+      "category": "spatial",
+      "source_text": "椅子の後ろに回り込める？",
+      "random_seed": 7004
+    },
+    {
+      "case_id": "spatial-005",
+      "category": "spatial",
+      "source_text": "棚と壁の間に通れる場所はある？",
+      "random_seed": 7005
+    },
+    {
+      "case_id": "spatial-006",
+      "category": "spatial",
+      "source_text": "一番近い出口はどちらですか。",
+      "random_seed": 7006
+    },
+    {
+      "case_id": "spatial-007",
+      "category": "spatial",
+      "source_text": "赤い箱の上に何が置いてある？",
+      "random_seed": 7007
+    },
+    {
+      "case_id": "spatial-008",
+      "category": "spatial",
+      "source_text": "青いかごの下を確認して。",
+      "random_seed": 7008
+    },
+    {
+      "case_id": "spatial-009",
+      "category": "spatial",
+      "source_text": "現在地から受付までの向きを教えて。",
+      "random_seed": 7009
+    },
+    {
+      "case_id": "spatial-010",
+      "category": "spatial",
+      "source_text": "廊下の突き当たりで右を向いて。",
+      "random_seed": 7010
+    },
+    {
+      "case_id": "spatial-011",
+      "category": "spatial",
+      "source_text": "人と荷物のどちらが手前にある？",
+      "random_seed": 7011
+    },
+    {
+      "case_id": "spatial-012",
+      "category": "spatial",
+      "source_text": "窓から最も遠い椅子を探して。",
+      "random_seed": 7012
+    },
+    {
+      "case_id": "robot-001",
+      "category": "robot_instruction",
+      "source_text": "その場で停止して。",
+      "random_seed": 8001
+    },
+    {
+      "case_id": "robot-002",
+      "category": "robot_instruction",
+      "source_text": "前方の安全を確認してから進んで。",
+      "random_seed": 8002
+    },
+    {
+      "case_id": "robot-003",
+      "category": "robot_instruction",
+      "source_text": "ゆっくり右を向いて。",
+      "random_seed": 8003
+    },
+    {
+      "case_id": "robot-004",
+      "category": "robot_instruction",
+      "source_text": "左側の通路を調べて。",
+      "random_seed": 8004
+    },
+    {
+      "case_id": "robot-005",
+      "category": "robot_instruction",
+      "source_text": "机の手前まで移動して。",
+      "random_seed": 8005
+    },
+    {
+      "case_id": "robot-006",
+      "category": "robot_instruction",
+      "source_text": "人が通り過ぎるまで待機して。",
+      "random_seed": 8006
+    },
+    {
+      "case_id": "robot-007",
+      "category": "robot_instruction",
+      "source_text": "カメラで周囲を見回して。",
+      "random_seed": 8007
+    },
+    {
+      "case_id": "robot-008",
+      "category": "robot_instruction",
+      "source_text": "目的地までの経路を確認して。",
+      "random_seed": 8008
+    },
+    {
+      "case_id": "robot-009",
+      "category": "robot_instruction",
+      "source_text": "障害物があれば止まって知らせて。",
+      "random_seed": 8009
+    },
+    {
+      "case_id": "robot-010",
+      "category": "robot_instruction",
+      "source_text": "現在の作業を中断して戻ってきて。",
+      "random_seed": 8010
+    },
+    {
+      "case_id": "robot-011",
+      "category": "robot_instruction",
+      "source_text": "音を鳴らして準備完了を知らせて。",
+      "random_seed": 8011
+    },
+    {
+      "case_id": "robot-012",
+      "category": "robot_instruction",
+      "source_text": "センサーが復帰するまで動かないで。",
+      "random_seed": 8012
+    },
+    {
+      "case_id": "long-001",
+      "category": "long",
+      "source_text": "今から部屋の様子を確認するね。まず正面を見て、そのあと左右を順番に調べて、通れる場所があるかを伝えるよ。",
+      "random_seed": 9001
+    },
+    {
+      "case_id": "long-002",
+      "category": "long",
+      "source_text": "さっき頼まれた作業はまだ終わっていないよ。途中でセンサーが止まったから、安全を確認してから続きを再開するね。",
+      "random_seed": 9002
+    },
+    {
+      "case_id": "long-003",
+      "category": "long",
+      "source_text": "受付までの道を説明するね。この廊下をまっすぐ進み、突き当たりを右に曲がると、左手に案内板が見えるよ。",
+      "random_seed": 9003
+    },
+    {
+      "case_id": "long-004",
+      "category": "long",
+      "source_text": "今見えている範囲には、人が一人と椅子が二脚、それから机の上に小さな赤い箱が置いてあるよ。",
+      "random_seed": 9004
+    },
+    {
+      "case_id": "long-005",
+      "category": "long",
+      "source_text": "音声が少し聞き取りにくかったよ。大事な部分を間違えたくないから、最後のお願いだけもう一度ゆっくり話してくれる？",
+      "random_seed": 9005
+    },
+    {
+      "case_id": "long-006",
+      "category": "long",
+      "source_text": "確認したところ、通信は正常で、カメラも動いているよ。ただし前方の距離センサーだけ応答が遅いので、今は移動しないね。",
+      "random_seed": 9006
+    },
+    {
+      "case_id": "long-007",
+      "category": "long",
+      "source_text": "質問に答える前に、現在地と周囲の物の位置を確認するよ。結果がまとまったら、なるべく短くわかりやすく説明するね。",
+      "random_seed": 9007
+    },
+    {
+      "case_id": "long-008",
+      "category": "long",
+      "source_text": "作業を始める前に、進む方向と停止する場所を確認したいな。目的地は奥の棚の前で合っているか、教えてくれる？",
+      "random_seed": 9008
+    },
+    {
+      "case_id": "long-009",
+      "category": "long",
+      "source_text": "今の説明をまとめるね。最初に音声を聞き取り、必要なら周囲を確認して、その結果を使って次の行動を決めるよ。",
+      "random_seed": 9009
+    },
+    {
+      "case_id": "long-010",
+      "category": "long",
+      "source_text": "人が近くにいるときは速度を落とし、進路がふさがれていたらその場で止まるよ。安全が確認できるまで勝手には進まないよ。",
+      "random_seed": 9010
+    },
+    {
+      "case_id": "long-011",
+      "category": "long",
+      "source_text": "返事をしながら調べられることは先に伝えるね。少し時間がかかる確認については、途中の状況も短く知らせるようにするよ。",
+      "random_seed": 9011
+    },
+    {
+      "case_id": "long-012",
+      "category": "long",
+      "source_text": "これまでの会話では、音声の速さと聞き取りやすさを確認してきたね。次は長い対話でも内容を忘れないか試してみよう。",
+      "random_seed": 9012
+    }
+  ],
+  "cancel_case": {
+    "case_id": "cancel-001",
+    "source_text": "アスパ、長い説明は止めて。今すぐ発話を中断して。",
+    "random_seed": 4294967295
+  }
+}

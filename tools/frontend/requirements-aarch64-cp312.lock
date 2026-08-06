@@ -1,0 +1,12 @@
+# Runtime-only frontend dependencies for Linux aarch64 / CPython 3.12.
+# Install offline with pip --no-index --only-binary=:all: --require-hashes.
+# pyopenjtalk is the separately accepted Linux aarch64 / CPython 3.12 release
+# wheel; runtime installation never builds its PEP-517 source or resolves build
+# dependencies. The frontend startup contract then verifies its exact version,
+# dictionary file set/digests, tokenizer identity, and locked output.
+numpy==2.4.6 \
+    --hash=sha256:5f9fb9157b4ce2971008323afe46053787b526ef624fea915b261468a8421a0f
+pyopenjtalk==0.4.1 \
+    --hash=sha256:deb7d40a8bc3ecdadafff4dfa40254352a11afe3cf00fda7f87072ea5d0807af
+tqdm==4.70.0 \
+    --hash=sha256:7f585706bfddbdebf89daac705b2dfcc16890130727d3197ca62c732b4310953

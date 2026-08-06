@@ -6,3 +6,31 @@ and is not endorsed by or affiliated with NVIDIA.
 
 This repository does not distribute MagpieTTS model weights. Model weights and
 derived engine artifacts remain subject to their applicable model licenses.
+
+The runtime engine artifacts are derived from
+nvidia/magpie_tts_multilingual_357m.
+Licensed by NVIDIA Corporation under the NVIDIA Open Model License
+
+The files under reference/nemo-oracle-overlay are derived from NVIDIA NeMo and
+retain their original NVIDIA copyright and Apache-2.0 license notices. They are
+included only to make the accepted inference oracle reproducible.
+
+The Welford LayerNorm, tanh-GELU, and PersistentSoftmax CUDA math in
+plugins/local_ar_plugins.cu is adapted from PyTorch 2.11.0. PyTorch is
+Copyright (c) its contributors and is distributed under the BSD-style
+license reproduced in third_party/pytorch/LICENSE.
+
+The Tensor Core matrix multiplication implementations in
+plugins/local_ar_plugins.cu use NVIDIA CUTLASS. CUTLASS is Copyright
+(c) 2017 - 2026 NVIDIA CORPORATION & AFFILIATES and is distributed under
+the BSD-3-Clause license reproduced in the installed
+third_party/cutlass/LICENSE.txt.
+
+The runtime and plugin binaries statically include redistributable components
+from NVIDIA CUDA Toolkit 13.2: libcudart_static.a, libcudadevrt.a, and
+libculibos.a. The applicable NVIDIA CUDA Toolkit EULA and redistribution list
+are reproduced in third_party/cuda/EULA.txt and third_party/cuda/NOTICE.
+
+The runtime and validation tools use nlohmann/json 3.11.3. nlohmann/json is
+Copyright (c) 2013-2022 Niels Lohmann and is distributed under the MIT License
+reproduced in third_party/nlohmann-json/LICENSE.MIT.

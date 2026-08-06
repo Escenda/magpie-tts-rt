@@ -16,6 +16,7 @@ inline constexpr std::uint64_t kMaximumRuntimeBundleManifestBytes =
     16U * 1024U * 1024U;
 inline constexpr std::uint64_t kMaximumBundleSnapshotBytes =
     16ULL * 1024ULL * 1024ULL * 1024ULL;
+inline constexpr std::uint32_t kMaximumActiveRequestsPerSession = 1;
 
 enum class ManifestStage {
   io,
@@ -24,6 +25,7 @@ enum class ManifestStage {
   runtime_fingerprint,
   artifacts,
   classifier_free_guidance,
+  licenses,
   engine,
   tensor,
   kv_cache,
@@ -32,6 +34,7 @@ enum class ManifestStage {
   local_ar,
   codec,
   limits,
+  golden_fixture,
   golden_receipt,
   runtime_compatibility,
 };
@@ -88,6 +91,11 @@ enum class TensorDataType {
   boolean,
 };
 
+enum class TensorMemoryLocation {
+  device,
+  host,
+};
+
 enum class EngineRole {
   text_encoder,
   main_decoder_prefill,
@@ -100,6 +108,8 @@ enum class EngineRole {
 
 [[nodiscard]] std::string_view to_string(Endianness value) noexcept;
 [[nodiscard]] std::string_view to_string(TensorDataType value) noexcept;
+[[nodiscard]] std::string_view to_string(
+    TensorMemoryLocation value) noexcept;
 [[nodiscard]] std::string_view to_string(EngineRole value) noexcept;
 
 struct RuntimeFingerprint {
@@ -121,10 +131,17 @@ struct FileArtifact {
   std::uint64_t size_bytes;
 };
 
-struct ModelArtifact {
-  std::string model_id;
-  std::string revision;
+struct LicenseArtifact {
+  std::string role;
   FileArtifact file;
+};
+
+struct SourceModelArtifact {
+  std::string model_id;
+  std::string version;
+  std::string revision;
+  std::string source_sha256;
+  FileArtifact acceptance_receipt;
 };
 
 struct ExportArtifact {
@@ -134,23 +151,29 @@ struct ExportArtifact {
   std::uint32_t baked_context_length;
   std::string baked_context_sha256;
   bool audio_bos_baked;
-  FileArtifact file;
+  FileArtifact export_receipt;
 };
 
 struct TokenizerArtifact {
   std::string kind;
-  std::uint32_t vocabulary_size;
-  FileArtifact file;
+  std::uint32_t tokenizer_vocabulary_size;
+  std::uint32_t text_embedding_rows;
+  std::uint32_t bos_token_id;
+  std::uint32_t eos_token_id;
+  std::uint32_t japanese_global_pad_token_id;
+  std::string identity_sha256;
+  FileArtifact identity_receipt;
 };
 
 struct PluginArtifact {
   std::string name;
   std::uint32_t abi_version;
   FileArtifact file;
+  FileArtifact build_receipt;
 };
 
 struct ArtifactsManifest {
-  ModelArtifact model;
+  SourceModelArtifact source_model;
   ExportArtifact export_artifact;
   TokenizerArtifact tokenizer;
   PluginArtifact plugin;
@@ -170,6 +193,8 @@ struct TensorSpec {
   std::string name;
   TensorDataType dtype;
   std::vector<std::int64_t> shape;
+  TensorMemoryLocation location;
+  bool shape_inference_io;
 };
 
 struct TensorShapeRange {
@@ -179,9 +204,17 @@ struct TensorShapeRange {
   std::vector<std::int64_t> maximum;
 };
 
+struct TensorValueRange {
+  std::string tensor_name;
+  std::vector<std::int64_t> minimum;
+  std::vector<std::int64_t> optimum;
+  std::vector<std::int64_t> maximum;
+};
+
 struct OptimizationProfile {
   std::string name;
   std::vector<TensorShapeRange> input_shapes;
+  std::vector<TensorValueRange> input_values;
 };
 
 struct EngineManifest {
@@ -240,6 +273,12 @@ struct AlignmentManifest {
   std::string prefill_output_binding;
   std::string step_prior_input_binding;
   std::string step_alignment_output_binding;
+  double prior_epsilon;
+  std::uint32_t initial_attended;
+  std::uint32_t ignored_terminal_tokens;
+  std::uint32_t short_text_no_prior_max_tokens;
+  std::uint32_t lookahead;
+  std::uint32_t sink_threshold;
   std::string source_position_policy;
 };
 
@@ -268,6 +307,11 @@ struct LocalArManifest {
   std::string execution;
   std::uint32_t iterations;
   std::vector<std::uint32_t> positions;
+  std::string position_embedding_kind;
+  std::vector<std::uint32_t> position_embedding_positions;
+  std::vector<std::int64_t> position_embedding_source_shape;
+  TensorDataType position_embedding_dtype;
+  std::string position_embedding_source_table_sha256;
   std::uint32_t codebooks_per_frame;
   std::uint32_t frames_per_decoder_step;
   std::string sampling_plugin_name;
@@ -299,6 +343,8 @@ struct CodecManifest {
   std::uint32_t steady_frames;
   std::uint32_t tail_min_frames;
   std::uint32_t tail_max_frames;
+  bool eos_frame_is_audio;
+  std::string zero_frame_finalization;
   std::vector<CodecStateBinding> state_bindings;
 };
 
@@ -323,15 +369,18 @@ struct GoldenReceiptManifest {
   std::string normalized_text_sha256;
   std::string token_ids_sha256;
   std::string baked_context_sha256;
-  std::uint64_t seed;
+  std::uint32_t seed;
   std::string decoder_tokens_sha256;
   std::string codec_codes_sha256;
+  std::uint64_t codec_frame_count;
   std::string pcm_f32le_sha256;
   std::uint64_t sample_count;
   std::uint32_t initial_frames;
   std::uint32_t steady_frames;
   std::uint32_t tail_min_frames;
   std::uint32_t tail_max_frames;
+  bool eos_frame_is_audio;
+  std::string zero_frame_finalization;
 };
 
 struct RuntimeBundleManifest {
@@ -341,6 +390,7 @@ struct RuntimeBundleManifest {
   RuntimeFingerprint runtime;
   ArtifactsManifest artifacts;
   ClassifierFreeGuidanceManifest classifier_free_guidance;
+  std::vector<LicenseArtifact> licenses;
   std::vector<EngineManifest> engines;
   KvCacheManifest kv_cache;
   AlignmentManifest alignment;
@@ -348,6 +398,7 @@ struct RuntimeBundleManifest {
   LocalArManifest local_ar;
   CodecManifest codec;
   LimitsManifest limits;
+  FileArtifact golden_fixture;
   GoldenReceiptManifest golden_receipt;
 };
 

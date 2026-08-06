@@ -1,0 +1,6741 @@
+{
+  "cases": [
+    {
+      "expected": {
+        "g2p_tokens": [
+          "0",
+          "コ",
+          "1",
+          "ン",
+          "1",
+          "ニ",
+          "1",
+          "チ",
+          "1",
+          "ワ",
+          "。"
+        ],
+        "global_token_ids": [
+          842,
+          843,
+          863,
+          844,
+          925,
+          844,
+          887,
+          844,
+          877,
+          844,
+          923,
+          981,
+          842,
+          3358
+        ],
+        "normalized_text": "こんにちは。",
+        "progress": [
+          {
+            "committed_text_tokens": 0,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 1,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 2,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 3,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 4,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 5,
+            "source_char_end": 2,
+            "source_utf8_end": 6
+          },
+          {
+            "committed_text_tokens": 6,
+            "source_char_end": 2,
+            "source_utf8_end": 6
+          },
+          {
+            "committed_text_tokens": 7,
+            "source_char_end": 3,
+            "source_utf8_end": 9
+          },
+          {
+            "committed_text_tokens": 8,
+            "source_char_end": 3,
+            "source_utf8_end": 9
+          },
+          {
+            "committed_text_tokens": 9,
+            "source_char_end": 3,
+            "source_utf8_end": 9
+          },
+          {
+            "committed_text_tokens": 10,
+            "source_char_end": 3,
+            "source_utf8_end": 9
+          },
+          {
+            "committed_text_tokens": 11,
+            "source_char_end": 5,
+            "source_utf8_end": 15
+          },
+          {
+            "committed_text_tokens": 12,
+            "source_char_end": 6,
+            "source_utf8_end": 18
+          },
+          {
+            "committed_text_tokens": 13,
+            "source_char_end": 6,
+            "source_utf8_end": 18
+          },
+          {
+            "committed_text_tokens": 14,
+            "source_char_end": 6,
+            "source_utf8_end": 18
+          }
+        ],
+        "proof": {
+          "certified_prefix_count": 5,
+          "core_token_count": 11,
+          "method": "locked_openjtalk_complete_prefix_replay_v1",
+          "prepared_char_count": 6,
+          "segments": [
+            {
+              "core_token_end": 4,
+              "core_token_start": 0,
+              "source_char_end": 2,
+              "source_char_start": 0,
+              "source_utf8_end": 6,
+              "source_utf8_start": 0
+            },
+            {
+              "core_token_end": 6,
+              "core_token_start": 4,
+              "source_char_end": 3,
+              "source_char_start": 2,
+              "source_utf8_end": 9,
+              "source_utf8_start": 6
+            },
+            {
+              "core_token_end": 10,
+              "core_token_start": 6,
+              "source_char_end": 5,
+              "source_char_start": 3,
+              "source_utf8_end": 15,
+              "source_utf8_start": 9
+            },
+            {
+              "core_token_end": 11,
+              "core_token_start": 10,
+              "source_char_end": 6,
+              "source_char_start": 5,
+              "source_utf8_end": 18,
+              "source_utf8_start": 15
+            }
+          ]
+        },
+        "schema_version": 1,
+        "source_text": "こんにちは。",
+        "tokens": [
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 842,
+            "kind": "boundary_space",
+            "local_token_id": 0,
+            "source_char_end": 0,
+            "source_char_start": 0,
+            "source_utf8_end": 0,
+            "source_utf8_start": 0,
+            "symbol": " ",
+            "token_index": 0,
+            "unit_index": null
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 2,
+            "source_char_start": 0,
+            "source_utf8_end": 6,
+            "source_utf8_start": 0,
+            "symbol": "0",
+            "token_index": 1,
+            "unit_index": 0
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 863,
+            "kind": "mora",
+            "local_token_id": 21,
+            "source_char_end": 2,
+            "source_char_start": 0,
+            "source_utf8_end": 6,
+            "source_utf8_start": 0,
+            "symbol": "コ",
+            "token_index": 2,
+            "unit_index": 0
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 2,
+            "source_char_start": 0,
+            "source_utf8_end": 6,
+            "source_utf8_start": 0,
+            "symbol": "1",
+            "token_index": 3,
+            "unit_index": 1
+          },
+          {
+            "commit_char_end": 2,
+            "commit_utf8_end": 6,
+            "global_token_id": 925,
+            "kind": "mora",
+            "local_token_id": 83,
+            "source_char_end": 2,
+            "source_char_start": 0,
+            "source_utf8_end": 6,
+            "source_utf8_start": 0,
+            "symbol": "ン",
+            "token_index": 4,
+            "unit_index": 1
+          },
+          {
+            "commit_char_end": 2,
+            "commit_utf8_end": 6,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 3,
+            "source_char_start": 2,
+            "source_utf8_end": 9,
+            "source_utf8_start": 6,
+            "symbol": "1",
+            "token_index": 5,
+            "unit_index": 2
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 9,
+            "global_token_id": 887,
+            "kind": "mora",
+            "local_token_id": 45,
+            "source_char_end": 3,
+            "source_char_start": 2,
+            "source_utf8_end": 9,
+            "source_utf8_start": 6,
+            "symbol": "ニ",
+            "token_index": 6,
+            "unit_index": 2
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 9,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 5,
+            "source_char_start": 3,
+            "source_utf8_end": 15,
+            "source_utf8_start": 9,
+            "symbol": "1",
+            "token_index": 7,
+            "unit_index": 3
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 9,
+            "global_token_id": 877,
+            "kind": "mora",
+            "local_token_id": 35,
+            "source_char_end": 5,
+            "source_char_start": 3,
+            "source_utf8_end": 15,
+            "source_utf8_start": 9,
+            "symbol": "チ",
+            "token_index": 8,
+            "unit_index": 3
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 9,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 5,
+            "source_char_start": 3,
+            "source_utf8_end": 15,
+            "source_utf8_start": 9,
+            "symbol": "1",
+            "token_index": 9,
+            "unit_index": 4
+          },
+          {
+            "commit_char_end": 5,
+            "commit_utf8_end": 15,
+            "global_token_id": 923,
+            "kind": "mora",
+            "local_token_id": 81,
+            "source_char_end": 5,
+            "source_char_start": 3,
+            "source_utf8_end": 15,
+            "source_utf8_start": 9,
+            "symbol": "ワ",
+            "token_index": 10,
+            "unit_index": 4
+          },
+          {
+            "commit_char_end": 6,
+            "commit_utf8_end": 18,
+            "global_token_id": 981,
+            "kind": "punctuation",
+            "local_token_id": 139,
+            "source_char_end": 6,
+            "source_char_start": 5,
+            "source_utf8_end": 18,
+            "source_utf8_start": 15,
+            "symbol": "。",
+            "token_index": 11,
+            "unit_index": 5
+          },
+          {
+            "commit_char_end": 6,
+            "commit_utf8_end": 18,
+            "global_token_id": 842,
+            "kind": "boundary_space",
+            "local_token_id": 0,
+            "source_char_end": 6,
+            "source_char_start": 6,
+            "source_utf8_end": 18,
+            "source_utf8_start": 18,
+            "symbol": " ",
+            "token_index": 12,
+            "unit_index": null
+          },
+          {
+            "commit_char_end": 6,
+            "commit_utf8_end": 18,
+            "global_token_id": 3358,
+            "kind": "eos",
+            "local_token_id": null,
+            "source_char_end": 6,
+            "source_char_start": 6,
+            "source_utf8_end": 18,
+            "source_utf8_start": 18,
+            "symbol": "<eos>",
+            "token_index": 13,
+            "unit_index": null
+          }
+        ]
+      },
+      "id": "locked_minimal",
+      "prefix_frontend_rows": [
+        {
+          "normalized_prefix": "こ",
+          "rows": [
+            {
+              "acc": 1,
+              "chain_flag": -1,
+              "mora_size": 1,
+              "pos": "フィラー",
+              "pos_group1": "*",
+              "pron": "コ",
+              "string": "こ"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "こん",
+          "rows": [
+            {
+              "acc": 0,
+              "chain_flag": -1,
+              "mora_size": 2,
+              "pos": "連体詞",
+              "pos_group1": "*",
+              "pron": "コン",
+              "string": "こん"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "こんに",
+          "rows": [
+            {
+              "acc": 0,
+              "chain_flag": -1,
+              "mora_size": 2,
+              "pos": "連体詞",
+              "pos_group1": "*",
+              "pron": "コン",
+              "string": "こん"
+            },
+            {
+              "acc": 0,
+              "chain_flag": 1,
+              "mora_size": 1,
+              "pos": "助詞",
+              "pos_group1": "格助詞",
+              "pron": "ニ",
+              "string": "に"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "こんにち",
+          "rows": [
+            {
+              "acc": 1,
+              "chain_flag": -1,
+              "mora_size": 4,
+              "pos": "名詞",
+              "pos_group1": "副詞可能",
+              "pron": "コンニチ",
+              "string": "こんにち"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "こんにちは",
+          "rows": [
+            {
+              "acc": 0,
+              "chain_flag": -1,
+              "mora_size": 5,
+              "pos": "感動詞",
+              "pos_group1": "*",
+              "pron": "コンニチワ",
+              "string": "こんにちは"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "こんにちは。",
+          "rows": [
+            {
+              "acc": 0,
+              "chain_flag": -1,
+              "mora_size": 5,
+              "pos": "感動詞",
+              "pos_group1": "*",
+              "pron": "コンニチワ",
+              "string": "こんにちは"
+            },
+            {
+              "acc": 0,
+              "chain_flag": 0,
+              "mora_size": 0,
+              "pos": "記号",
+              "pos_group1": "句点",
+              "pron": "、",
+              "string": "。"
+            }
+          ]
+        }
+      ],
+      "source_text": "こんにちは。"
+    },
+    {
+      "expected": {
+        "g2p_tokens": [
+          "1",
+          "キ",
+          "ョ",
+          "0",
+          "ー",
+          "0",
+          "ワ",
+          "0",
+          "ハ",
+          "1",
+          "レ",
+          "0",
+          "デ",
+          "0",
+          "ス",
+          "。"
+        ],
+        "global_token_ids": [
+          842,
+          844,
+          857,
+          915,
+          843,
+          1007,
+          843,
+          923,
+          843,
+          891,
+          844,
+          920,
+          843,
+          883,
+          843,
+          869,
+          981,
+          842,
+          3358
+        ],
+        "normalized_text": "今日は晴れです。",
+        "progress": [
+          {
+            "committed_text_tokens": 0,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 1,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 2,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 3,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 4,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 5,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 6,
+            "source_char_end": 2,
+            "source_utf8_end": 6
+          },
+          {
+            "committed_text_tokens": 7,
+            "source_char_end": 2,
+            "source_utf8_end": 6
+          },
+          {
+            "committed_text_tokens": 8,
+            "source_char_end": 3,
+            "source_utf8_end": 9
+          },
+          {
+            "committed_text_tokens": 9,
+            "source_char_end": 3,
+            "source_utf8_end": 9
+          },
+          {
+            "committed_text_tokens": 10,
+            "source_char_end": 3,
+            "source_utf8_end": 9
+          },
+          {
+            "committed_text_tokens": 11,
+            "source_char_end": 3,
+            "source_utf8_end": 9
+          },
+          {
+            "committed_text_tokens": 12,
+            "source_char_end": 4,
+            "source_utf8_end": 12
+          },
+          {
+            "committed_text_tokens": 13,
+            "source_char_end": 4,
+            "source_utf8_end": 12
+          },
+          {
+            "committed_text_tokens": 14,
+            "source_char_end": 6,
+            "source_utf8_end": 18
+          },
+          {
+            "committed_text_tokens": 15,
+            "source_char_end": 6,
+            "source_utf8_end": 18
+          },
+          {
+            "committed_text_tokens": 16,
+            "source_char_end": 7,
+            "source_utf8_end": 21
+          },
+          {
+            "committed_text_tokens": 17,
+            "source_char_end": 8,
+            "source_utf8_end": 24
+          },
+          {
+            "committed_text_tokens": 18,
+            "source_char_end": 8,
+            "source_utf8_end": 24
+          },
+          {
+            "committed_text_tokens": 19,
+            "source_char_end": 8,
+            "source_utf8_end": 24
+          }
+        ],
+        "proof": {
+          "certified_prefix_count": 8,
+          "core_token_count": 16,
+          "method": "locked_openjtalk_complete_prefix_replay_v1",
+          "prepared_char_count": 8,
+          "segments": [
+            {
+              "core_token_end": 5,
+              "core_token_start": 0,
+              "source_char_end": 2,
+              "source_char_start": 0,
+              "source_utf8_end": 6,
+              "source_utf8_start": 0
+            },
+            {
+              "core_token_end": 7,
+              "core_token_start": 5,
+              "source_char_end": 3,
+              "source_char_start": 2,
+              "source_utf8_end": 9,
+              "source_utf8_start": 6
+            },
+            {
+              "core_token_end": 11,
+              "core_token_start": 7,
+              "source_char_end": 4,
+              "source_char_start": 3,
+              "source_utf8_end": 12,
+              "source_utf8_start": 9
+            },
+            {
+              "core_token_end": 13,
+              "core_token_start": 11,
+              "source_char_end": 6,
+              "source_char_start": 4,
+              "source_utf8_end": 18,
+              "source_utf8_start": 12
+            },
+            {
+              "core_token_end": 15,
+              "core_token_start": 13,
+              "source_char_end": 7,
+              "source_char_start": 6,
+              "source_utf8_end": 21,
+              "source_utf8_start": 18
+            },
+            {
+              "core_token_end": 16,
+              "core_token_start": 15,
+              "source_char_end": 8,
+              "source_char_start": 7,
+              "source_utf8_end": 24,
+              "source_utf8_start": 21
+            }
+          ]
+        },
+        "schema_version": 1,
+        "source_text": "今日は晴れです。",
+        "tokens": [
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 842,
+            "kind": "boundary_space",
+            "local_token_id": 0,
+            "source_char_end": 0,
+            "source_char_start": 0,
+            "source_utf8_end": 0,
+            "source_utf8_start": 0,
+            "symbol": " ",
+            "token_index": 0,
+            "unit_index": null
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 2,
+            "source_char_start": 0,
+            "source_utf8_end": 6,
+            "source_utf8_start": 0,
+            "symbol": "1",
+            "token_index": 1,
+            "unit_index": 0
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 857,
+            "kind": "mora",
+            "local_token_id": 15,
+            "source_char_end": 2,
+            "source_char_start": 0,
+            "source_utf8_end": 6,
+            "source_utf8_start": 0,
+            "symbol": "キ",
+            "token_index": 2,
+            "unit_index": 0
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 915,
+            "kind": "mora",
+            "local_token_id": 73,
+            "source_char_end": 2,
+            "source_char_start": 0,
+            "source_utf8_end": 6,
+            "source_utf8_start": 0,
+            "symbol": "ョ",
+            "token_index": 3,
+            "unit_index": 0
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 2,
+            "source_char_start": 0,
+            "source_utf8_end": 6,
+            "source_utf8_start": 0,
+            "symbol": "0",
+            "token_index": 4,
+            "unit_index": 1
+          },
+          {
+            "commit_char_end": 2,
+            "commit_utf8_end": 6,
+            "global_token_id": 1007,
+            "kind": "mora",
+            "local_token_id": 165,
+            "source_char_end": 2,
+            "source_char_start": 0,
+            "source_utf8_end": 6,
+            "source_utf8_start": 0,
+            "symbol": "ー",
+            "token_index": 5,
+            "unit_index": 1
+          },
+          {
+            "commit_char_end": 2,
+            "commit_utf8_end": 6,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 3,
+            "source_char_start": 2,
+            "source_utf8_end": 9,
+            "source_utf8_start": 6,
+            "symbol": "0",
+            "token_index": 6,
+            "unit_index": 2
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 9,
+            "global_token_id": 923,
+            "kind": "mora",
+            "local_token_id": 81,
+            "source_char_end": 3,
+            "source_char_start": 2,
+            "source_utf8_end": 9,
+            "source_utf8_start": 6,
+            "symbol": "ワ",
+            "token_index": 7,
+            "unit_index": 2
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 9,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 4,
+            "source_char_start": 3,
+            "source_utf8_end": 12,
+            "source_utf8_start": 9,
+            "symbol": "0",
+            "token_index": 8,
+            "unit_index": 3
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 9,
+            "global_token_id": 891,
+            "kind": "mora",
+            "local_token_id": 49,
+            "source_char_end": 4,
+            "source_char_start": 3,
+            "source_utf8_end": 12,
+            "source_utf8_start": 9,
+            "symbol": "ハ",
+            "token_index": 9,
+            "unit_index": 3
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 9,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 4,
+            "source_char_start": 3,
+            "source_utf8_end": 12,
+            "source_utf8_start": 9,
+            "symbol": "1",
+            "token_index": 10,
+            "unit_index": 4
+          },
+          {
+            "commit_char_end": 4,
+            "commit_utf8_end": 12,
+            "global_token_id": 920,
+            "kind": "mora",
+            "local_token_id": 78,
+            "source_char_end": 4,
+            "source_char_start": 3,
+            "source_utf8_end": 12,
+            "source_utf8_start": 9,
+            "symbol": "レ",
+            "token_index": 11,
+            "unit_index": 4
+          },
+          {
+            "commit_char_end": 4,
+            "commit_utf8_end": 12,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 6,
+            "source_char_start": 4,
+            "source_utf8_end": 18,
+            "source_utf8_start": 12,
+            "symbol": "0",
+            "token_index": 12,
+            "unit_index": 5
+          },
+          {
+            "commit_char_end": 6,
+            "commit_utf8_end": 18,
+            "global_token_id": 883,
+            "kind": "mora",
+            "local_token_id": 41,
+            "source_char_end": 6,
+            "source_char_start": 4,
+            "source_utf8_end": 18,
+            "source_utf8_start": 12,
+            "symbol": "デ",
+            "token_index": 13,
+            "unit_index": 5
+          },
+          {
+            "commit_char_end": 6,
+            "commit_utf8_end": 18,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 7,
+            "source_char_start": 6,
+            "source_utf8_end": 21,
+            "source_utf8_start": 18,
+            "symbol": "0",
+            "token_index": 14,
+            "unit_index": 6
+          },
+          {
+            "commit_char_end": 7,
+            "commit_utf8_end": 21,
+            "global_token_id": 869,
+            "kind": "mora",
+            "local_token_id": 27,
+            "source_char_end": 7,
+            "source_char_start": 6,
+            "source_utf8_end": 21,
+            "source_utf8_start": 18,
+            "symbol": "ス",
+            "token_index": 15,
+            "unit_index": 6
+          },
+          {
+            "commit_char_end": 8,
+            "commit_utf8_end": 24,
+            "global_token_id": 981,
+            "kind": "punctuation",
+            "local_token_id": 139,
+            "source_char_end": 8,
+            "source_char_start": 7,
+            "source_utf8_end": 24,
+            "source_utf8_start": 21,
+            "symbol": "。",
+            "token_index": 16,
+            "unit_index": 7
+          },
+          {
+            "commit_char_end": 8,
+            "commit_utf8_end": 24,
+            "global_token_id": 842,
+            "kind": "boundary_space",
+            "local_token_id": 0,
+            "source_char_end": 8,
+            "source_char_start": 8,
+            "source_utf8_end": 24,
+            "source_utf8_start": 24,
+            "symbol": " ",
+            "token_index": 17,
+            "unit_index": null
+          },
+          {
+            "commit_char_end": 8,
+            "commit_utf8_end": 24,
+            "global_token_id": 3358,
+            "kind": "eos",
+            "local_token_id": null,
+            "source_char_end": 8,
+            "source_char_start": 8,
+            "source_utf8_end": 24,
+            "source_utf8_start": 24,
+            "symbol": "<eos>",
+            "token_index": 18,
+            "unit_index": null
+          }
+        ]
+      },
+      "id": "hiragana_kanji_punctuation",
+      "prefix_frontend_rows": [
+        {
+          "normalized_prefix": "今",
+          "rows": [
+            {
+              "acc": 1,
+              "chain_flag": -1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "副詞可能",
+              "pron": "イマ",
+              "string": "今"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "今日",
+          "rows": [
+            {
+              "acc": 1,
+              "chain_flag": -1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "副詞可能",
+              "pron": "キョー",
+              "string": "今日"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "今日は",
+          "rows": [
+            {
+              "acc": 1,
+              "chain_flag": -1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "副詞可能",
+              "pron": "キョー",
+              "string": "今日"
+            },
+            {
+              "acc": 0,
+              "chain_flag": 1,
+              "mora_size": 1,
+              "pos": "助詞",
+              "pos_group1": "係助詞",
+              "pron": "ワ",
+              "string": "は"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "今日は晴",
+          "rows": [
+            {
+              "acc": 1,
+              "chain_flag": -1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "副詞可能",
+              "pron": "キョー",
+              "string": "今日"
+            },
+            {
+              "acc": 0,
+              "chain_flag": 1,
+              "mora_size": 1,
+              "pos": "助詞",
+              "pos_group1": "係助詞",
+              "pron": "ワ",
+              "string": "は"
+            },
+            {
+              "acc": 2,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "一般",
+              "pron": "ハレ",
+              "string": "晴"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "今日は晴れ",
+          "rows": [
+            {
+              "acc": 1,
+              "chain_flag": -1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "副詞可能",
+              "pron": "キョー",
+              "string": "今日"
+            },
+            {
+              "acc": 0,
+              "chain_flag": 1,
+              "mora_size": 1,
+              "pos": "助詞",
+              "pos_group1": "係助詞",
+              "pron": "ワ",
+              "string": "は"
+            },
+            {
+              "acc": 2,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "一般",
+              "pron": "ハレ",
+              "string": "晴れ"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "今日は晴れで",
+          "rows": [
+            {
+              "acc": 1,
+              "chain_flag": -1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "副詞可能",
+              "pron": "キョー",
+              "string": "今日"
+            },
+            {
+              "acc": 0,
+              "chain_flag": 1,
+              "mora_size": 1,
+              "pos": "助詞",
+              "pos_group1": "係助詞",
+              "pron": "ワ",
+              "string": "は"
+            },
+            {
+              "acc": 2,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "一般",
+              "pron": "ハレ",
+              "string": "晴れ"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 1,
+              "pos": "助詞",
+              "pos_group1": "格助詞",
+              "pron": "デ",
+              "string": "で"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "今日は晴れです",
+          "rows": [
+            {
+              "acc": 1,
+              "chain_flag": -1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "副詞可能",
+              "pron": "キョー",
+              "string": "今日"
+            },
+            {
+              "acc": 0,
+              "chain_flag": 1,
+              "mora_size": 1,
+              "pos": "助詞",
+              "pos_group1": "係助詞",
+              "pron": "ワ",
+              "string": "は"
+            },
+            {
+              "acc": 2,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "一般",
+              "pron": "ハレ",
+              "string": "晴れ"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "助動詞",
+              "pos_group1": "*",
+              "pron": "デス’",
+              "string": "です"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "今日は晴れです。",
+          "rows": [
+            {
+              "acc": 1,
+              "chain_flag": -1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "副詞可能",
+              "pron": "キョー",
+              "string": "今日"
+            },
+            {
+              "acc": 0,
+              "chain_flag": 1,
+              "mora_size": 1,
+              "pos": "助詞",
+              "pos_group1": "係助詞",
+              "pron": "ワ",
+              "string": "は"
+            },
+            {
+              "acc": 2,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "一般",
+              "pron": "ハレ",
+              "string": "晴れ"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "助動詞",
+              "pos_group1": "*",
+              "pron": "デス’",
+              "string": "です"
+            },
+            {
+              "acc": 0,
+              "chain_flag": 0,
+              "mora_size": 0,
+              "pos": "記号",
+              "pos_group1": "句点",
+              "pron": "、",
+              "string": "。"
+            }
+          ]
+        }
+      ],
+      "source_text": "今日は晴れです。"
+    },
+    {
+      "expected": {
+        "g2p_tokens": [
+          "0",
+          "ニ",
+          "1",
+          "セ",
+          "0",
+          "ン",
+          "1",
+          "ニ",
+          "0",
+          "ジ",
+          "ュ",
+          "0",
+          "ー",
+          "0",
+          "ロ",
+          "1",
+          "ク",
+          "0",
+          "ネ",
+          "0",
+          "ン",
+          "0",
+          "シ",
+          "1",
+          "チ",
+          "1",
+          "ガ",
+          "1",
+          "ツ",
+          "0",
+          "サ",
+          "1",
+          "ン",
+          "1",
+          "ジ",
+          "ュ",
+          "1",
+          "ー",
+          "0",
+          "ニ",
+          "0",
+          "チ"
+        ],
+        "global_token_ids": [
+          842,
+          843,
+          887,
+          844,
+          871,
+          843,
+          925,
+          844,
+          887,
+          843,
+          868,
+          913,
+          843,
+          1007,
+          843,
+          921,
+          844,
+          859,
+          843,
+          889,
+          843,
+          925,
+          843,
+          867,
+          844,
+          877,
+          844,
+          856,
+          844,
+          880,
+          843,
+          865,
+          844,
+          925,
+          844,
+          868,
+          913,
+          844,
+          1007,
+          843,
+          887,
+          843,
+          877,
+          842,
+          3358
+        ],
+        "normalized_text": "2026年7月30日",
+        "progress": [
+          {
+            "committed_text_tokens": 0,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 1,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 2,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 3,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 4,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 5,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 6,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 7,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 8,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 9,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 10,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 11,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 12,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 13,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 14,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 15,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 16,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 17,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 18,
+            "source_char_end": 4,
+            "source_utf8_end": 4
+          },
+          {
+            "committed_text_tokens": 19,
+            "source_char_end": 4,
+            "source_utf8_end": 4
+          },
+          {
+            "committed_text_tokens": 20,
+            "source_char_end": 4,
+            "source_utf8_end": 4
+          },
+          {
+            "committed_text_tokens": 21,
+            "source_char_end": 4,
+            "source_utf8_end": 4
+          },
+          {
+            "committed_text_tokens": 22,
+            "source_char_end": 5,
+            "source_utf8_end": 7
+          },
+          {
+            "committed_text_tokens": 23,
+            "source_char_end": 5,
+            "source_utf8_end": 7
+          },
+          {
+            "committed_text_tokens": 24,
+            "source_char_end": 5,
+            "source_utf8_end": 7
+          },
+          {
+            "committed_text_tokens": 25,
+            "source_char_end": 5,
+            "source_utf8_end": 7
+          },
+          {
+            "committed_text_tokens": 26,
+            "source_char_end": 5,
+            "source_utf8_end": 7
+          },
+          {
+            "committed_text_tokens": 27,
+            "source_char_end": 5,
+            "source_utf8_end": 7
+          },
+          {
+            "committed_text_tokens": 28,
+            "source_char_end": 5,
+            "source_utf8_end": 7
+          },
+          {
+            "committed_text_tokens": 29,
+            "source_char_end": 5,
+            "source_utf8_end": 7
+          },
+          {
+            "committed_text_tokens": 30,
+            "source_char_end": 7,
+            "source_utf8_end": 11
+          },
+          {
+            "committed_text_tokens": 31,
+            "source_char_end": 7,
+            "source_utf8_end": 11
+          },
+          {
+            "committed_text_tokens": 32,
+            "source_char_end": 7,
+            "source_utf8_end": 11
+          },
+          {
+            "committed_text_tokens": 33,
+            "source_char_end": 7,
+            "source_utf8_end": 11
+          },
+          {
+            "committed_text_tokens": 34,
+            "source_char_end": 8,
+            "source_utf8_end": 12
+          },
+          {
+            "committed_text_tokens": 35,
+            "source_char_end": 8,
+            "source_utf8_end": 12
+          },
+          {
+            "committed_text_tokens": 36,
+            "source_char_end": 8,
+            "source_utf8_end": 12
+          },
+          {
+            "committed_text_tokens": 37,
+            "source_char_end": 8,
+            "source_utf8_end": 12
+          },
+          {
+            "committed_text_tokens": 38,
+            "source_char_end": 8,
+            "source_utf8_end": 12
+          },
+          {
+            "committed_text_tokens": 39,
+            "source_char_end": 8,
+            "source_utf8_end": 12
+          },
+          {
+            "committed_text_tokens": 40,
+            "source_char_end": 8,
+            "source_utf8_end": 12
+          },
+          {
+            "committed_text_tokens": 41,
+            "source_char_end": 8,
+            "source_utf8_end": 12
+          },
+          {
+            "committed_text_tokens": 42,
+            "source_char_end": 8,
+            "source_utf8_end": 12
+          },
+          {
+            "committed_text_tokens": 43,
+            "source_char_end": 10,
+            "source_utf8_end": 16
+          },
+          {
+            "committed_text_tokens": 44,
+            "source_char_end": 10,
+            "source_utf8_end": 16
+          },
+          {
+            "committed_text_tokens": 45,
+            "source_char_end": 10,
+            "source_utf8_end": 16
+          }
+        ],
+        "proof": {
+          "certified_prefix_count": 6,
+          "core_token_count": 42,
+          "method": "locked_openjtalk_complete_prefix_replay_v1",
+          "prepared_char_count": 10,
+          "segments": [
+            {
+              "core_token_end": 17,
+              "core_token_start": 0,
+              "source_char_end": 4,
+              "source_char_start": 0,
+              "source_utf8_end": 4,
+              "source_utf8_start": 0
+            },
+            {
+              "core_token_end": 21,
+              "core_token_start": 17,
+              "source_char_end": 5,
+              "source_char_start": 4,
+              "source_utf8_end": 7,
+              "source_utf8_start": 4
+            },
+            {
+              "core_token_end": 29,
+              "core_token_start": 21,
+              "source_char_end": 7,
+              "source_char_start": 5,
+              "source_utf8_end": 11,
+              "source_utf8_start": 7
+            },
+            {
+              "core_token_end": 33,
+              "core_token_start": 29,
+              "source_char_end": 8,
+              "source_char_start": 7,
+              "source_utf8_end": 12,
+              "source_utf8_start": 11
+            },
+            {
+              "core_token_end": 42,
+              "core_token_start": 33,
+              "source_char_end": 10,
+              "source_char_start": 8,
+              "source_utf8_end": 16,
+              "source_utf8_start": 12
+            }
+          ]
+        },
+        "schema_version": 1,
+        "source_text": "2026年7月30日",
+        "tokens": [
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 842,
+            "kind": "boundary_space",
+            "local_token_id": 0,
+            "source_char_end": 0,
+            "source_char_start": 0,
+            "source_utf8_end": 0,
+            "source_utf8_start": 0,
+            "symbol": " ",
+            "token_index": 0,
+            "unit_index": null
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 4,
+            "source_char_start": 0,
+            "source_utf8_end": 4,
+            "source_utf8_start": 0,
+            "symbol": "0",
+            "token_index": 1,
+            "unit_index": 0
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 887,
+            "kind": "mora",
+            "local_token_id": 45,
+            "source_char_end": 4,
+            "source_char_start": 0,
+            "source_utf8_end": 4,
+            "source_utf8_start": 0,
+            "symbol": "ニ",
+            "token_index": 2,
+            "unit_index": 0
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 4,
+            "source_char_start": 0,
+            "source_utf8_end": 4,
+            "source_utf8_start": 0,
+            "symbol": "1",
+            "token_index": 3,
+            "unit_index": 1
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 871,
+            "kind": "mora",
+            "local_token_id": 29,
+            "source_char_end": 4,
+            "source_char_start": 0,
+            "source_utf8_end": 4,
+            "source_utf8_start": 0,
+            "symbol": "セ",
+            "token_index": 4,
+            "unit_index": 1
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 4,
+            "source_char_start": 0,
+            "source_utf8_end": 4,
+            "source_utf8_start": 0,
+            "symbol": "0",
+            "token_index": 5,
+            "unit_index": 2
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 925,
+            "kind": "mora",
+            "local_token_id": 83,
+            "source_char_end": 4,
+            "source_char_start": 0,
+            "source_utf8_end": 4,
+            "source_utf8_start": 0,
+            "symbol": "ン",
+            "token_index": 6,
+            "unit_index": 2
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 4,
+            "source_char_start": 0,
+            "source_utf8_end": 4,
+            "source_utf8_start": 0,
+            "symbol": "1",
+            "token_index": 7,
+            "unit_index": 3
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 887,
+            "kind": "mora",
+            "local_token_id": 45,
+            "source_char_end": 4,
+            "source_char_start": 0,
+            "source_utf8_end": 4,
+            "source_utf8_start": 0,
+            "symbol": "ニ",
+            "token_index": 8,
+            "unit_index": 3
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 4,
+            "source_char_start": 0,
+            "source_utf8_end": 4,
+            "source_utf8_start": 0,
+            "symbol": "0",
+            "token_index": 9,
+            "unit_index": 4
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 868,
+            "kind": "mora",
+            "local_token_id": 26,
+            "source_char_end": 4,
+            "source_char_start": 0,
+            "source_utf8_end": 4,
+            "source_utf8_start": 0,
+            "symbol": "ジ",
+            "token_index": 10,
+            "unit_index": 4
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 913,
+            "kind": "mora",
+            "local_token_id": 71,
+            "source_char_end": 4,
+            "source_char_start": 0,
+            "source_utf8_end": 4,
+            "source_utf8_start": 0,
+            "symbol": "ュ",
+            "token_index": 11,
+            "unit_index": 4
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 4,
+            "source_char_start": 0,
+            "source_utf8_end": 4,
+            "source_utf8_start": 0,
+            "symbol": "0",
+            "token_index": 12,
+            "unit_index": 5
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 1007,
+            "kind": "mora",
+            "local_token_id": 165,
+            "source_char_end": 4,
+            "source_char_start": 0,
+            "source_utf8_end": 4,
+            "source_utf8_start": 0,
+            "symbol": "ー",
+            "token_index": 13,
+            "unit_index": 5
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 4,
+            "source_char_start": 0,
+            "source_utf8_end": 4,
+            "source_utf8_start": 0,
+            "symbol": "0",
+            "token_index": 14,
+            "unit_index": 6
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 921,
+            "kind": "mora",
+            "local_token_id": 79,
+            "source_char_end": 4,
+            "source_char_start": 0,
+            "source_utf8_end": 4,
+            "source_utf8_start": 0,
+            "symbol": "ロ",
+            "token_index": 15,
+            "unit_index": 6
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 4,
+            "source_char_start": 0,
+            "source_utf8_end": 4,
+            "source_utf8_start": 0,
+            "symbol": "1",
+            "token_index": 16,
+            "unit_index": 7
+          },
+          {
+            "commit_char_end": 4,
+            "commit_utf8_end": 4,
+            "global_token_id": 859,
+            "kind": "mora",
+            "local_token_id": 17,
+            "source_char_end": 4,
+            "source_char_start": 0,
+            "source_utf8_end": 4,
+            "source_utf8_start": 0,
+            "symbol": "ク",
+            "token_index": 17,
+            "unit_index": 7
+          },
+          {
+            "commit_char_end": 4,
+            "commit_utf8_end": 4,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 5,
+            "source_char_start": 4,
+            "source_utf8_end": 7,
+            "source_utf8_start": 4,
+            "symbol": "0",
+            "token_index": 18,
+            "unit_index": 8
+          },
+          {
+            "commit_char_end": 4,
+            "commit_utf8_end": 4,
+            "global_token_id": 889,
+            "kind": "mora",
+            "local_token_id": 47,
+            "source_char_end": 5,
+            "source_char_start": 4,
+            "source_utf8_end": 7,
+            "source_utf8_start": 4,
+            "symbol": "ネ",
+            "token_index": 19,
+            "unit_index": 8
+          },
+          {
+            "commit_char_end": 4,
+            "commit_utf8_end": 4,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 5,
+            "source_char_start": 4,
+            "source_utf8_end": 7,
+            "source_utf8_start": 4,
+            "symbol": "0",
+            "token_index": 20,
+            "unit_index": 9
+          },
+          {
+            "commit_char_end": 5,
+            "commit_utf8_end": 7,
+            "global_token_id": 925,
+            "kind": "mora",
+            "local_token_id": 83,
+            "source_char_end": 5,
+            "source_char_start": 4,
+            "source_utf8_end": 7,
+            "source_utf8_start": 4,
+            "symbol": "ン",
+            "token_index": 21,
+            "unit_index": 9
+          },
+          {
+            "commit_char_end": 5,
+            "commit_utf8_end": 7,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 7,
+            "source_char_start": 5,
+            "source_utf8_end": 11,
+            "source_utf8_start": 7,
+            "symbol": "0",
+            "token_index": 22,
+            "unit_index": 10
+          },
+          {
+            "commit_char_end": 5,
+            "commit_utf8_end": 7,
+            "global_token_id": 867,
+            "kind": "mora",
+            "local_token_id": 25,
+            "source_char_end": 7,
+            "source_char_start": 5,
+            "source_utf8_end": 11,
+            "source_utf8_start": 7,
+            "symbol": "シ",
+            "token_index": 23,
+            "unit_index": 10
+          },
+          {
+            "commit_char_end": 5,
+            "commit_utf8_end": 7,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 7,
+            "source_char_start": 5,
+            "source_utf8_end": 11,
+            "source_utf8_start": 7,
+            "symbol": "1",
+            "token_index": 24,
+            "unit_index": 11
+          },
+          {
+            "commit_char_end": 5,
+            "commit_utf8_end": 7,
+            "global_token_id": 877,
+            "kind": "mora",
+            "local_token_id": 35,
+            "source_char_end": 7,
+            "source_char_start": 5,
+            "source_utf8_end": 11,
+            "source_utf8_start": 7,
+            "symbol": "チ",
+            "token_index": 25,
+            "unit_index": 11
+          },
+          {
+            "commit_char_end": 5,
+            "commit_utf8_end": 7,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 7,
+            "source_char_start": 5,
+            "source_utf8_end": 11,
+            "source_utf8_start": 7,
+            "symbol": "1",
+            "token_index": 26,
+            "unit_index": 12
+          },
+          {
+            "commit_char_end": 5,
+            "commit_utf8_end": 7,
+            "global_token_id": 856,
+            "kind": "mora",
+            "local_token_id": 14,
+            "source_char_end": 7,
+            "source_char_start": 5,
+            "source_utf8_end": 11,
+            "source_utf8_start": 7,
+            "symbol": "ガ",
+            "token_index": 27,
+            "unit_index": 12
+          },
+          {
+            "commit_char_end": 5,
+            "commit_utf8_end": 7,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 7,
+            "source_char_start": 5,
+            "source_utf8_end": 11,
+            "source_utf8_start": 7,
+            "symbol": "1",
+            "token_index": 28,
+            "unit_index": 13
+          },
+          {
+            "commit_char_end": 7,
+            "commit_utf8_end": 11,
+            "global_token_id": 880,
+            "kind": "mora",
+            "local_token_id": 38,
+            "source_char_end": 7,
+            "source_char_start": 5,
+            "source_utf8_end": 11,
+            "source_utf8_start": 7,
+            "symbol": "ツ",
+            "token_index": 29,
+            "unit_index": 13
+          },
+          {
+            "commit_char_end": 7,
+            "commit_utf8_end": 11,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 8,
+            "source_char_start": 7,
+            "source_utf8_end": 12,
+            "source_utf8_start": 11,
+            "symbol": "0",
+            "token_index": 30,
+            "unit_index": 14
+          },
+          {
+            "commit_char_end": 7,
+            "commit_utf8_end": 11,
+            "global_token_id": 865,
+            "kind": "mora",
+            "local_token_id": 23,
+            "source_char_end": 8,
+            "source_char_start": 7,
+            "source_utf8_end": 12,
+            "source_utf8_start": 11,
+            "symbol": "サ",
+            "token_index": 31,
+            "unit_index": 14
+          },
+          {
+            "commit_char_end": 7,
+            "commit_utf8_end": 11,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 8,
+            "source_char_start": 7,
+            "source_utf8_end": 12,
+            "source_utf8_start": 11,
+            "symbol": "1",
+            "token_index": 32,
+            "unit_index": 15
+          },
+          {
+            "commit_char_end": 8,
+            "commit_utf8_end": 12,
+            "global_token_id": 925,
+            "kind": "mora",
+            "local_token_id": 83,
+            "source_char_end": 8,
+            "source_char_start": 7,
+            "source_utf8_end": 12,
+            "source_utf8_start": 11,
+            "symbol": "ン",
+            "token_index": 33,
+            "unit_index": 15
+          },
+          {
+            "commit_char_end": 8,
+            "commit_utf8_end": 12,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 10,
+            "source_char_start": 8,
+            "source_utf8_end": 16,
+            "source_utf8_start": 12,
+            "symbol": "1",
+            "token_index": 34,
+            "unit_index": 16
+          },
+          {
+            "commit_char_end": 8,
+            "commit_utf8_end": 12,
+            "global_token_id": 868,
+            "kind": "mora",
+            "local_token_id": 26,
+            "source_char_end": 10,
+            "source_char_start": 8,
+            "source_utf8_end": 16,
+            "source_utf8_start": 12,
+            "symbol": "ジ",
+            "token_index": 35,
+            "unit_index": 16
+          },
+          {
+            "commit_char_end": 8,
+            "commit_utf8_end": 12,
+            "global_token_id": 913,
+            "kind": "mora",
+            "local_token_id": 71,
+            "source_char_end": 10,
+            "source_char_start": 8,
+            "source_utf8_end": 16,
+            "source_utf8_start": 12,
+            "symbol": "ュ",
+            "token_index": 36,
+            "unit_index": 16
+          },
+          {
+            "commit_char_end": 8,
+            "commit_utf8_end": 12,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 10,
+            "source_char_start": 8,
+            "source_utf8_end": 16,
+            "source_utf8_start": 12,
+            "symbol": "1",
+            "token_index": 37,
+            "unit_index": 17
+          },
+          {
+            "commit_char_end": 8,
+            "commit_utf8_end": 12,
+            "global_token_id": 1007,
+            "kind": "mora",
+            "local_token_id": 165,
+            "source_char_end": 10,
+            "source_char_start": 8,
+            "source_utf8_end": 16,
+            "source_utf8_start": 12,
+            "symbol": "ー",
+            "token_index": 38,
+            "unit_index": 17
+          },
+          {
+            "commit_char_end": 8,
+            "commit_utf8_end": 12,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 10,
+            "source_char_start": 8,
+            "source_utf8_end": 16,
+            "source_utf8_start": 12,
+            "symbol": "0",
+            "token_index": 39,
+            "unit_index": 18
+          },
+          {
+            "commit_char_end": 8,
+            "commit_utf8_end": 12,
+            "global_token_id": 887,
+            "kind": "mora",
+            "local_token_id": 45,
+            "source_char_end": 10,
+            "source_char_start": 8,
+            "source_utf8_end": 16,
+            "source_utf8_start": 12,
+            "symbol": "ニ",
+            "token_index": 40,
+            "unit_index": 18
+          },
+          {
+            "commit_char_end": 8,
+            "commit_utf8_end": 12,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 10,
+            "source_char_start": 8,
+            "source_utf8_end": 16,
+            "source_utf8_start": 12,
+            "symbol": "0",
+            "token_index": 41,
+            "unit_index": 19
+          },
+          {
+            "commit_char_end": 10,
+            "commit_utf8_end": 16,
+            "global_token_id": 877,
+            "kind": "mora",
+            "local_token_id": 35,
+            "source_char_end": 10,
+            "source_char_start": 8,
+            "source_utf8_end": 16,
+            "source_utf8_start": 12,
+            "symbol": "チ",
+            "token_index": 42,
+            "unit_index": 19
+          },
+          {
+            "commit_char_end": 10,
+            "commit_utf8_end": 16,
+            "global_token_id": 842,
+            "kind": "boundary_space",
+            "local_token_id": 0,
+            "source_char_end": 10,
+            "source_char_start": 10,
+            "source_utf8_end": 16,
+            "source_utf8_start": 16,
+            "symbol": " ",
+            "token_index": 43,
+            "unit_index": null
+          },
+          {
+            "commit_char_end": 10,
+            "commit_utf8_end": 16,
+            "global_token_id": 3358,
+            "kind": "eos",
+            "local_token_id": null,
+            "source_char_end": 10,
+            "source_char_start": 10,
+            "source_utf8_end": 16,
+            "source_utf8_start": 16,
+            "symbol": "<eos>",
+            "token_index": 44,
+            "unit_index": null
+          }
+        ]
+      },
+      "id": "digits_date",
+      "prefix_frontend_rows": [
+        {
+          "normalized_prefix": "2",
+          "rows": [
+            {
+              "acc": 1,
+              "chain_flag": -1,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ニ",
+              "string": "二"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "20",
+          "rows": [
+            {
+              "acc": 1,
+              "chain_flag": 0,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ニ",
+              "string": "二"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ジュー",
+              "string": "十"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "202",
+          "rows": [
+            {
+              "acc": 3,
+              "chain_flag": 0,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ニ",
+              "string": "二"
+            },
+            {
+              "acc": 2,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ヒャク",
+              "string": "百"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 0,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ニ",
+              "string": "二"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "2026",
+          "rows": [
+            {
+              "acc": 2,
+              "chain_flag": 0,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ニ",
+              "string": "二"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "セン",
+              "string": "千"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 0,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ニ",
+              "string": "二"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ジュー",
+              "string": "十"
+            },
+            {
+              "acc": 2,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ロク",
+              "string": "六"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "2026年",
+          "rows": [
+            {
+              "acc": 2,
+              "chain_flag": 0,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ニ",
+              "string": "二"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "セン",
+              "string": "千"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 0,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ニ",
+              "string": "二"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ジュー",
+              "string": "十"
+            },
+            {
+              "acc": 2,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ロク",
+              "string": "六"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "接尾",
+              "pron": "ネン",
+              "string": "年"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "2026年7",
+          "rows": [
+            {
+              "acc": 2,
+              "chain_flag": 0,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ニ",
+              "string": "二"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "セン",
+              "string": "千"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 0,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ニ",
+              "string": "二"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ジュー",
+              "string": "十"
+            },
+            {
+              "acc": 2,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ロク",
+              "string": "六"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "接尾",
+              "pron": "ネン",
+              "string": "年"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ナナ",
+              "string": "七"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "2026年7月",
+          "rows": [
+            {
+              "acc": 2,
+              "chain_flag": 0,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ニ",
+              "string": "二"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "セン",
+              "string": "千"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 0,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ニ",
+              "string": "二"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ジュー",
+              "string": "十"
+            },
+            {
+              "acc": 2,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ロク",
+              "string": "六"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "接尾",
+              "pron": "ネン",
+              "string": "年"
+            },
+            {
+              "acc": 4,
+              "chain_flag": 0,
+              "mora_size": 4,
+              "pos": "名詞",
+              "pos_group1": "副詞可能",
+              "pron": "シ’チガツ",
+              "string": "７月"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "2026年7月3",
+          "rows": [
+            {
+              "acc": 2,
+              "chain_flag": 0,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ニ",
+              "string": "二"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "セン",
+              "string": "千"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 0,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ニ",
+              "string": "二"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ジュー",
+              "string": "十"
+            },
+            {
+              "acc": 2,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ロク",
+              "string": "六"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "接尾",
+              "pron": "ネン",
+              "string": "年"
+            },
+            {
+              "acc": 4,
+              "chain_flag": 0,
+              "mora_size": 4,
+              "pos": "名詞",
+              "pos_group1": "副詞可能",
+              "pron": "シ’チガツ",
+              "string": "７月"
+            },
+            {
+              "acc": 0,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "サン",
+              "string": "三"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "2026年7月30",
+          "rows": [
+            {
+              "acc": 2,
+              "chain_flag": 0,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ニ",
+              "string": "二"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "セン",
+              "string": "千"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 0,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ニ",
+              "string": "二"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ジュー",
+              "string": "十"
+            },
+            {
+              "acc": 2,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ロク",
+              "string": "六"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "接尾",
+              "pron": "ネン",
+              "string": "年"
+            },
+            {
+              "acc": 4,
+              "chain_flag": 0,
+              "mora_size": 4,
+              "pos": "名詞",
+              "pos_group1": "副詞可能",
+              "pron": "シ’チガツ",
+              "string": "７月"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "サン",
+              "string": "三"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ジュー",
+              "string": "十"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "2026年7月30日",
+          "rows": [
+            {
+              "acc": 2,
+              "chain_flag": 0,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ニ",
+              "string": "二"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "セン",
+              "string": "千"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 0,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ニ",
+              "string": "二"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ジュー",
+              "string": "十"
+            },
+            {
+              "acc": 2,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ロク",
+              "string": "六"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "接尾",
+              "pron": "ネン",
+              "string": "年"
+            },
+            {
+              "acc": 4,
+              "chain_flag": 0,
+              "mora_size": 4,
+              "pos": "名詞",
+              "pos_group1": "副詞可能",
+              "pron": "シ’チガツ",
+              "string": "７月"
+            },
+            {
+              "acc": 4,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "サン",
+              "string": "三"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ジュー",
+              "string": "十"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "接尾",
+              "pron": "ニチ",
+              "string": "日"
+            }
+          ]
+        }
+      ],
+      "source_text": "2026年7月30日"
+    },
+    {
+      "expected": {
+        "g2p_tokens": [
+          "0",
+          "サ",
+          "1",
+          "ン",
+          "1",
+          "テ",
+          "1",
+          "ン",
+          "0",
+          "イ",
+          "1",
+          "チ",
+          "0",
+          "ヨ",
+          "1",
+          "ン",
+          "1",
+          "キ",
+          "1",
+          "ロ",
+          "1",
+          "グ",
+          "0",
+          "ラ",
+          "0",
+          "ム"
+        ],
+        "global_token_ids": [
+          842,
+          843,
+          865,
+          844,
+          925,
+          844,
+          882,
+          844,
+          925,
+          843,
+          848,
+          844,
+          877,
+          843,
+          916,
+          844,
+          925,
+          844,
+          857,
+          844,
+          921,
+          844,
+          860,
+          843,
+          917,
+          843,
+          908,
+          842,
+          3358
+        ],
+        "normalized_text": "3.14kg",
+        "progress": [
+          {
+            "committed_text_tokens": 0,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 1,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 2,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 3,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 4,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 5,
+            "source_char_end": 1,
+            "source_utf8_end": 1
+          },
+          {
+            "committed_text_tokens": 6,
+            "source_char_end": 1,
+            "source_utf8_end": 1
+          },
+          {
+            "committed_text_tokens": 7,
+            "source_char_end": 1,
+            "source_utf8_end": 1
+          },
+          {
+            "committed_text_tokens": 8,
+            "source_char_end": 1,
+            "source_utf8_end": 1
+          },
+          {
+            "committed_text_tokens": 9,
+            "source_char_end": 1,
+            "source_utf8_end": 1
+          },
+          {
+            "committed_text_tokens": 10,
+            "source_char_end": 1,
+            "source_utf8_end": 1
+          },
+          {
+            "committed_text_tokens": 11,
+            "source_char_end": 1,
+            "source_utf8_end": 1
+          },
+          {
+            "committed_text_tokens": 12,
+            "source_char_end": 1,
+            "source_utf8_end": 1
+          },
+          {
+            "committed_text_tokens": 13,
+            "source_char_end": 3,
+            "source_utf8_end": 3
+          },
+          {
+            "committed_text_tokens": 14,
+            "source_char_end": 3,
+            "source_utf8_end": 3
+          },
+          {
+            "committed_text_tokens": 15,
+            "source_char_end": 3,
+            "source_utf8_end": 3
+          },
+          {
+            "committed_text_tokens": 16,
+            "source_char_end": 3,
+            "source_utf8_end": 3
+          },
+          {
+            "committed_text_tokens": 17,
+            "source_char_end": 3,
+            "source_utf8_end": 3
+          },
+          {
+            "committed_text_tokens": 18,
+            "source_char_end": 3,
+            "source_utf8_end": 3
+          },
+          {
+            "committed_text_tokens": 19,
+            "source_char_end": 3,
+            "source_utf8_end": 3
+          },
+          {
+            "committed_text_tokens": 20,
+            "source_char_end": 3,
+            "source_utf8_end": 3
+          },
+          {
+            "committed_text_tokens": 21,
+            "source_char_end": 3,
+            "source_utf8_end": 3
+          },
+          {
+            "committed_text_tokens": 22,
+            "source_char_end": 3,
+            "source_utf8_end": 3
+          },
+          {
+            "committed_text_tokens": 23,
+            "source_char_end": 3,
+            "source_utf8_end": 3
+          },
+          {
+            "committed_text_tokens": 24,
+            "source_char_end": 3,
+            "source_utf8_end": 3
+          },
+          {
+            "committed_text_tokens": 25,
+            "source_char_end": 3,
+            "source_utf8_end": 3
+          },
+          {
+            "committed_text_tokens": 26,
+            "source_char_end": 3,
+            "source_utf8_end": 3
+          },
+          {
+            "committed_text_tokens": 27,
+            "source_char_end": 6,
+            "source_utf8_end": 6
+          },
+          {
+            "committed_text_tokens": 28,
+            "source_char_end": 6,
+            "source_utf8_end": 6
+          },
+          {
+            "committed_text_tokens": 29,
+            "source_char_end": 6,
+            "source_utf8_end": 6
+          }
+        ],
+        "proof": {
+          "certified_prefix_count": 4,
+          "core_token_count": 26,
+          "method": "locked_openjtalk_complete_prefix_replay_v1",
+          "prepared_char_count": 6,
+          "segments": [
+            {
+              "core_token_end": 4,
+              "core_token_start": 0,
+              "source_char_end": 1,
+              "source_char_start": 0,
+              "source_utf8_end": 1,
+              "source_utf8_start": 0
+            },
+            {
+              "core_token_end": 12,
+              "core_token_start": 4,
+              "source_char_end": 3,
+              "source_char_start": 1,
+              "source_utf8_end": 3,
+              "source_utf8_start": 1
+            },
+            {
+              "core_token_end": 26,
+              "core_token_start": 12,
+              "source_char_end": 6,
+              "source_char_start": 3,
+              "source_utf8_end": 6,
+              "source_utf8_start": 3
+            }
+          ]
+        },
+        "schema_version": 1,
+        "source_text": "3.14kg",
+        "tokens": [
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 842,
+            "kind": "boundary_space",
+            "local_token_id": 0,
+            "source_char_end": 0,
+            "source_char_start": 0,
+            "source_utf8_end": 0,
+            "source_utf8_start": 0,
+            "symbol": " ",
+            "token_index": 0,
+            "unit_index": null
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 1,
+            "source_char_start": 0,
+            "source_utf8_end": 1,
+            "source_utf8_start": 0,
+            "symbol": "0",
+            "token_index": 1,
+            "unit_index": 0
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 865,
+            "kind": "mora",
+            "local_token_id": 23,
+            "source_char_end": 1,
+            "source_char_start": 0,
+            "source_utf8_end": 1,
+            "source_utf8_start": 0,
+            "symbol": "サ",
+            "token_index": 2,
+            "unit_index": 0
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 1,
+            "source_char_start": 0,
+            "source_utf8_end": 1,
+            "source_utf8_start": 0,
+            "symbol": "1",
+            "token_index": 3,
+            "unit_index": 1
+          },
+          {
+            "commit_char_end": 1,
+            "commit_utf8_end": 1,
+            "global_token_id": 925,
+            "kind": "mora",
+            "local_token_id": 83,
+            "source_char_end": 1,
+            "source_char_start": 0,
+            "source_utf8_end": 1,
+            "source_utf8_start": 0,
+            "symbol": "ン",
+            "token_index": 4,
+            "unit_index": 1
+          },
+          {
+            "commit_char_end": 1,
+            "commit_utf8_end": 1,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 3,
+            "source_char_start": 1,
+            "source_utf8_end": 3,
+            "source_utf8_start": 1,
+            "symbol": "1",
+            "token_index": 5,
+            "unit_index": 2
+          },
+          {
+            "commit_char_end": 1,
+            "commit_utf8_end": 1,
+            "global_token_id": 882,
+            "kind": "mora",
+            "local_token_id": 40,
+            "source_char_end": 3,
+            "source_char_start": 1,
+            "source_utf8_end": 3,
+            "source_utf8_start": 1,
+            "symbol": "テ",
+            "token_index": 6,
+            "unit_index": 2
+          },
+          {
+            "commit_char_end": 1,
+            "commit_utf8_end": 1,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 3,
+            "source_char_start": 1,
+            "source_utf8_end": 3,
+            "source_utf8_start": 1,
+            "symbol": "1",
+            "token_index": 7,
+            "unit_index": 3
+          },
+          {
+            "commit_char_end": 1,
+            "commit_utf8_end": 1,
+            "global_token_id": 925,
+            "kind": "mora",
+            "local_token_id": 83,
+            "source_char_end": 3,
+            "source_char_start": 1,
+            "source_utf8_end": 3,
+            "source_utf8_start": 1,
+            "symbol": "ン",
+            "token_index": 8,
+            "unit_index": 3
+          },
+          {
+            "commit_char_end": 1,
+            "commit_utf8_end": 1,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 3,
+            "source_char_start": 1,
+            "source_utf8_end": 3,
+            "source_utf8_start": 1,
+            "symbol": "0",
+            "token_index": 9,
+            "unit_index": 4
+          },
+          {
+            "commit_char_end": 1,
+            "commit_utf8_end": 1,
+            "global_token_id": 848,
+            "kind": "mora",
+            "local_token_id": 6,
+            "source_char_end": 3,
+            "source_char_start": 1,
+            "source_utf8_end": 3,
+            "source_utf8_start": 1,
+            "symbol": "イ",
+            "token_index": 10,
+            "unit_index": 4
+          },
+          {
+            "commit_char_end": 1,
+            "commit_utf8_end": 1,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 3,
+            "source_char_start": 1,
+            "source_utf8_end": 3,
+            "source_utf8_start": 1,
+            "symbol": "1",
+            "token_index": 11,
+            "unit_index": 5
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 3,
+            "global_token_id": 877,
+            "kind": "mora",
+            "local_token_id": 35,
+            "source_char_end": 3,
+            "source_char_start": 1,
+            "source_utf8_end": 3,
+            "source_utf8_start": 1,
+            "symbol": "チ",
+            "token_index": 12,
+            "unit_index": 5
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 3,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 6,
+            "source_char_start": 3,
+            "source_utf8_end": 6,
+            "source_utf8_start": 3,
+            "symbol": "0",
+            "token_index": 13,
+            "unit_index": 6
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 3,
+            "global_token_id": 916,
+            "kind": "mora",
+            "local_token_id": 74,
+            "source_char_end": 6,
+            "source_char_start": 3,
+            "source_utf8_end": 6,
+            "source_utf8_start": 3,
+            "symbol": "ヨ",
+            "token_index": 14,
+            "unit_index": 6
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 3,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 6,
+            "source_char_start": 3,
+            "source_utf8_end": 6,
+            "source_utf8_start": 3,
+            "symbol": "1",
+            "token_index": 15,
+            "unit_index": 7
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 3,
+            "global_token_id": 925,
+            "kind": "mora",
+            "local_token_id": 83,
+            "source_char_end": 6,
+            "source_char_start": 3,
+            "source_utf8_end": 6,
+            "source_utf8_start": 3,
+            "symbol": "ン",
+            "token_index": 16,
+            "unit_index": 7
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 3,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 6,
+            "source_char_start": 3,
+            "source_utf8_end": 6,
+            "source_utf8_start": 3,
+            "symbol": "1",
+            "token_index": 17,
+            "unit_index": 8
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 3,
+            "global_token_id": 857,
+            "kind": "mora",
+            "local_token_id": 15,
+            "source_char_end": 6,
+            "source_char_start": 3,
+            "source_utf8_end": 6,
+            "source_utf8_start": 3,
+            "symbol": "キ",
+            "token_index": 18,
+            "unit_index": 8
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 3,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 6,
+            "source_char_start": 3,
+            "source_utf8_end": 6,
+            "source_utf8_start": 3,
+            "symbol": "1",
+            "token_index": 19,
+            "unit_index": 9
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 3,
+            "global_token_id": 921,
+            "kind": "mora",
+            "local_token_id": 79,
+            "source_char_end": 6,
+            "source_char_start": 3,
+            "source_utf8_end": 6,
+            "source_utf8_start": 3,
+            "symbol": "ロ",
+            "token_index": 20,
+            "unit_index": 9
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 3,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 6,
+            "source_char_start": 3,
+            "source_utf8_end": 6,
+            "source_utf8_start": 3,
+            "symbol": "1",
+            "token_index": 21,
+            "unit_index": 10
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 3,
+            "global_token_id": 860,
+            "kind": "mora",
+            "local_token_id": 18,
+            "source_char_end": 6,
+            "source_char_start": 3,
+            "source_utf8_end": 6,
+            "source_utf8_start": 3,
+            "symbol": "グ",
+            "token_index": 22,
+            "unit_index": 10
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 3,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 6,
+            "source_char_start": 3,
+            "source_utf8_end": 6,
+            "source_utf8_start": 3,
+            "symbol": "0",
+            "token_index": 23,
+            "unit_index": 11
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 3,
+            "global_token_id": 917,
+            "kind": "mora",
+            "local_token_id": 75,
+            "source_char_end": 6,
+            "source_char_start": 3,
+            "source_utf8_end": 6,
+            "source_utf8_start": 3,
+            "symbol": "ラ",
+            "token_index": 24,
+            "unit_index": 11
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 3,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 6,
+            "source_char_start": 3,
+            "source_utf8_end": 6,
+            "source_utf8_start": 3,
+            "symbol": "0",
+            "token_index": 25,
+            "unit_index": 12
+          },
+          {
+            "commit_char_end": 6,
+            "commit_utf8_end": 6,
+            "global_token_id": 908,
+            "kind": "mora",
+            "local_token_id": 66,
+            "source_char_end": 6,
+            "source_char_start": 3,
+            "source_utf8_end": 6,
+            "source_utf8_start": 3,
+            "symbol": "ム",
+            "token_index": 26,
+            "unit_index": 12
+          },
+          {
+            "commit_char_end": 6,
+            "commit_utf8_end": 6,
+            "global_token_id": 842,
+            "kind": "boundary_space",
+            "local_token_id": 0,
+            "source_char_end": 6,
+            "source_char_start": 6,
+            "source_utf8_end": 6,
+            "source_utf8_start": 6,
+            "symbol": " ",
+            "token_index": 27,
+            "unit_index": null
+          },
+          {
+            "commit_char_end": 6,
+            "commit_utf8_end": 6,
+            "global_token_id": 3358,
+            "kind": "eos",
+            "local_token_id": null,
+            "source_char_end": 6,
+            "source_char_start": 6,
+            "source_utf8_end": 6,
+            "source_utf8_start": 6,
+            "symbol": "<eos>",
+            "token_index": 28,
+            "unit_index": null
+          }
+        ]
+      },
+      "id": "decimal_unit",
+      "prefix_frontend_rows": [
+        {
+          "normalized_prefix": "3",
+          "rows": [
+            {
+              "acc": 0,
+              "chain_flag": -1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "サン",
+              "string": "三"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "3.",
+          "rows": [
+            {
+              "acc": 0,
+              "chain_flag": -1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "サン",
+              "string": "三"
+            },
+            {
+              "acc": 0,
+              "chain_flag": 0,
+              "mora_size": 0,
+              "pos": "記号",
+              "pos_group1": "句点",
+              "pron": "、",
+              "string": "．"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "3.1",
+          "rows": [
+            {
+              "acc": 0,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "サン",
+              "string": "三"
+            },
+            {
+              "acc": 0,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "接尾",
+              "pron": "テン",
+              "string": "．"
+            },
+            {
+              "acc": 2,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "イチ",
+              "string": "一"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "3.14",
+          "rows": [
+            {
+              "acc": 0,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "サン",
+              "string": "三"
+            },
+            {
+              "acc": 0,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "接尾",
+              "pron": "テン",
+              "string": "．"
+            },
+            {
+              "acc": 3,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "イチ",
+              "string": "一"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ヨン",
+              "string": "四"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "3.14k",
+          "rows": [
+            {
+              "acc": 0,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "サン",
+              "string": "三"
+            },
+            {
+              "acc": 0,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "接尾",
+              "pron": "テン",
+              "string": "．"
+            },
+            {
+              "acc": 3,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "イチ",
+              "string": "一"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ヨン",
+              "string": "四"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "記号",
+              "pos_group1": "アルファベット",
+              "pron": "ケイ",
+              "string": "ｋ"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "3.14kg",
+          "rows": [
+            {
+              "acc": 0,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "サン",
+              "string": "三"
+            },
+            {
+              "acc": 0,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "接尾",
+              "pron": "テン",
+              "string": "．"
+            },
+            {
+              "acc": 3,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "イチ",
+              "string": "一"
+            },
+            {
+              "acc": 5,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ヨン",
+              "string": "四"
+            },
+            {
+              "acc": 3,
+              "chain_flag": 1,
+              "mora_size": 5,
+              "pos": "名詞",
+              "pos_group1": "接尾",
+              "pron": "キログラム",
+              "string": "ｋｇ"
+            }
+          ]
+        }
+      ],
+      "source_text": "3.14kg"
+    },
+    {
+      "expected": {
+        "g2p_tokens": [
+          "0",
+          "ヒ",
+          "ャ",
+          "1",
+          "ク",
+          "1",
+          "ニ",
+          "0",
+          "ジ",
+          "ュ",
+          "0",
+          "ー",
+          "0",
+          "サ",
+          "1",
+          "ン",
+          "1",
+          "キ",
+          "1",
+          "ロ",
+          "1",
+          "グ",
+          "0",
+          "ラ",
+          "0",
+          "ム"
+        ],
+        "global_token_ids": [
+          842,
+          843,
+          894,
+          911,
+          844,
+          859,
+          844,
+          887,
+          843,
+          868,
+          913,
+          843,
+          1007,
+          843,
+          865,
+          844,
+          925,
+          844,
+          857,
+          844,
+          921,
+          844,
+          860,
+          843,
+          917,
+          843,
+          908,
+          842,
+          3358
+        ],
+        "normalized_text": "１２３ｋｇ",
+        "progress": [
+          {
+            "committed_text_tokens": 0,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 1,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 2,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 3,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 4,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 5,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 6,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 7,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 8,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 9,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 10,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 11,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 12,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 13,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 14,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 15,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 16,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 17,
+            "source_char_end": 3,
+            "source_utf8_end": 9
+          },
+          {
+            "committed_text_tokens": 18,
+            "source_char_end": 3,
+            "source_utf8_end": 9
+          },
+          {
+            "committed_text_tokens": 19,
+            "source_char_end": 3,
+            "source_utf8_end": 9
+          },
+          {
+            "committed_text_tokens": 20,
+            "source_char_end": 3,
+            "source_utf8_end": 9
+          },
+          {
+            "committed_text_tokens": 21,
+            "source_char_end": 3,
+            "source_utf8_end": 9
+          },
+          {
+            "committed_text_tokens": 22,
+            "source_char_end": 3,
+            "source_utf8_end": 9
+          },
+          {
+            "committed_text_tokens": 23,
+            "source_char_end": 3,
+            "source_utf8_end": 9
+          },
+          {
+            "committed_text_tokens": 24,
+            "source_char_end": 3,
+            "source_utf8_end": 9
+          },
+          {
+            "committed_text_tokens": 25,
+            "source_char_end": 3,
+            "source_utf8_end": 9
+          },
+          {
+            "committed_text_tokens": 26,
+            "source_char_end": 3,
+            "source_utf8_end": 9
+          },
+          {
+            "committed_text_tokens": 27,
+            "source_char_end": 5,
+            "source_utf8_end": 15
+          },
+          {
+            "committed_text_tokens": 28,
+            "source_char_end": 5,
+            "source_utf8_end": 15
+          },
+          {
+            "committed_text_tokens": 29,
+            "source_char_end": 5,
+            "source_utf8_end": 15
+          }
+        ],
+        "proof": {
+          "certified_prefix_count": 3,
+          "core_token_count": 26,
+          "method": "locked_openjtalk_complete_prefix_replay_v1",
+          "prepared_char_count": 5,
+          "segments": [
+            {
+              "core_token_end": 16,
+              "core_token_start": 0,
+              "source_char_end": 3,
+              "source_char_start": 0,
+              "source_utf8_end": 9,
+              "source_utf8_start": 0
+            },
+            {
+              "core_token_end": 26,
+              "core_token_start": 16,
+              "source_char_end": 5,
+              "source_char_start": 3,
+              "source_utf8_end": 15,
+              "source_utf8_start": 9
+            }
+          ]
+        },
+        "schema_version": 1,
+        "source_text": "１２３ｋｇ",
+        "tokens": [
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 842,
+            "kind": "boundary_space",
+            "local_token_id": 0,
+            "source_char_end": 0,
+            "source_char_start": 0,
+            "source_utf8_end": 0,
+            "source_utf8_start": 0,
+            "symbol": " ",
+            "token_index": 0,
+            "unit_index": null
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 3,
+            "source_char_start": 0,
+            "source_utf8_end": 9,
+            "source_utf8_start": 0,
+            "symbol": "0",
+            "token_index": 1,
+            "unit_index": 0
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 894,
+            "kind": "mora",
+            "local_token_id": 52,
+            "source_char_end": 3,
+            "source_char_start": 0,
+            "source_utf8_end": 9,
+            "source_utf8_start": 0,
+            "symbol": "ヒ",
+            "token_index": 2,
+            "unit_index": 0
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 911,
+            "kind": "mora",
+            "local_token_id": 69,
+            "source_char_end": 3,
+            "source_char_start": 0,
+            "source_utf8_end": 9,
+            "source_utf8_start": 0,
+            "symbol": "ャ",
+            "token_index": 3,
+            "unit_index": 0
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 3,
+            "source_char_start": 0,
+            "source_utf8_end": 9,
+            "source_utf8_start": 0,
+            "symbol": "1",
+            "token_index": 4,
+            "unit_index": 1
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 859,
+            "kind": "mora",
+            "local_token_id": 17,
+            "source_char_end": 3,
+            "source_char_start": 0,
+            "source_utf8_end": 9,
+            "source_utf8_start": 0,
+            "symbol": "ク",
+            "token_index": 5,
+            "unit_index": 1
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 3,
+            "source_char_start": 0,
+            "source_utf8_end": 9,
+            "source_utf8_start": 0,
+            "symbol": "1",
+            "token_index": 6,
+            "unit_index": 2
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 887,
+            "kind": "mora",
+            "local_token_id": 45,
+            "source_char_end": 3,
+            "source_char_start": 0,
+            "source_utf8_end": 9,
+            "source_utf8_start": 0,
+            "symbol": "ニ",
+            "token_index": 7,
+            "unit_index": 2
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 3,
+            "source_char_start": 0,
+            "source_utf8_end": 9,
+            "source_utf8_start": 0,
+            "symbol": "0",
+            "token_index": 8,
+            "unit_index": 3
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 868,
+            "kind": "mora",
+            "local_token_id": 26,
+            "source_char_end": 3,
+            "source_char_start": 0,
+            "source_utf8_end": 9,
+            "source_utf8_start": 0,
+            "symbol": "ジ",
+            "token_index": 9,
+            "unit_index": 3
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 913,
+            "kind": "mora",
+            "local_token_id": 71,
+            "source_char_end": 3,
+            "source_char_start": 0,
+            "source_utf8_end": 9,
+            "source_utf8_start": 0,
+            "symbol": "ュ",
+            "token_index": 10,
+            "unit_index": 3
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 3,
+            "source_char_start": 0,
+            "source_utf8_end": 9,
+            "source_utf8_start": 0,
+            "symbol": "0",
+            "token_index": 11,
+            "unit_index": 4
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 1007,
+            "kind": "mora",
+            "local_token_id": 165,
+            "source_char_end": 3,
+            "source_char_start": 0,
+            "source_utf8_end": 9,
+            "source_utf8_start": 0,
+            "symbol": "ー",
+            "token_index": 12,
+            "unit_index": 4
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 3,
+            "source_char_start": 0,
+            "source_utf8_end": 9,
+            "source_utf8_start": 0,
+            "symbol": "0",
+            "token_index": 13,
+            "unit_index": 5
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 865,
+            "kind": "mora",
+            "local_token_id": 23,
+            "source_char_end": 3,
+            "source_char_start": 0,
+            "source_utf8_end": 9,
+            "source_utf8_start": 0,
+            "symbol": "サ",
+            "token_index": 14,
+            "unit_index": 5
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 3,
+            "source_char_start": 0,
+            "source_utf8_end": 9,
+            "source_utf8_start": 0,
+            "symbol": "1",
+            "token_index": 15,
+            "unit_index": 6
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 9,
+            "global_token_id": 925,
+            "kind": "mora",
+            "local_token_id": 83,
+            "source_char_end": 3,
+            "source_char_start": 0,
+            "source_utf8_end": 9,
+            "source_utf8_start": 0,
+            "symbol": "ン",
+            "token_index": 16,
+            "unit_index": 6
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 9,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 5,
+            "source_char_start": 3,
+            "source_utf8_end": 15,
+            "source_utf8_start": 9,
+            "symbol": "1",
+            "token_index": 17,
+            "unit_index": 7
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 9,
+            "global_token_id": 857,
+            "kind": "mora",
+            "local_token_id": 15,
+            "source_char_end": 5,
+            "source_char_start": 3,
+            "source_utf8_end": 15,
+            "source_utf8_start": 9,
+            "symbol": "キ",
+            "token_index": 18,
+            "unit_index": 7
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 9,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 5,
+            "source_char_start": 3,
+            "source_utf8_end": 15,
+            "source_utf8_start": 9,
+            "symbol": "1",
+            "token_index": 19,
+            "unit_index": 8
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 9,
+            "global_token_id": 921,
+            "kind": "mora",
+            "local_token_id": 79,
+            "source_char_end": 5,
+            "source_char_start": 3,
+            "source_utf8_end": 15,
+            "source_utf8_start": 9,
+            "symbol": "ロ",
+            "token_index": 20,
+            "unit_index": 8
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 9,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 5,
+            "source_char_start": 3,
+            "source_utf8_end": 15,
+            "source_utf8_start": 9,
+            "symbol": "1",
+            "token_index": 21,
+            "unit_index": 9
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 9,
+            "global_token_id": 860,
+            "kind": "mora",
+            "local_token_id": 18,
+            "source_char_end": 5,
+            "source_char_start": 3,
+            "source_utf8_end": 15,
+            "source_utf8_start": 9,
+            "symbol": "グ",
+            "token_index": 22,
+            "unit_index": 9
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 9,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 5,
+            "source_char_start": 3,
+            "source_utf8_end": 15,
+            "source_utf8_start": 9,
+            "symbol": "0",
+            "token_index": 23,
+            "unit_index": 10
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 9,
+            "global_token_id": 917,
+            "kind": "mora",
+            "local_token_id": 75,
+            "source_char_end": 5,
+            "source_char_start": 3,
+            "source_utf8_end": 15,
+            "source_utf8_start": 9,
+            "symbol": "ラ",
+            "token_index": 24,
+            "unit_index": 10
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 9,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 5,
+            "source_char_start": 3,
+            "source_utf8_end": 15,
+            "source_utf8_start": 9,
+            "symbol": "0",
+            "token_index": 25,
+            "unit_index": 11
+          },
+          {
+            "commit_char_end": 5,
+            "commit_utf8_end": 15,
+            "global_token_id": 908,
+            "kind": "mora",
+            "local_token_id": 66,
+            "source_char_end": 5,
+            "source_char_start": 3,
+            "source_utf8_end": 15,
+            "source_utf8_start": 9,
+            "symbol": "ム",
+            "token_index": 26,
+            "unit_index": 11
+          },
+          {
+            "commit_char_end": 5,
+            "commit_utf8_end": 15,
+            "global_token_id": 842,
+            "kind": "boundary_space",
+            "local_token_id": 0,
+            "source_char_end": 5,
+            "source_char_start": 5,
+            "source_utf8_end": 15,
+            "source_utf8_start": 15,
+            "symbol": " ",
+            "token_index": 27,
+            "unit_index": null
+          },
+          {
+            "commit_char_end": 5,
+            "commit_utf8_end": 15,
+            "global_token_id": 3358,
+            "kind": "eos",
+            "local_token_id": null,
+            "source_char_end": 5,
+            "source_char_start": 5,
+            "source_utf8_end": 15,
+            "source_utf8_start": 15,
+            "symbol": "<eos>",
+            "token_index": 28,
+            "unit_index": null
+          }
+        ]
+      },
+      "id": "fullwidth_digits_unit",
+      "prefix_frontend_rows": [
+        {
+          "normalized_prefix": "１",
+          "rows": [
+            {
+              "acc": 2,
+              "chain_flag": -1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "イチ",
+              "string": "一"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "１２",
+          "rows": [
+            {
+              "acc": 0,
+              "chain_flag": -1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ジュー",
+              "string": "十"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 0,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ニ",
+              "string": "二"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "１２３",
+          "rows": [
+            {
+              "acc": 2,
+              "chain_flag": -1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ヒャク",
+              "string": "百"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 0,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ニ",
+              "string": "二"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ジュー",
+              "string": "十"
+            },
+            {
+              "acc": 0,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "サン",
+              "string": "三"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "１２３ｋ",
+          "rows": [
+            {
+              "acc": 2,
+              "chain_flag": -1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ヒャク",
+              "string": "百"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 0,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ニ",
+              "string": "二"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ジュー",
+              "string": "十"
+            },
+            {
+              "acc": 0,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "サン",
+              "string": "三"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "記号",
+              "pos_group1": "アルファベット",
+              "pron": "ケイ",
+              "string": "ｋ"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "１２３ｋｇ",
+          "rows": [
+            {
+              "acc": 2,
+              "chain_flag": -1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ヒャク",
+              "string": "百"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 0,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ニ",
+              "string": "二"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "ジュー",
+              "string": "十"
+            },
+            {
+              "acc": 5,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "数",
+              "pron": "サン",
+              "string": "三"
+            },
+            {
+              "acc": 3,
+              "chain_flag": 1,
+              "mora_size": 5,
+              "pos": "名詞",
+              "pos_group1": "接尾",
+              "pron": "キログラム",
+              "string": "ｋｇ"
+            }
+          ]
+        }
+      ],
+      "source_text": "１２３ｋｇ"
+    },
+    {
+      "expected": {
+        "g2p_tokens": [
+          "a",
+          "s",
+          "p",
+          "a",
+          "r",
+          "o",
+          "b",
+          "o",
+          "t"
+        ],
+        "global_token_ids": [
+          842,
+          930,
+          948,
+          945,
+          930,
+          947,
+          944,
+          931,
+          944,
+          949,
+          842,
+          3358
+        ],
+        "normalized_text": "ａｓｐａrobot",
+        "progress": [
+          {
+            "committed_text_tokens": 0,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 1,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 2,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 3,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 4,
+            "source_char_end": 3,
+            "source_utf8_end": 9
+          },
+          {
+            "committed_text_tokens": 5,
+            "source_char_end": 4,
+            "source_utf8_end": 12
+          },
+          {
+            "committed_text_tokens": 6,
+            "source_char_end": 6,
+            "source_utf8_end": 14
+          },
+          {
+            "committed_text_tokens": 7,
+            "source_char_end": 7,
+            "source_utf8_end": 15
+          },
+          {
+            "committed_text_tokens": 8,
+            "source_char_end": 8,
+            "source_utf8_end": 16
+          },
+          {
+            "committed_text_tokens": 9,
+            "source_char_end": 9,
+            "source_utf8_end": 17
+          },
+          {
+            "committed_text_tokens": 10,
+            "source_char_end": 10,
+            "source_utf8_end": 18
+          },
+          {
+            "committed_text_tokens": 11,
+            "source_char_end": 10,
+            "source_utf8_end": 18
+          },
+          {
+            "committed_text_tokens": 12,
+            "source_char_end": 10,
+            "source_utf8_end": 18
+          }
+        ],
+        "proof": {
+          "certified_prefix_count": 8,
+          "core_token_count": 9,
+          "method": "locked_openjtalk_complete_prefix_replay_v1",
+          "prepared_char_count": 9,
+          "segments": [
+            {
+              "core_token_end": 3,
+              "core_token_start": 0,
+              "source_char_end": 3,
+              "source_char_start": 0,
+              "source_utf8_end": 9,
+              "source_utf8_start": 0
+            },
+            {
+              "core_token_end": 4,
+              "core_token_start": 3,
+              "source_char_end": 4,
+              "source_char_start": 3,
+              "source_utf8_end": 12,
+              "source_utf8_start": 9
+            },
+            {
+              "core_token_end": 5,
+              "core_token_start": 4,
+              "source_char_end": 6,
+              "source_char_start": 4,
+              "source_utf8_end": 14,
+              "source_utf8_start": 12
+            },
+            {
+              "core_token_end": 6,
+              "core_token_start": 5,
+              "source_char_end": 7,
+              "source_char_start": 6,
+              "source_utf8_end": 15,
+              "source_utf8_start": 14
+            },
+            {
+              "core_token_end": 7,
+              "core_token_start": 6,
+              "source_char_end": 8,
+              "source_char_start": 7,
+              "source_utf8_end": 16,
+              "source_utf8_start": 15
+            },
+            {
+              "core_token_end": 8,
+              "core_token_start": 7,
+              "source_char_end": 9,
+              "source_char_start": 8,
+              "source_utf8_end": 17,
+              "source_utf8_start": 16
+            },
+            {
+              "core_token_end": 9,
+              "core_token_start": 8,
+              "source_char_end": 10,
+              "source_char_start": 9,
+              "source_utf8_end": 18,
+              "source_utf8_start": 17
+            }
+          ]
+        },
+        "schema_version": 1,
+        "source_text": "ＡＳＰＡ Robot",
+        "tokens": [
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 842,
+            "kind": "boundary_space",
+            "local_token_id": 0,
+            "source_char_end": 0,
+            "source_char_start": 0,
+            "source_utf8_end": 0,
+            "source_utf8_start": 0,
+            "symbol": " ",
+            "token_index": 0,
+            "unit_index": null
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 930,
+            "kind": "ascii",
+            "local_token_id": 88,
+            "source_char_end": 3,
+            "source_char_start": 0,
+            "source_utf8_end": 9,
+            "source_utf8_start": 0,
+            "symbol": "a",
+            "token_index": 1,
+            "unit_index": 0
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 948,
+            "kind": "ascii",
+            "local_token_id": 106,
+            "source_char_end": 3,
+            "source_char_start": 0,
+            "source_utf8_end": 9,
+            "source_utf8_start": 0,
+            "symbol": "s",
+            "token_index": 2,
+            "unit_index": 1
+          },
+          {
+            "commit_char_end": 3,
+            "commit_utf8_end": 9,
+            "global_token_id": 945,
+            "kind": "ascii",
+            "local_token_id": 103,
+            "source_char_end": 3,
+            "source_char_start": 0,
+            "source_utf8_end": 9,
+            "source_utf8_start": 0,
+            "symbol": "p",
+            "token_index": 3,
+            "unit_index": 2
+          },
+          {
+            "commit_char_end": 4,
+            "commit_utf8_end": 12,
+            "global_token_id": 930,
+            "kind": "ascii",
+            "local_token_id": 88,
+            "source_char_end": 4,
+            "source_char_start": 3,
+            "source_utf8_end": 12,
+            "source_utf8_start": 9,
+            "symbol": "a",
+            "token_index": 4,
+            "unit_index": 3
+          },
+          {
+            "commit_char_end": 6,
+            "commit_utf8_end": 14,
+            "global_token_id": 947,
+            "kind": "ascii",
+            "local_token_id": 105,
+            "source_char_end": 6,
+            "source_char_start": 4,
+            "source_utf8_end": 14,
+            "source_utf8_start": 12,
+            "symbol": "r",
+            "token_index": 5,
+            "unit_index": 4
+          },
+          {
+            "commit_char_end": 7,
+            "commit_utf8_end": 15,
+            "global_token_id": 944,
+            "kind": "ascii",
+            "local_token_id": 102,
+            "source_char_end": 7,
+            "source_char_start": 6,
+            "source_utf8_end": 15,
+            "source_utf8_start": 14,
+            "symbol": "o",
+            "token_index": 6,
+            "unit_index": 5
+          },
+          {
+            "commit_char_end": 8,
+            "commit_utf8_end": 16,
+            "global_token_id": 931,
+            "kind": "ascii",
+            "local_token_id": 89,
+            "source_char_end": 8,
+            "source_char_start": 7,
+            "source_utf8_end": 16,
+            "source_utf8_start": 15,
+            "symbol": "b",
+            "token_index": 7,
+            "unit_index": 6
+          },
+          {
+            "commit_char_end": 9,
+            "commit_utf8_end": 17,
+            "global_token_id": 944,
+            "kind": "ascii",
+            "local_token_id": 102,
+            "source_char_end": 9,
+            "source_char_start": 8,
+            "source_utf8_end": 17,
+            "source_utf8_start": 16,
+            "symbol": "o",
+            "token_index": 8,
+            "unit_index": 7
+          },
+          {
+            "commit_char_end": 10,
+            "commit_utf8_end": 18,
+            "global_token_id": 949,
+            "kind": "ascii",
+            "local_token_id": 107,
+            "source_char_end": 10,
+            "source_char_start": 9,
+            "source_utf8_end": 18,
+            "source_utf8_start": 17,
+            "symbol": "t",
+            "token_index": 9,
+            "unit_index": 8
+          },
+          {
+            "commit_char_end": 10,
+            "commit_utf8_end": 18,
+            "global_token_id": 842,
+            "kind": "boundary_space",
+            "local_token_id": 0,
+            "source_char_end": 10,
+            "source_char_start": 10,
+            "source_utf8_end": 18,
+            "source_utf8_start": 18,
+            "symbol": " ",
+            "token_index": 10,
+            "unit_index": null
+          },
+          {
+            "commit_char_end": 10,
+            "commit_utf8_end": 18,
+            "global_token_id": 3358,
+            "kind": "eos",
+            "local_token_id": null,
+            "source_char_end": 10,
+            "source_char_start": 10,
+            "source_utf8_end": 18,
+            "source_utf8_start": 18,
+            "symbol": "<eos>",
+            "token_index": 11,
+            "unit_index": null
+          }
+        ]
+      },
+      "id": "latin_nfkc",
+      "prefix_frontend_rows": [
+        {
+          "normalized_prefix": "ａ",
+          "rows": [
+            {
+              "acc": 1,
+              "chain_flag": -1,
+              "mora_size": 2,
+              "pos": "記号",
+              "pos_group1": "アルファベット",
+              "pron": "エイ",
+              "string": "ａ"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "ａｓ",
+          "rows": [
+            {
+              "acc": 1,
+              "chain_flag": -1,
+              "mora_size": 2,
+              "pos": "記号",
+              "pos_group1": "アルファベット",
+              "pron": "エイ",
+              "string": "ａ"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "記号",
+              "pos_group1": "アルファベット",
+              "pron": "エス",
+              "string": "ｓ"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "ａｓｐ",
+          "rows": [
+            {
+              "acc": 0,
+              "chain_flag": -1,
+              "mora_size": 6,
+              "pos": "フィラー",
+              "pos_group1": "*",
+              "pron": "エーエスピー",
+              "string": "ａｓｐ"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "ａｓｐａ",
+          "rows": [
+            {
+              "acc": 0,
+              "chain_flag": -1,
+              "mora_size": 8,
+              "pos": "フィラー",
+              "pos_group1": "*",
+              "pron": "エーエスピーエー",
+              "string": "ａｓｐａ"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "ａｓｐａr",
+          "rows": [
+            {
+              "acc": 0,
+              "chain_flag": -1,
+              "mora_size": 11,
+              "pos": "フィラー",
+              "pos_group1": "*",
+              "pron": "エーエスピーエーアール",
+              "string": "ａｓｐａｒ"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "ａｓｐａro",
+          "rows": [
+            {
+              "acc": 0,
+              "chain_flag": -1,
+              "mora_size": 13,
+              "pos": "フィラー",
+              "pos_group1": "*",
+              "pron": "エーエスピーエーアールオー",
+              "string": "ａｓｐａｒｏ"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "ａｓｐａrob",
+          "rows": [
+            {
+              "acc": 0,
+              "chain_flag": -1,
+              "mora_size": 15,
+              "pos": "フィラー",
+              "pos_group1": "*",
+              "pron": "エーエスピーエーアールオービー",
+              "string": "ａｓｐａｒｏｂ"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "ａｓｐａrobo",
+          "rows": [
+            {
+              "acc": 0,
+              "chain_flag": -1,
+              "mora_size": 17,
+              "pos": "フィラー",
+              "pos_group1": "*",
+              "pron": "エーエスピーエーアールオービーオー",
+              "string": "ａｓｐａｒｏｂｏ"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "ａｓｐａrobot",
+          "rows": [
+            {
+              "acc": 0,
+              "chain_flag": -1,
+              "mora_size": 19,
+              "pos": "フィラー",
+              "pos_group1": "*",
+              "pron": "エーエスピーエーアールオービーオーティー",
+              "string": "ａｓｐａｒｏｂｏｔ"
+            }
+          ]
+        }
+      ],
+      "source_text": "ＡＳＰＡ Robot"
+    },
+    {
+      "expected": {
+        "g2p_tokens": [
+          "0",
+          "パ",
+          "1",
+          "ピ",
+          "1",
+          "プ",
+          "0",
+          "ペ",
+          "0",
+          "ポ"
+        ],
+        "global_token_ids": [
+          842,
+          843,
+          893,
+          844,
+          896,
+          844,
+          899,
+          843,
+          902,
+          843,
+          905,
+          842,
+          3358
+        ],
+        "normalized_text": "ﾊﾟﾋﾟﾌﾟﾍﾟﾎﾟ",
+        "progress": [
+          {
+            "committed_text_tokens": 0,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 1,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 2,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 3,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 4,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 5,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 6,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 7,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 8,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 9,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 10,
+            "source_char_end": 0,
+            "source_utf8_end": 0
+          },
+          {
+            "committed_text_tokens": 11,
+            "source_char_end": 10,
+            "source_utf8_end": 30
+          },
+          {
+            "committed_text_tokens": 12,
+            "source_char_end": 10,
+            "source_utf8_end": 30
+          },
+          {
+            "committed_text_tokens": 13,
+            "source_char_end": 10,
+            "source_utf8_end": 30
+          }
+        ],
+        "proof": {
+          "certified_prefix_count": 2,
+          "core_token_count": 10,
+          "method": "locked_openjtalk_complete_prefix_replay_v1",
+          "prepared_char_count": 10,
+          "segments": [
+            {
+              "core_token_end": 10,
+              "core_token_start": 0,
+              "source_char_end": 10,
+              "source_char_start": 0,
+              "source_utf8_end": 30,
+              "source_utf8_start": 0
+            }
+          ]
+        },
+        "schema_version": 1,
+        "source_text": "ﾊﾟﾋﾟﾌﾟﾍﾟﾎﾟ",
+        "tokens": [
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 842,
+            "kind": "boundary_space",
+            "local_token_id": 0,
+            "source_char_end": 0,
+            "source_char_start": 0,
+            "source_utf8_end": 0,
+            "source_utf8_start": 0,
+            "symbol": " ",
+            "token_index": 0,
+            "unit_index": null
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 10,
+            "source_char_start": 0,
+            "source_utf8_end": 30,
+            "source_utf8_start": 0,
+            "symbol": "0",
+            "token_index": 1,
+            "unit_index": 0
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 893,
+            "kind": "mora",
+            "local_token_id": 51,
+            "source_char_end": 10,
+            "source_char_start": 0,
+            "source_utf8_end": 30,
+            "source_utf8_start": 0,
+            "symbol": "パ",
+            "token_index": 2,
+            "unit_index": 0
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 10,
+            "source_char_start": 0,
+            "source_utf8_end": 30,
+            "source_utf8_start": 0,
+            "symbol": "1",
+            "token_index": 3,
+            "unit_index": 1
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 896,
+            "kind": "mora",
+            "local_token_id": 54,
+            "source_char_end": 10,
+            "source_char_start": 0,
+            "source_utf8_end": 30,
+            "source_utf8_start": 0,
+            "symbol": "ピ",
+            "token_index": 4,
+            "unit_index": 1
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 844,
+            "kind": "pitch",
+            "local_token_id": 2,
+            "source_char_end": 10,
+            "source_char_start": 0,
+            "source_utf8_end": 30,
+            "source_utf8_start": 0,
+            "symbol": "1",
+            "token_index": 5,
+            "unit_index": 2
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 899,
+            "kind": "mora",
+            "local_token_id": 57,
+            "source_char_end": 10,
+            "source_char_start": 0,
+            "source_utf8_end": 30,
+            "source_utf8_start": 0,
+            "symbol": "プ",
+            "token_index": 6,
+            "unit_index": 2
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 10,
+            "source_char_start": 0,
+            "source_utf8_end": 30,
+            "source_utf8_start": 0,
+            "symbol": "0",
+            "token_index": 7,
+            "unit_index": 3
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 902,
+            "kind": "mora",
+            "local_token_id": 60,
+            "source_char_end": 10,
+            "source_char_start": 0,
+            "source_utf8_end": 30,
+            "source_utf8_start": 0,
+            "symbol": "ペ",
+            "token_index": 8,
+            "unit_index": 3
+          },
+          {
+            "commit_char_end": 0,
+            "commit_utf8_end": 0,
+            "global_token_id": 843,
+            "kind": "pitch",
+            "local_token_id": 1,
+            "source_char_end": 10,
+            "source_char_start": 0,
+            "source_utf8_end": 30,
+            "source_utf8_start": 0,
+            "symbol": "0",
+            "token_index": 9,
+            "unit_index": 4
+          },
+          {
+            "commit_char_end": 10,
+            "commit_utf8_end": 30,
+            "global_token_id": 905,
+            "kind": "mora",
+            "local_token_id": 63,
+            "source_char_end": 10,
+            "source_char_start": 0,
+            "source_utf8_end": 30,
+            "source_utf8_start": 0,
+            "symbol": "ポ",
+            "token_index": 10,
+            "unit_index": 4
+          },
+          {
+            "commit_char_end": 10,
+            "commit_utf8_end": 30,
+            "global_token_id": 842,
+            "kind": "boundary_space",
+            "local_token_id": 0,
+            "source_char_end": 10,
+            "source_char_start": 10,
+            "source_utf8_end": 30,
+            "source_utf8_start": 30,
+            "symbol": " ",
+            "token_index": 11,
+            "unit_index": null
+          },
+          {
+            "commit_char_end": 10,
+            "commit_utf8_end": 30,
+            "global_token_id": 3358,
+            "kind": "eos",
+            "local_token_id": null,
+            "source_char_end": 10,
+            "source_char_start": 10,
+            "source_utf8_end": 30,
+            "source_utf8_start": 30,
+            "symbol": "<eos>",
+            "token_index": 12,
+            "unit_index": null
+          }
+        ]
+      },
+      "id": "halfwidth_katakana_nfkc",
+      "prefix_frontend_rows": [
+        {
+          "normalized_prefix": "ﾊ",
+          "rows": [
+            {
+              "acc": 1,
+              "chain_flag": -1,
+              "mora_size": 1,
+              "pos": "フィラー",
+              "pos_group1": "*",
+              "pron": "ハ",
+              "string": "ハ"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "ﾊﾟ",
+          "rows": [
+            {
+              "acc": 1,
+              "chain_flag": -1,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "固有名詞",
+              "pron": "パ",
+              "string": "パ"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "ﾊﾟﾋ",
+          "rows": [
+            {
+              "acc": 1,
+              "chain_flag": -1,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "固有名詞",
+              "pron": "パ",
+              "string": "パ"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 1,
+              "pos": "フィラー",
+              "pos_group1": "*",
+              "pron": "ヒ",
+              "string": "ヒ"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "ﾊﾟﾋﾟ",
+          "rows": [
+            {
+              "acc": 1,
+              "chain_flag": -1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "固有名詞",
+              "pron": "パピ",
+              "string": "パピ"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "ﾊﾟﾋﾟﾌ",
+          "rows": [
+            {
+              "acc": 2,
+              "chain_flag": -1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "固有名詞",
+              "pron": "パピ",
+              "string": "パピ"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "一般",
+              "pron": "フ",
+              "string": "フ"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "ﾊﾟﾋﾟﾌﾟ",
+          "rows": [
+            {
+              "acc": 1,
+              "chain_flag": -1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "固有名詞",
+              "pron": "パピ’",
+              "string": "パピ"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 1,
+              "pos": "フィラー",
+              "pos_group1": "*",
+              "pron": "プ",
+              "string": "プ"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "ﾊﾟﾋﾟﾌﾟﾍ",
+          "rows": [
+            {
+              "acc": 1,
+              "chain_flag": -1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "固有名詞",
+              "pron": "パピ’",
+              "string": "パピ"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "フィラー",
+              "pos_group1": "*",
+              "pron": "プヘ",
+              "string": "プヘ"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "ﾊﾟﾋﾟﾌﾟﾍﾟ",
+          "rows": [
+            {
+              "acc": 1,
+              "chain_flag": -1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "固有名詞",
+              "pron": "パピ’",
+              "string": "パピ"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "フィラー",
+              "pos_group1": "*",
+              "pron": "プペ",
+              "string": "プペ"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "ﾊﾟﾋﾟﾌﾟﾍﾟﾎ",
+          "rows": [
+            {
+              "acc": 4,
+              "chain_flag": -1,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "固有名詞",
+              "pron": "パピ’",
+              "string": "パピ"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 2,
+              "pos": "フィラー",
+              "pos_group1": "*",
+              "pron": "プペ",
+              "string": "プペ"
+            },
+            {
+              "acc": 1,
+              "chain_flag": 1,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "非自立",
+              "pron": "ホ",
+              "string": "ホ"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "ﾊﾟﾋﾟﾌﾟﾍﾟﾎﾟ",
+          "rows": [
+            {
+              "acc": 3,
+              "chain_flag": -1,
+              "mora_size": 5,
+              "pos": "フィラー",
+              "pos_group1": "*",
+              "pron": "パピプペポ",
+              "string": "パピプペポ"
+            }
+          ]
+        }
+      ],
+      "source_text": "ﾊﾟﾋﾟﾌﾟﾍﾟﾎﾟ"
+    }
+  ],
+  "fixture_id": "magpie-v2607-japanese-source-spans-v1",
+  "frontend_contract": {
+    "aggregate_vocabulary_size": 3357,
+    "bos_token_id": 3357,
+    "dependencies": {
+      "huggingface_hub": "1.25.1",
+      "nemo": "3.1.0+9ae3e66b7",
+      "omegaconf": "2.3.0",
+      "tokenizers": "0.22.2",
+      "transformers": "5.14.1"
+    },
+    "eos_token_id": 3358,
+    "japanese": {
+      "global_offset": 842,
+      "global_pad_token_id": 1015,
+      "golden": {
+        "g2p_tokens": [
+          "0",
+          "コ",
+          "1",
+          "ン",
+          "1",
+          "ニ",
+          "1",
+          "チ",
+          "1",
+          "ワ",
+          "。"
+        ],
+        "global_token_ids_with_eos": [
+          842,
+          843,
+          863,
+          844,
+          925,
+          844,
+          887,
+          844,
+          877,
+          844,
+          923,
+          981,
+          842,
+          3358
+        ],
+        "local_token_ids": [
+          0,
+          1,
+          21,
+          2,
+          83,
+          2,
+          45,
+          2,
+          35,
+          2,
+          81,
+          139,
+          0
+        ],
+        "normalized_text": "こんにちは。",
+        "raw_text": "こんにちは。"
+      },
+      "local_vocabulary_size": 175,
+      "pyopenjtalk": {
+        "dictionary": {
+          "directory_name": "open_jtalk_dic_utf_8-1.11",
+          "files": [
+            {
+              "path": "COPYING",
+              "sha256": "f4eca42ebd930e2c6e57fca58319d989bebcd1510cb7714b149c50f5425135ea",
+              "size_bytes": 5865
+            },
+            {
+              "path": "char.bin",
+              "sha256": "888ee94c5a8a7a26d24ab3f1b7155441351954fd51ea06b4a2f78bd742492b2f",
+              "size_bytes": 262496
+            },
+            {
+              "path": "left-id.def",
+              "sha256": "db1adac8a7f9e5854cd82ea044c85115249206c8181b9d88cf92ae2ee5e87b84",
+              "size_bytes": 77672
+            },
+            {
+              "path": "matrix.bin",
+              "sha256": "62fd16b4f64c851d5dc352ef0d5740c5fc83ddc7c203b2b0b1fc5271969a14ce",
+              "size_bytes": 3792262
+            },
+            {
+              "path": "pos-id.def",
+              "sha256": "3460aa742053085af47cdfc889a1e0e6f557e89b406e501ba81c9ccc286de0c7",
+              "size_bytes": 1923
+            },
+            {
+              "path": "rewrite.def",
+              "sha256": "7f7c8dfbfe24092e8a149a9b6e0a3a7f1c2cf37d6c3dc29d1cccc6c004da9c1c",
+              "size_bytes": 7457
+            },
+            {
+              "path": "right-id.def",
+              "sha256": "db1adac8a7f9e5854cd82ea044c85115249206c8181b9d88cf92ae2ee5e87b84",
+              "size_bytes": 77672
+            },
+            {
+              "path": "sys.dic",
+              "sha256": "ca57d9029691a70a5dfb99afc2844180256161d7130da65b1a867510e129b9a6",
+              "size_bytes": 103073776
+            },
+            {
+              "path": "unk.dic",
+              "sha256": "ce97851ecda075914fa3ffe7294a1ab34ee4f6d56ba6bf9197d74143b5dffbfe",
+              "size_bytes": 5690
+            }
+          ],
+          "manifest_canonicalization": "utf8_json_sorted_keys_compact_rows_in_path_order",
+          "manifest_sha256": "8333d0224ea34a7a11818422793104d67e49d67eba75fb0d46f25bc63b0881d2"
+        },
+        "open_jtalk_submodule_revision": "462fc38e7520aa89e4d32b2611749208528c901e",
+        "source_revision": "0f0fc44e782a8134cd9a51d80b57b48a7c95bb80",
+        "source_tag": "v0.4.1",
+        "version": "0.4.1"
+      },
+      "token_table": [
+        {
+          "effective_local_id": 0,
+          "global_id": 842,
+          "local_id": 0,
+          "token": " "
+        },
+        {
+          "effective_local_id": 1,
+          "global_id": 843,
+          "local_id": 1,
+          "token": "0"
+        },
+        {
+          "effective_local_id": 2,
+          "global_id": 844,
+          "local_id": 2,
+          "token": "1"
+        },
+        {
+          "effective_local_id": 3,
+          "global_id": 845,
+          "local_id": 3,
+          "token": "ァ"
+        },
+        {
+          "effective_local_id": 4,
+          "global_id": 846,
+          "local_id": 4,
+          "token": "ア"
+        },
+        {
+          "effective_local_id": 5,
+          "global_id": 847,
+          "local_id": 5,
+          "token": "ィ"
+        },
+        {
+          "effective_local_id": 6,
+          "global_id": 848,
+          "local_id": 6,
+          "token": "イ"
+        },
+        {
+          "effective_local_id": 7,
+          "global_id": 849,
+          "local_id": 7,
+          "token": "ゥ"
+        },
+        {
+          "effective_local_id": 8,
+          "global_id": 850,
+          "local_id": 8,
+          "token": "ウ"
+        },
+        {
+          "effective_local_id": 9,
+          "global_id": 851,
+          "local_id": 9,
+          "token": "ェ"
+        },
+        {
+          "effective_local_id": 10,
+          "global_id": 852,
+          "local_id": 10,
+          "token": "エ"
+        },
+        {
+          "effective_local_id": 11,
+          "global_id": 853,
+          "local_id": 11,
+          "token": "ォ"
+        },
+        {
+          "effective_local_id": 12,
+          "global_id": 854,
+          "local_id": 12,
+          "token": "オ"
+        },
+        {
+          "effective_local_id": 13,
+          "global_id": 855,
+          "local_id": 13,
+          "token": "カ"
+        },
+        {
+          "effective_local_id": 14,
+          "global_id": 856,
+          "local_id": 14,
+          "token": "ガ"
+        },
+        {
+          "effective_local_id": 15,
+          "global_id": 857,
+          "local_id": 15,
+          "token": "キ"
+        },
+        {
+          "effective_local_id": 16,
+          "global_id": 858,
+          "local_id": 16,
+          "token": "ギ"
+        },
+        {
+          "effective_local_id": 17,
+          "global_id": 859,
+          "local_id": 17,
+          "token": "ク"
+        },
+        {
+          "effective_local_id": 18,
+          "global_id": 860,
+          "local_id": 18,
+          "token": "グ"
+        },
+        {
+          "effective_local_id": 19,
+          "global_id": 861,
+          "local_id": 19,
+          "token": "ケ"
+        },
+        {
+          "effective_local_id": 20,
+          "global_id": 862,
+          "local_id": 20,
+          "token": "ゲ"
+        },
+        {
+          "effective_local_id": 21,
+          "global_id": 863,
+          "local_id": 21,
+          "token": "コ"
+        },
+        {
+          "effective_local_id": 22,
+          "global_id": 864,
+          "local_id": 22,
+          "token": "ゴ"
+        },
+        {
+          "effective_local_id": 23,
+          "global_id": 865,
+          "local_id": 23,
+          "token": "サ"
+        },
+        {
+          "effective_local_id": 24,
+          "global_id": 866,
+          "local_id": 24,
+          "token": "ザ"
+        },
+        {
+          "effective_local_id": 25,
+          "global_id": 867,
+          "local_id": 25,
+          "token": "シ"
+        },
+        {
+          "effective_local_id": 26,
+          "global_id": 868,
+          "local_id": 26,
+          "token": "ジ"
+        },
+        {
+          "effective_local_id": 27,
+          "global_id": 869,
+          "local_id": 27,
+          "token": "ス"
+        },
+        {
+          "effective_local_id": 28,
+          "global_id": 870,
+          "local_id": 28,
+          "token": "ズ"
+        },
+        {
+          "effective_local_id": 29,
+          "global_id": 871,
+          "local_id": 29,
+          "token": "セ"
+        },
+        {
+          "effective_local_id": 30,
+          "global_id": 872,
+          "local_id": 30,
+          "token": "ゼ"
+        },
+        {
+          "effective_local_id": 31,
+          "global_id": 873,
+          "local_id": 31,
+          "token": "ソ"
+        },
+        {
+          "effective_local_id": 32,
+          "global_id": 874,
+          "local_id": 32,
+          "token": "ゾ"
+        },
+        {
+          "effective_local_id": 33,
+          "global_id": 875,
+          "local_id": 33,
+          "token": "タ"
+        },
+        {
+          "effective_local_id": 34,
+          "global_id": 876,
+          "local_id": 34,
+          "token": "ダ"
+        },
+        {
+          "effective_local_id": 35,
+          "global_id": 877,
+          "local_id": 35,
+          "token": "チ"
+        },
+        {
+          "effective_local_id": 36,
+          "global_id": 878,
+          "local_id": 36,
+          "token": "ヂ"
+        },
+        {
+          "effective_local_id": 37,
+          "global_id": 879,
+          "local_id": 37,
+          "token": "ッ"
+        },
+        {
+          "effective_local_id": 38,
+          "global_id": 880,
+          "local_id": 38,
+          "token": "ツ"
+        },
+        {
+          "effective_local_id": 39,
+          "global_id": 881,
+          "local_id": 39,
+          "token": "ヅ"
+        },
+        {
+          "effective_local_id": 40,
+          "global_id": 882,
+          "local_id": 40,
+          "token": "テ"
+        },
+        {
+          "effective_local_id": 41,
+          "global_id": 883,
+          "local_id": 41,
+          "token": "デ"
+        },
+        {
+          "effective_local_id": 42,
+          "global_id": 884,
+          "local_id": 42,
+          "token": "ト"
+        },
+        {
+          "effective_local_id": 43,
+          "global_id": 885,
+          "local_id": 43,
+          "token": "ド"
+        },
+        {
+          "effective_local_id": 44,
+          "global_id": 886,
+          "local_id": 44,
+          "token": "ナ"
+        },
+        {
+          "effective_local_id": 45,
+          "global_id": 887,
+          "local_id": 45,
+          "token": "ニ"
+        },
+        {
+          "effective_local_id": 46,
+          "global_id": 888,
+          "local_id": 46,
+          "token": "ヌ"
+        },
+        {
+          "effective_local_id": 47,
+          "global_id": 889,
+          "local_id": 47,
+          "token": "ネ"
+        },
+        {
+          "effective_local_id": 48,
+          "global_id": 890,
+          "local_id": 48,
+          "token": "ノ"
+        },
+        {
+          "effective_local_id": 49,
+          "global_id": 891,
+          "local_id": 49,
+          "token": "ハ"
+        },
+        {
+          "effective_local_id": 50,
+          "global_id": 892,
+          "local_id": 50,
+          "token": "バ"
+        },
+        {
+          "effective_local_id": 51,
+          "global_id": 893,
+          "local_id": 51,
+          "token": "パ"
+        },
+        {
+          "effective_local_id": 52,
+          "global_id": 894,
+          "local_id": 52,
+          "token": "ヒ"
+        },
+        {
+          "effective_local_id": 53,
+          "global_id": 895,
+          "local_id": 53,
+          "token": "ビ"
+        },
+        {
+          "effective_local_id": 54,
+          "global_id": 896,
+          "local_id": 54,
+          "token": "ピ"
+        },
+        {
+          "effective_local_id": 55,
+          "global_id": 897,
+          "local_id": 55,
+          "token": "フ"
+        },
+        {
+          "effective_local_id": 56,
+          "global_id": 898,
+          "local_id": 56,
+          "token": "ブ"
+        },
+        {
+          "effective_local_id": 57,
+          "global_id": 899,
+          "local_id": 57,
+          "token": "プ"
+        },
+        {
+          "effective_local_id": 58,
+          "global_id": 900,
+          "local_id": 58,
+          "token": "ヘ"
+        },
+        {
+          "effective_local_id": 59,
+          "global_id": 901,
+          "local_id": 59,
+          "token": "ベ"
+        },
+        {
+          "effective_local_id": 60,
+          "global_id": 902,
+          "local_id": 60,
+          "token": "ペ"
+        },
+        {
+          "effective_local_id": 61,
+          "global_id": 903,
+          "local_id": 61,
+          "token": "ホ"
+        },
+        {
+          "effective_local_id": 62,
+          "global_id": 904,
+          "local_id": 62,
+          "token": "ボ"
+        },
+        {
+          "effective_local_id": 63,
+          "global_id": 905,
+          "local_id": 63,
+          "token": "ポ"
+        },
+        {
+          "effective_local_id": 64,
+          "global_id": 906,
+          "local_id": 64,
+          "token": "マ"
+        },
+        {
+          "effective_local_id": 65,
+          "global_id": 907,
+          "local_id": 65,
+          "token": "ミ"
+        },
+        {
+          "effective_local_id": 66,
+          "global_id": 908,
+          "local_id": 66,
+          "token": "ム"
+        },
+        {
+          "effective_local_id": 67,
+          "global_id": 909,
+          "local_id": 67,
+          "token": "メ"
+        },
+        {
+          "effective_local_id": 68,
+          "global_id": 910,
+          "local_id": 68,
+          "token": "モ"
+        },
+        {
+          "effective_local_id": 69,
+          "global_id": 911,
+          "local_id": 69,
+          "token": "ャ"
+        },
+        {
+          "effective_local_id": 70,
+          "global_id": 912,
+          "local_id": 70,
+          "token": "ヤ"
+        },
+        {
+          "effective_local_id": 71,
+          "global_id": 913,
+          "local_id": 71,
+          "token": "ュ"
+        },
+        {
+          "effective_local_id": 72,
+          "global_id": 914,
+          "local_id": 72,
+          "token": "ユ"
+        },
+        {
+          "effective_local_id": 73,
+          "global_id": 915,
+          "local_id": 73,
+          "token": "ョ"
+        },
+        {
+          "effective_local_id": 74,
+          "global_id": 916,
+          "local_id": 74,
+          "token": "ヨ"
+        },
+        {
+          "effective_local_id": 75,
+          "global_id": 917,
+          "local_id": 75,
+          "token": "ラ"
+        },
+        {
+          "effective_local_id": 76,
+          "global_id": 918,
+          "local_id": 76,
+          "token": "リ"
+        },
+        {
+          "effective_local_id": 77,
+          "global_id": 919,
+          "local_id": 77,
+          "token": "ル"
+        },
+        {
+          "effective_local_id": 78,
+          "global_id": 920,
+          "local_id": 78,
+          "token": "レ"
+        },
+        {
+          "effective_local_id": 79,
+          "global_id": 921,
+          "local_id": 79,
+          "token": "ロ"
+        },
+        {
+          "effective_local_id": 80,
+          "global_id": 922,
+          "local_id": 80,
+          "token": "ヮ"
+        },
+        {
+          "effective_local_id": 81,
+          "global_id": 923,
+          "local_id": 81,
+          "token": "ワ"
+        },
+        {
+          "effective_local_id": 82,
+          "global_id": 924,
+          "local_id": 82,
+          "token": "ヲ"
+        },
+        {
+          "effective_local_id": 83,
+          "global_id": 925,
+          "local_id": 83,
+          "token": "ン"
+        },
+        {
+          "effective_local_id": 84,
+          "global_id": 926,
+          "local_id": 84,
+          "token": "ヴ"
+        },
+        {
+          "effective_local_id": 85,
+          "global_id": 927,
+          "local_id": 85,
+          "token": "ヵ"
+        },
+        {
+          "effective_local_id": 86,
+          "global_id": 928,
+          "local_id": 86,
+          "token": "ヶ"
+        },
+        {
+          "effective_local_id": 165,
+          "global_id": 929,
+          "local_id": 87,
+          "token": "ー"
+        },
+        {
+          "effective_local_id": 88,
+          "global_id": 930,
+          "local_id": 88,
+          "token": "a"
+        },
+        {
+          "effective_local_id": 89,
+          "global_id": 931,
+          "local_id": 89,
+          "token": "b"
+        },
+        {
+          "effective_local_id": 90,
+          "global_id": 932,
+          "local_id": 90,
+          "token": "c"
+        },
+        {
+          "effective_local_id": 91,
+          "global_id": 933,
+          "local_id": 91,
+          "token": "d"
+        },
+        {
+          "effective_local_id": 92,
+          "global_id": 934,
+          "local_id": 92,
+          "token": "e"
+        },
+        {
+          "effective_local_id": 93,
+          "global_id": 935,
+          "local_id": 93,
+          "token": "f"
+        },
+        {
+          "effective_local_id": 94,
+          "global_id": 936,
+          "local_id": 94,
+          "token": "g"
+        },
+        {
+          "effective_local_id": 95,
+          "global_id": 937,
+          "local_id": 95,
+          "token": "h"
+        },
+        {
+          "effective_local_id": 96,
+          "global_id": 938,
+          "local_id": 96,
+          "token": "i"
+        },
+        {
+          "effective_local_id": 97,
+          "global_id": 939,
+          "local_id": 97,
+          "token": "j"
+        },
+        {
+          "effective_local_id": 98,
+          "global_id": 940,
+          "local_id": 98,
+          "token": "k"
+        },
+        {
+          "effective_local_id": 99,
+          "global_id": 941,
+          "local_id": 99,
+          "token": "l"
+        },
+        {
+          "effective_local_id": 100,
+          "global_id": 942,
+          "local_id": 100,
+          "token": "m"
+        },
+        {
+          "effective_local_id": 101,
+          "global_id": 943,
+          "local_id": 101,
+          "token": "n"
+        },
+        {
+          "effective_local_id": 102,
+          "global_id": 944,
+          "local_id": 102,
+          "token": "o"
+        },
+        {
+          "effective_local_id": 103,
+          "global_id": 945,
+          "local_id": 103,
+          "token": "p"
+        },
+        {
+          "effective_local_id": 104,
+          "global_id": 946,
+          "local_id": 104,
+          "token": "q"
+        },
+        {
+          "effective_local_id": 105,
+          "global_id": 947,
+          "local_id": 105,
+          "token": "r"
+        },
+        {
+          "effective_local_id": 106,
+          "global_id": 948,
+          "local_id": 106,
+          "token": "s"
+        },
+        {
+          "effective_local_id": 107,
+          "global_id": 949,
+          "local_id": 107,
+          "token": "t"
+        },
+        {
+          "effective_local_id": 108,
+          "global_id": 950,
+          "local_id": 108,
+          "token": "u"
+        },
+        {
+          "effective_local_id": 109,
+          "global_id": 951,
+          "local_id": 109,
+          "token": "v"
+        },
+        {
+          "effective_local_id": 110,
+          "global_id": 952,
+          "local_id": 110,
+          "token": "w"
+        },
+        {
+          "effective_local_id": 111,
+          "global_id": 953,
+          "local_id": 111,
+          "token": "x"
+        },
+        {
+          "effective_local_id": 112,
+          "global_id": 954,
+          "local_id": 112,
+          "token": "y"
+        },
+        {
+          "effective_local_id": 113,
+          "global_id": 955,
+          "local_id": 113,
+          "token": "z"
+        },
+        {
+          "effective_local_id": 114,
+          "global_id": 956,
+          "local_id": 114,
+          "token": "!"
+        },
+        {
+          "effective_local_id": 115,
+          "global_id": 957,
+          "local_id": 115,
+          "token": "\""
+        },
+        {
+          "effective_local_id": 116,
+          "global_id": 958,
+          "local_id": 116,
+          "token": "("
+        },
+        {
+          "effective_local_id": 117,
+          "global_id": 959,
+          "local_id": 117,
+          "token": ")"
+        },
+        {
+          "effective_local_id": 118,
+          "global_id": 960,
+          "local_id": 118,
+          "token": ","
+        },
+        {
+          "effective_local_id": 119,
+          "global_id": 961,
+          "local_id": 119,
+          "token": "-"
+        },
+        {
+          "effective_local_id": 120,
+          "global_id": 962,
+          "local_id": 120,
+          "token": "."
+        },
+        {
+          "effective_local_id": 121,
+          "global_id": 963,
+          "local_id": 121,
+          "token": "/"
+        },
+        {
+          "effective_local_id": 122,
+          "global_id": 964,
+          "local_id": 122,
+          "token": ":"
+        },
+        {
+          "effective_local_id": 123,
+          "global_id": 965,
+          "local_id": 123,
+          "token": ";"
+        },
+        {
+          "effective_local_id": 124,
+          "global_id": 966,
+          "local_id": 124,
+          "token": "?"
+        },
+        {
+          "effective_local_id": 125,
+          "global_id": 967,
+          "local_id": 125,
+          "token": "["
+        },
+        {
+          "effective_local_id": 126,
+          "global_id": 968,
+          "local_id": 126,
+          "token": "]"
+        },
+        {
+          "effective_local_id": 127,
+          "global_id": 969,
+          "local_id": 127,
+          "token": "{"
+        },
+        {
+          "effective_local_id": 128,
+          "global_id": 970,
+          "local_id": 128,
+          "token": "}"
+        },
+        {
+          "effective_local_id": 129,
+          "global_id": 971,
+          "local_id": 129,
+          "token": "«"
+        },
+        {
+          "effective_local_id": 130,
+          "global_id": 972,
+          "local_id": 130,
+          "token": "»"
+        },
+        {
+          "effective_local_id": 131,
+          "global_id": 973,
+          "local_id": 131,
+          "token": "•"
+        },
+        {
+          "effective_local_id": 132,
+          "global_id": 974,
+          "local_id": 132,
+          "token": "‥"
+        },
+        {
+          "effective_local_id": 133,
+          "global_id": 975,
+          "local_id": 133,
+          "token": "…"
+        },
+        {
+          "effective_local_id": 134,
+          "global_id": 976,
+          "local_id": 134,
+          "token": "‹"
+        },
+        {
+          "effective_local_id": 135,
+          "global_id": 977,
+          "local_id": 135,
+          "token": "›"
+        },
+        {
+          "effective_local_id": 136,
+          "global_id": 978,
+          "local_id": 136,
+          "token": "※"
+        },
+        {
+          "effective_local_id": 137,
+          "global_id": 979,
+          "local_id": 137,
+          "token": "◦"
+        },
+        {
+          "effective_local_id": 138,
+          "global_id": 980,
+          "local_id": 138,
+          "token": "、"
+        },
+        {
+          "effective_local_id": 139,
+          "global_id": 981,
+          "local_id": 139,
+          "token": "。"
+        },
+        {
+          "effective_local_id": 140,
+          "global_id": 982,
+          "local_id": 140,
+          "token": "〃"
+        },
+        {
+          "effective_local_id": 141,
+          "global_id": 983,
+          "local_id": 141,
+          "token": "〈"
+        },
+        {
+          "effective_local_id": 142,
+          "global_id": 984,
+          "local_id": 142,
+          "token": "〉"
+        },
+        {
+          "effective_local_id": 143,
+          "global_id": 985,
+          "local_id": 143,
+          "token": "《"
+        },
+        {
+          "effective_local_id": 144,
+          "global_id": 986,
+          "local_id": 144,
+          "token": "》"
+        },
+        {
+          "effective_local_id": 145,
+          "global_id": 987,
+          "local_id": 145,
+          "token": "「"
+        },
+        {
+          "effective_local_id": 146,
+          "global_id": 988,
+          "local_id": 146,
+          "token": "」"
+        },
+        {
+          "effective_local_id": 147,
+          "global_id": 989,
+          "local_id": 147,
+          "token": "『"
+        },
+        {
+          "effective_local_id": 148,
+          "global_id": 990,
+          "local_id": 148,
+          "token": "』"
+        },
+        {
+          "effective_local_id": 149,
+          "global_id": 991,
+          "local_id": 149,
+          "token": "【"
+        },
+        {
+          "effective_local_id": 150,
+          "global_id": 992,
+          "local_id": 150,
+          "token": "】"
+        },
+        {
+          "effective_local_id": 151,
+          "global_id": 993,
+          "local_id": 151,
+          "token": "〒"
+        },
+        {
+          "effective_local_id": 152,
+          "global_id": 994,
+          "local_id": 152,
+          "token": "〓"
+        },
+        {
+          "effective_local_id": 153,
+          "global_id": 995,
+          "local_id": 153,
+          "token": "〔"
+        },
+        {
+          "effective_local_id": 154,
+          "global_id": 996,
+          "local_id": 154,
+          "token": "〕"
+        },
+        {
+          "effective_local_id": 155,
+          "global_id": 997,
+          "local_id": 155,
+          "token": "〖"
+        },
+        {
+          "effective_local_id": 156,
+          "global_id": 998,
+          "local_id": 156,
+          "token": "〗"
+        },
+        {
+          "effective_local_id": 157,
+          "global_id": 999,
+          "local_id": 157,
+          "token": "〘"
+        },
+        {
+          "effective_local_id": 158,
+          "global_id": 1000,
+          "local_id": 158,
+          "token": "〙"
+        },
+        {
+          "effective_local_id": 159,
+          "global_id": 1001,
+          "local_id": 159,
+          "token": "〚"
+        },
+        {
+          "effective_local_id": 160,
+          "global_id": 1002,
+          "local_id": 160,
+          "token": "〛"
+        },
+        {
+          "effective_local_id": 161,
+          "global_id": 1003,
+          "local_id": 161,
+          "token": "〜"
+        },
+        {
+          "effective_local_id": 162,
+          "global_id": 1004,
+          "local_id": 162,
+          "token": "〽"
+        },
+        {
+          "effective_local_id": 163,
+          "global_id": 1005,
+          "local_id": 163,
+          "token": "・"
+        },
+        {
+          "effective_local_id": 164,
+          "global_id": 1006,
+          "local_id": 164,
+          "token": "・・・"
+        },
+        {
+          "effective_local_id": 165,
+          "global_id": 1007,
+          "local_id": 165,
+          "token": "ー"
+        },
+        {
+          "effective_local_id": 166,
+          "global_id": 1008,
+          "local_id": 166,
+          "token": "﹅"
+        },
+        {
+          "effective_local_id": 167,
+          "global_id": 1009,
+          "local_id": 167,
+          "token": "﹆"
+        },
+        {
+          "effective_local_id": 168,
+          "global_id": 1010,
+          "local_id": 168,
+          "token": "！"
+        },
+        {
+          "effective_local_id": 169,
+          "global_id": 1011,
+          "local_id": 169,
+          "token": "＊"
+        },
+        {
+          "effective_local_id": 170,
+          "global_id": 1012,
+          "local_id": 170,
+          "token": "？"
+        },
+        {
+          "effective_local_id": 171,
+          "global_id": 1013,
+          "local_id": 171,
+          "token": "｟"
+        },
+        {
+          "effective_local_id": 172,
+          "global_id": 1014,
+          "local_id": 172,
+          "token": "｠"
+        },
+        {
+          "effective_local_id": 173,
+          "global_id": 1015,
+          "local_id": 173,
+          "token": "<pad>"
+        },
+        {
+          "effective_local_id": 174,
+          "global_id": 1016,
+          "local_id": 174,
+          "token": "<oov>"
+        }
+      ],
+      "token_table_canonicalization": "utf8_json_sorted_keys_compact_rows_in_local_id_order",
+      "token_table_sha256": "9af1bd917616f46c00d9a15604524b85a2c98e7d22615da1489778ca079215c4",
+      "tokenizer_name": "japanese_phoneme"
+    },
+    "text_embedding_rows": 3359,
+    "text_token_dtype": "int32"
+  },
+  "negative_cases": [
+    {
+      "expected_error": "SourceNormalizationError",
+      "expected_message": "lowercase preprocessing expands a source Unicode scalar",
+      "id": "lowercase_scalar_expansion",
+      "prefix_frontend_rows": [],
+      "source_text": "İです。"
+    },
+    {
+      "expected_error": "AmbiguousAlignmentError",
+      "expected_message": "non-whitespace source produced no prepared speech token",
+      "id": "non_whitespace_becomes_silent",
+      "prefix_frontend_rows": [
+        {
+          "normalized_prefix": "㍑",
+          "rows": [
+            {
+              "acc": 0,
+              "chain_flag": -1,
+              "mora_size": 0,
+              "pos": "記号",
+              "pos_group1": "サ変接続",
+              "pron": "、",
+              "string": "㍑"
+            }
+          ]
+        }
+      ],
+      "source_text": "㍑"
+    },
+    {
+      "expected_error": "SourceNormalizationError",
+      "expected_message": "source text contains no non-whitespace Unicode scalar",
+      "id": "whitespace_only",
+      "prefix_frontend_rows": [],
+      "source_text": " \t\n"
+    },
+    {
+      "expected_error": "AmbiguousAlignmentError",
+      "expected_message": "certified OpenJTalk prefixes move token progress backward",
+      "id": "synthetic_backward_certified_prefix",
+      "prefix_frontend_rows": [
+        {
+          "normalized_prefix": "甲",
+          "rows": [
+            {
+              "acc": 0,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "一般",
+              "pron": "アイ",
+              "string": "甲"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "甲乙",
+          "rows": [
+            {
+              "acc": 0,
+              "chain_flag": 0,
+              "mora_size": 1,
+              "pos": "名詞",
+              "pos_group1": "一般",
+              "pron": "ア",
+              "string": "甲乙"
+            }
+          ]
+        },
+        {
+          "normalized_prefix": "甲乙丙",
+          "rows": [
+            {
+              "acc": 0,
+              "chain_flag": 0,
+              "mora_size": 2,
+              "pos": "名詞",
+              "pos_group1": "一般",
+              "pron": "アイ",
+              "string": "甲乙丙"
+            }
+          ]
+        }
+      ],
+      "source_text": "甲乙丙"
+    }
+  ],
+  "oracle": {
+    "oracle_lock_sha256": "583ea538e43f8bbbef7045cfbc148611480cb6f42be28a72cadd692c0d1978db",
+    "pyopenjtalk_version": "0.4.1",
+    "source_files": {
+      "nemo/collections/common/tokenizers/text_to_speech/ipa_lexicon.py": "f4843fc488e52469c71b85917bf952ff75df9ee679f3bdedaeefd85b83517fd3",
+      "nemo/collections/common/tokenizers/text_to_speech/tokenizer_utils.py": "a5b1b1c2c979e74641e477048146fba1f48834c82d3e602112dee6a7626b9ffa",
+      "nemo/collections/common/tokenizers/text_to_speech/tts_tokenizers.py": "23ee0b5f9de44bdd93f465ec04ffa9b4c5e7004bbad8a33bddea0d86cb9ce071",
+      "nemo/collections/tts/g2p/models/ja_jp_ipa.py": "ed560e3d6161faed6f3670d9b43ebd9709719cb4a6a917338a04f526ddc56318"
+    },
+    "speech_revision": "9ae3e66b7314b0358c96bce47fbac56d78728bcd",
+    "token_table_sha256": "9af1bd917616f46c00d9a15604524b85a2c98e7d22615da1489778ca079215c4"
+  },
+  "schema_version": 1
+}

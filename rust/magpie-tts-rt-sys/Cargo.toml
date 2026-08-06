@@ -6,7 +6,7 @@ rust-version.workspace = true
 license-file.workspace = true
 readme.workspace = true
 repository.workspace = true
-description = "Raw C ABI bindings for the draft MagpieTTS-RT runtime"
+description = "Raw C ABI bindings for the MagpieTTS-RT runtime"
 links = "magpie_tts_rt"
 build = "build.rs"
 

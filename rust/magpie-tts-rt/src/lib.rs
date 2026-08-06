@@ -3,10 +3,15 @@
 mod api;
 mod error;
 mod runtime;
+mod worker;
 
 pub use api::{Api, GetApiFn};
 pub use error::{Error, ErrorStage, NativeError, Result, Status};
 pub use magpie_tts_rt_sys as sys;
 pub use runtime::{
-    AudioLease, Model, Request, RequestSnapshot, RequestState, Runtime, RuntimeConfig, Session,
+    AlignmentEvent, AudioLease, Model, ModelInfo, Request, RequestSnapshot, RequestState, Runtime,
+    RuntimeConfig, Session,
+};
+pub use worker::{
+    InferenceWorker, OwnedAudioChunk, SynthesisEvent, SynthesisStream, WorkerConfig, WorkerError,
 };

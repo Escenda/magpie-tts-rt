@@ -1,0 +1,6 @@
+{
+  global:
+    mtt_plugin_get_api_v1;
+  local:
+    *;
+};

@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Escenda/magpie-tts-rt/schemas/thor-profile-evidence.schema.json",
+  "title": "MagpieTTS-RT AGX Thor profile evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "created_at_unix_ms",
+    "artifacts",
+    "measurement_scope"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "magpie-tts-rt.thor-profile-evidence.v1"
+    },
+    "created_at_unix_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "benchmark_receipt",
+        "nsys_report",
+        "tegrastats_log"
+      ],
+      "properties": {
+        "benchmark_receipt": {
+          "$ref": "#/$defs/artifact"
+        },
+        "nsys_report": {
+          "$ref": "#/$defs/artifact"
+        },
+        "tegrastats_log": {
+          "$ref": "#/$defs/artifact"
+        }
+      }
+    },
+    "measurement_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "nsys_report",
+        "tegrastats_log",
+        "physical_audio"
+      ],
+      "properties": {
+        "nsys_report": {
+          "const": "benchmark target process tree"
+        },
+        "tegrastats_log": {
+          "const": "device-wide AGX Thor telemetry"
+        },
+        "physical_audio": {
+          "const": "not measured"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "publicArtifactName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+~-]{0,254}$"
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file_name", "sha256", "size_bytes"],
+      "properties": {
+        "file_name": {
+          "$ref": "#/$defs/publicArtifactName"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}

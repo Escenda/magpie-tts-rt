@@ -28,12 +28,51 @@ version defines them.
   can correct the reported condition and retry.
 - A destroyed native handle must never be passed to another C call. The safe
   Rust wrapper enforces this ownership rule.
+- Successful `session_destroy`, `model_destroy`, and `runtime_destroy` leave
+  the owning runtime's CUDA device selected on the calling thread. This makes
+  device-bound teardown fail before consuming a handle; callers that share a
+  thread with other CUDA devices must explicitly restore their device after a
+  successful destroy. The Rust consumer uses a dedicated inference thread, so
+  this state never leaks into application or ROS executor threads.
 
 Dropping the Rust `Request` calls only `request_destroy`. If the request is
 still running or owns a lease, native destruction returns `BUSY` and the
 wrapper aborts instead of hiding a live GPU resource. Normal callers must
 cancel and wait for a terminal snapshot, or wait for completion, release every
 lease, and then call `Request::close`.
+
+`InferenceWorker::shutdown(self)` is the only Rust worker operation that sends
+the shutdown command and joins the inference thread. Start admission uses a
+capacity-one bounded channel and `synthesize` returns typed `Busy` immediately
+when that channel is full. Cancel and shutdown use a separate bounded control
+channel. The inference thread polls that control channel before start
+admission, so a start flood cannot delay cancellation or shutdown behind
+queued synthesis work. Dropping
+`InferenceWorker` itself only detaches its `JoinHandle`; it does not
+synchronously cancel a request, join, or call native code. After the last
+control sender, including senders owned by live `SynthesisStream` values, and
+the start sender are dropped, channel disconnection makes the inference thread
+explicitly cancel any active request, observe its drained terminal state,
+destroy it, and then destroy the remaining native hierarchy on that thread. A
+runtime failure moves the worker into a fatal state where no further native
+request operation is issued. The worker retries a nonblocking
+`SynthesisEvent::RuntimeError` send until the bounded event channel has room,
+so a connected consumer receives it exactly once. Receiver disconnection exits
+with the original error. Explicit `shutdown` detaches a still-backpressured
+event sender and joins with that same original error, so unread audio cannot
+block shutdown indefinitely.
+
+Before enqueueing a start command, `InferenceWorker::synthesize` validates a
+nonempty prepared-token sequence, the loaded model's exact maximum token
+count, the authenticated normal-token/EOS row contract, and the uint32 seed
+range. Every token before the terminal position must be in
+`[0, tokenizer_vocabulary_size)`, and the final token must equal
+`eos_token_id`. BOS, an early EOS, a missing EOS, or any other embedding row
+is rejected. These caller errors return `WorkerError::InvalidRequest` without
+invoking native code and do not poison the worker. Consequently, any error
+returned by the native `request_start` call is an invariant, runtime, or
+device failure: the start reply receives that error and the worker exits fail
+closed while retaining the same error for explicit `shutdown`.
 
 Version 1 allows one active request per session. A session and its request are
 owned by one inference thread. The caller must serialize every operation on
@@ -58,6 +97,31 @@ the caller's pointer. On successful `request_start`, the runtime has copied the
 complete token sequence into request-owned storage; it never retains
 `text_token_ids`. Callers may release or reuse both input buffers immediately
 after the respective function returns.
+
+`model_get_info` returns only properties authenticated by that loaded bundle:
+the normal tokenizer row count, text-embedding row count, BOS/EOS/Japanese-pad
+IDs, request limits, NanoCodec output format and frame schedule, and the
+32-byte tokenizer identity. A Japanese frontend must compare that identity
+with the exact frontend assets it verified before it submits any token ID.
+Matching the row counts alone is insufficient because a different token order
+can remain in range while producing the wrong speech.
+
+`session_create` is also the mandatory device warmup and acceptance boundary.
+It runs the bundle's authenticated prepared-token fixture through the complete
+Text Encoder, Main Decoder, Local AR, and stateful NanoCodec path. The runtime
+reassembles and hashes the complete decoder tensor, hashes each scheduled
+NanoCodec input in execution order, and hashes every valid FP32 PCM sample.
+All three hashes and both frame/sample counts must equal the authenticated
+fixture. Until that succeeds, no session handle is returned and no golden PCM
+is exposed through the audio lease API. A mismatch returns
+`MTT_STATUS_HASH_MISMATCH`; there is no skip flag, alternate fixture, or
+CPU/backend fallback.
+
+Public token IDs are INT64 for a language-neutral ABI. The runtime rejects
+negative or wider-than-INT32 values before converting to the locked Text
+Encoder input, then enforces the same normal-prefix plus terminal-EOS contract
+used by startup golden validation and the Rust worker. Random seeds are
+accepted only in `[0, 2^32)`; there is no truncation or modulo conversion.
 
 Bundle paths are UTF-8 byte spans of 1 through
 `MTT_MAX_BUNDLE_PATH_BYTES` bytes. They need not be NUL-terminated, but an
@@ -134,18 +198,50 @@ into a successful stale snapshot.
 
 `audio_acquire` returns:
 
-- mono FP32 samples at 22,050 Hz;
+- mono FP32 samples at 22,050 Hz, or the zero-sample FINAL control marker
+  described below;
 - sequence and utterance-global sample offsets;
 - first/final flags;
-- committed text-token progress when alignment is valid;
+- committed text-token progress and zero or more in-chunk alignment events
+  when alignment is valid;
 - a nonzero lease identifier.
 
-The sample pointer remains valid until the matching `audio_release` returns
-`OK`. That successful return consumes the lease identifier and ends the
-buffer lifetime. If the identifier named a live lease owned by that request
-at call entry, every non-OK return leaves that lease identifier, sample
-pointer, and sample bytes valid and unchanged so the caller can inspect them
-and retry the same release. Lease identifiers come from one process-wide,
+Each `mtt_alignment_event_v1_t` records an utterance-global, end-exclusive
+played-sample boundary and the end-exclusive prepared text-token position
+selected by the alignment controller. The progress becomes valid only after
+the audio device has drained every sample before that boundary. It normally
+follows a generated two-frame Main Decoder step; if EOS terminates the first
+frame, the final event follows that one emitted frame. Events are ordered by
+sample index and include only strict token-position advances. They are model
+alignment observations, not invented source-character positions. The
+application maps them to source spans only through its exact frontend span
+map.
+
+An event lies inside the sample range of its owning lease and on a 1,024-sample
+codec-frame boundary. The event array has the same lifetime as the PCM
+pointer. A zero event count requires a null pointer. When
+`ALIGNMENT_VALID` is absent, the event pointer, event count, and
+`committed_text_tokens` are all zero. When it is present, the lease-level
+`committed_text_tokens` is the progress at the end of the lease and equals the
+last event's value when that lease contains an event.
+
+Local AR reports `end_frame_index` as the first EOS frame. EOS is not audio and
+is never sent to NanoCodec. If decoded frames remain, FINAL carries the normal
+1–8-frame tail. If EOS is at frame zero and no frames remain in that emission,
+the runtime publishes one non-FIRST FINAL control marker with
+`sample_count == 0`, `samples == NULL`, the next contiguous sequence number,
+and an unchanged `first_sample_index`. It contains no alignment events and
+cannot advance committed text progress. Consumers release this lease normally,
+write no PCM, and complete playback only after already queued PCM has drained.
+Zero-sample non-FINAL or FIRST leases are ABI violations.
+
+The sample and alignment-event pointers remain valid until the matching
+`audio_release` returns `OK`. That successful return consumes the lease
+identifier and ends both buffer lifetimes. If the identifier named a live
+lease owned by that request at call entry, every non-OK return leaves that
+lease identifier, sample pointer, event pointer, and their bytes valid and
+unchanged so the caller can inspect them and retry the same release. Lease
+identifiers come from one process-wide,
 strictly increasing 64-bit sequence shared by every runtime created through
 the loaded library. They are never reused, including after release or request
 destruction, so a stale or cross-request identifier cannot alias a different

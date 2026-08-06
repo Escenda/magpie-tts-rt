@@ -11,10 +11,14 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 #include <sys/stat.h>
+
+#include "validation/character_validation.hpp"
 
 namespace {
 
@@ -51,7 +55,8 @@ void expect_manifest_error(
     const ManifestStage expected_stage,
     const ManifestErrorCode expected_code,
     const std::string_view expected_path,
-    const std::function<void()>& operation) {
+    const std::function<void()>& operation,
+    const std::string_view expected_detail = {}) {
   try {
     operation();
   } catch (const ManifestError& error) {
@@ -66,6 +71,11 @@ void expect_manifest_error(
     require(
         error.json_pointer() == expected_path,
         std::string(name) + ": unexpected path " + error.json_pointer());
+    if (!expected_detail.empty()) {
+      require(
+          error.detail() == expected_detail,
+          std::string(name) + ": unexpected detail " + error.detail());
+    }
     return;
   }
   test_failure(std::string(name) + ": expected ManifestError");
@@ -75,32 +85,111 @@ void test_valid_manifest(const std::string& valid_text) {
   const magpie_tts_rt::RuntimeBundleManifest manifest =
       magpie_tts_rt::parse_runtime_bundle_manifest(valid_text);
   require(manifest.schema_version == 1, "schema version");
+  require(manifest.licenses.size() == 8, "license artifact count");
+  require(
+      manifest.licenses.front().role == "project_license" &&
+          manifest.licenses.back().role == "nvidia_model_notice",
+      "canonical license role order");
   require(manifest.engines.size() == 7, "engine count");
   require(manifest.kv_cache.layer_bindings.size() == 12, "KV layer count");
   require(manifest.local_ar.positions.size() == 16, "Local AR positions");
+  require(
+      manifest.local_ar.position_embedding_kind == "learned_absolute",
+      "Local AR learned absolute position embedding");
+  require(
+      manifest.local_ar.position_embedding_positions ==
+          manifest.local_ar.positions,
+      "Local AR position embedding row ordering");
+  require(
+      manifest.local_ar.position_embedding_source_shape ==
+          std::vector<std::int64_t>({18, 768}),
+      "Local AR position embedding source shape");
+  require(
+      manifest.local_ar.position_embedding_dtype ==
+          magpie_tts_rt::TensorDataType::bf16,
+      "Local AR position embedding dtype");
+  require(
+      manifest.local_ar.position_embedding_source_table_sha256 ==
+          "1db63ebd4ceffba52e03cf67c9d186f3b7e38bb0c6eb9056a93ceeb55a4a695e",
+      "accepted Sofia Local AR position embedding source table");
   require(
       manifest.local_ar.invalid_rows_encoding == "cfg_row_bitmask_lsb",
       "Local AR invalid-row encoding");
   require(
       manifest.local_ar.no_eos_frame_index == -1,
       "Local AR no-EOS sentinel");
+  require(
+      manifest.alignment.prior_epsilon == 0.1,
+      "alignment prior epsilon");
+  require(
+      manifest.alignment.initial_attended == 1,
+      "alignment initial attended position");
+  require(
+      manifest.alignment.ignored_terminal_tokens == 3,
+      "alignment ignored terminal tokens");
+  require(
+      manifest.alignment.short_text_no_prior_max_tokens == 5,
+      "alignment short-text prior boundary");
+  require(manifest.alignment.lookahead == 6, "alignment lookahead");
+  require(
+      manifest.alignment.sink_threshold == 4,
+      "alignment sink threshold");
   require(manifest.codec.initial_frames == 4, "initial codec frames");
   require(manifest.codec.steady_frames == 8, "steady codec frames");
   require(manifest.codec.tail_min_frames == 1, "minimum tail codec frames");
   require(manifest.codec.tail_max_frames == 8, "maximum tail codec frames");
   require(
+      !manifest.codec.eos_frame_is_audio,
+      "AUDIO_EOS is excluded from codec frames");
+  require(
+      manifest.codec.zero_frame_finalization ==
+          "control_marker_without_codec_invocation",
+      "zero-frame FINAL marker contract");
+  require(
       manifest.artifacts.export_artifact.voice_id == "sofia",
       "Sofia voice-specific export");
   require(manifest.runtime.gpu_name == "NVIDIA Thor", "runtime GPU identity");
   require(
-      manifest.artifacts.model.file.size_bytes == 3,
+      manifest.artifacts.source_model.acceptance_receipt.size_bytes == 3,
       "authenticated artifact size");
+  require(
+      manifest.artifacts.source_model.source_sha256 ==
+          "1010101010101010101010101010101010101010101010101010101010101010",
+      "source-model identity hash");
+  require(
+      manifest.artifacts.source_model.version == "v2607",
+      "source-model version");
+  require(
+      manifest.artifacts.source_model.revision ==
+          "5023df68bd3f5b5ce6d666a50979bc501af145cc",
+      "immutable source-model revision");
+  require(
+      manifest.artifacts.tokenizer.identity_sha256 ==
+          "3030303030303030303030303030303030303030303030303030303030303030",
+      "tokenizer identity hash");
+  require(
+      manifest.artifacts.tokenizer.tokenizer_vocabulary_size == 3357,
+      "normal tokenizer row count");
+  require(
+      manifest.artifacts.tokenizer.text_embedding_rows == 3359,
+      "text embedding row count");
+  require(
+      manifest.artifacts.tokenizer.bos_token_id == 3357 &&
+          manifest.artifacts.tokenizer.eos_token_id == 3358,
+      "authenticated text special-token rows");
   require(
       manifest.golden_receipt.size_bytes == 3,
       "authenticated golden receipt size");
   require(
-      manifest.limits.maximum_bundle_snapshot_bytes == 36,
+      manifest.golden_fixture.size_bytes == 3,
+      "authenticated golden fixture size");
+  require(
+      manifest.limits.maximum_bundle_snapshot_bytes == 66,
       "exact aggregate snapshot budget");
+  require(
+      manifest.limits.maximum_concurrent_requests ==
+          magpie_tts_rt::kMaximumActiveRequestsPerSession,
+      "one active request per session");
   require(
       manifest.artifacts.export_artifact.baked_context_length == 217,
       "baked prefill context length");
@@ -112,9 +201,24 @@ void test_valid_manifest(const std::string& valid_text) {
           manifest.artifacts.export_artifact.baked_context_sha256,
       "golden Sofia context hash");
   require(
+      manifest.golden_receipt.codec_frame_count == 12,
+      "golden codec frame count");
+  require(
       manifest.classifier_free_guidance.row_order ==
           "conditional_then_unconditional",
       "CFG row order");
+  require(
+      manifest.sampling.eos_token_id == 2017,
+      "canonical Sofia AUDIO_EOS token");
+  require(
+      manifest.local_ar.sampling_plugin_name ==
+          "MagpieLocalARSampling",
+      "authenticated Local AR sampling creator");
+  require(
+      manifest.sampling.forbidden_token_ids ==
+          std::vector<std::uint32_t>(
+              {2016, 2018, 2019, 2020, 2021, 2022, 2023}),
+      "canonical Sofia static forbidden-token set");
   require(
       manifest.kv_cache.first_step_position == 218,
       "first absolute step position");
@@ -228,18 +332,346 @@ void test_unknown_field(const json& valid) {
       });
 }
 
+void test_rejected_license_inventory(const json& valid) {
+  {
+    json candidate = valid;
+    candidate.at("licenses").erase(candidate.at("licenses").begin());
+    expect_manifest_error(
+        "missing license role",
+        ManifestStage::licenses,
+        ManifestErrorCode::invariant_violation,
+        "/licenses",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+  {
+    json candidate = valid;
+    candidate.at("licenses").at(0).at("role") = "project_notice";
+    expect_manifest_error(
+        "duplicated license role",
+        ManifestStage::licenses,
+        ManifestErrorCode::invariant_violation,
+        "/licenses/0/role",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+}
+
 void test_malformed_sha256(const json& valid) {
+  {
+    json candidate = valid;
+    candidate.at("artifacts")
+        .at("source_model")
+        .at("acceptance_receipt")
+        .at("sha256") =
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    expect_manifest_error(
+        "malformed receipt SHA-256",
+        ManifestStage::artifacts,
+        ManifestErrorCode::invalid_value,
+        "/artifacts/source_model/acceptance_receipt/sha256",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+  {
+    json candidate = valid;
+    candidate.at("artifacts").at("source_model").at("source_sha256") =
+        "not-a-source-hash";
+    expect_manifest_error(
+        "malformed source-model SHA-256",
+        ManifestStage::artifacts,
+        ManifestErrorCode::invalid_value,
+        "/artifacts/source_model/source_sha256",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+  {
+    json candidate = valid;
+    candidate.at("artifacts").at("source_model").at("revision") = "v2607";
+    expect_manifest_error(
+        "mutable source-model revision",
+        ManifestStage::artifacts,
+        ManifestErrorCode::invalid_value,
+        "/artifacts/source_model/revision",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+  {
+    json candidate = valid;
+    candidate.at("artifacts").at("tokenizer").at("identity_sha256") =
+        "not-a-tokenizer-identity";
+    expect_manifest_error(
+        "malformed tokenizer identity SHA-256",
+        ManifestStage::artifacts,
+        ManifestErrorCode::invalid_value,
+        "/artifacts/tokenizer/identity_sha256",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+  {
+    json candidate = valid;
+    candidate.at("golden_fixture").at("sha256") =
+        "not-a-golden-fixture-hash";
+    expect_manifest_error(
+        "malformed golden fixture SHA-256",
+        ManifestStage::golden_fixture,
+        ManifestErrorCode::invalid_value,
+        "/golden_fixture/sha256",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+}
+
+void test_character_validation_boundaries(const json& valid) {
+  using magpie_tts_rt::character_validation::is_dotted_numeric_version;
+  using magpie_tts_rt::character_validation::is_identifier;
+  using magpie_tts_rt::character_validation::is_lowercase_sha256;
+  using magpie_tts_rt::character_validation::is_major_minor_version;
+  using magpie_tts_rt::character_validation::is_rfc3339_utc_lexeme;
+
+  require(is_identifier("A"), "single-character identifier");
+  require(is_identifier("A.z_9-"), "identifier tail alphabet");
+  require(
+      is_identifier(std::string(128U, 'A')),
+      "128-character identifier boundary");
+  for (const std::string& value :
+       std::vector<std::string>{
+           "",
+           std::string(129U, 'A'),
+           ".bundle",
+           "bundle/name",
+           "bundlé",
+       }) {
+    require(!is_identifier(value), "rejected identifier " + value);
+  }
+
+  require(
+      is_lowercase_sha256(std::string(64U, '0')),
+      "all-digit SHA-256");
+  require(
+      is_lowercase_sha256(std::string(64U, 'f')),
+      "lowercase hexadecimal SHA-256 boundary");
+  for (const std::string& value :
+       std::vector<std::string>{
+           std::string(63U, 'a'),
+           std::string(65U, 'a'),
+           std::string(64U, 'A'),
+           std::string(63U, 'a') + "g",
+       }) {
+    require(!is_lowercase_sha256(value), "rejected SHA-256 " + value);
+  }
+
+  for (const std::string_view value :
+       {"0.0", "13.2+sbsa_1-rc.2", "10.16.2.10--"}) {
+    require(
+        is_dotted_numeric_version(value),
+        "accepted dotted numeric version " + std::string(value));
+  }
+  for (const std::string_view value :
+       {"13",
+        ".2",
+        "13.",
+        "13..2",
+        "13.2.",
+        "13.2+",
+        "13.2+cuda+13",
+        "13.2/rc"}) {
+    require(
+        !is_dotted_numeric_version(value),
+        "rejected dotted numeric version " + std::string(value));
+  }
+
+  require(
+      is_major_minor_version("0011.000"),
+      "accepted major.minor compute capability");
+  for (const std::string_view value :
+       {"11", ".0", "11.", "11.0.0", "11.a", "+11.0"}) {
+    require(
+        !is_major_minor_version(value),
+        "rejected compute capability " + std::string(value));
+  }
+
+  for (const std::string_view value :
+       {"2024-02-29T23:59:59Z",
+        "2024-02-29T23:59:59.0Z",
+        "9999-12-31T00:00:00.000001Z"}) {
+    require(
+        is_rfc3339_utc_lexeme(value),
+        "accepted RFC 3339 UTC lexeme " + std::string(value));
+  }
+  for (const std::string_view value :
+       {"2026-01-01T00:00:00",
+        "2026-01-01T00:00:00z",
+        "2026-01-01T00:00:00.Z",
+        "2026-01-01T00:00:00+00:00",
+        "2026-00-01T00:00:00Z",
+        "2026-13-01T00:00:00Z",
+        "2026-01-00T00:00:00Z",
+        "2026-01-32T00:00:00Z",
+        "2026-01-01T24:00:00Z",
+        "2026-01-01T00:60:00Z",
+        "2026-01-01T00:00:60Z"}) {
+    require(
+        !is_rfc3339_utc_lexeme(value),
+        "rejected RFC 3339 UTC lexeme " + std::string(value));
+  }
+  require(
+      is_rfc3339_utc_lexeme("0000-01-01T00:00:00Z"),
+      "year zero remains a lexically valid timestamp");
+  require(
+      is_rfc3339_utc_lexeme("2023-02-29T00:00:00Z"),
+      "calendar validation remains separate from lexical validation");
+
+  {
+    json candidate = valid;
+    candidate["bundle_id"] = ".bundle";
+    expect_manifest_error(
+        "identifier parser preserves error contract",
+        ManifestStage::top_level,
+        ManifestErrorCode::invalid_value,
+        "/bundle_id",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(
+                  candidate.dump()));
+        },
+        "expected 1..128 characters matching [A-Za-z0-9][A-Za-z0-9._-]*");
+  }
+  {
+    json candidate = valid;
+    candidate["runtime"]["cuda_version"] = "13.2+cuda+13";
+    expect_manifest_error(
+        "numeric version parser preserves error contract",
+        ManifestStage::runtime_fingerprint,
+        ManifestErrorCode::invalid_value,
+        "/runtime/cuda_version",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(
+                  candidate.dump()));
+        },
+        "expected a dotted numeric version");
+  }
+  {
+    json candidate = valid;
+    candidate["runtime"]["gpu_compute_capability"] = "11.0.0";
+    expect_manifest_error(
+        "compute capability parser preserves error contract",
+        ManifestStage::runtime_fingerprint,
+        ManifestErrorCode::invalid_value,
+        "/runtime/gpu_compute_capability",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(
+                  candidate.dump()));
+        },
+        "GPU compute capability must use major.minor form");
+  }
+  {
+    json candidate = valid;
+    candidate["created_at_utc"] = "2026-01-01T00:00:00.Z";
+    expect_manifest_error(
+        "timestamp parser preserves lexical error contract",
+        ManifestStage::top_level,
+        ManifestErrorCode::invalid_value,
+        "/created_at_utc",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(
+                  candidate.dump()));
+        },
+        "expected an RFC 3339 UTC timestamp ending in Z");
+  }
+}
+
+void test_rejected_tokenizer_row_contract(const json& valid) {
+  for (const auto& [label, path, mutate] :
+       std::vector<std::tuple<
+           std::string,
+           std::string,
+           std::function<void(json&)>>>{
+           {
+               "embedding rows exclude special tokens",
+               "/artifacts/tokenizer/text_embedding_rows",
+               [](json& candidate) {
+                 candidate.at("artifacts")
+                     .at("tokenizer")
+                     .at("text_embedding_rows") = 3357;
+               },
+           },
+           {
+               "EOS is a normal row",
+               "/artifacts/tokenizer/special_tokens/eos_token_id",
+               [](json& candidate) {
+                 candidate.at("artifacts")
+                     .at("tokenizer")
+                     .at("special_tokens")
+                     .at("eos_token_id") = 1;
+               },
+           },
+           {
+               "BOS and EOS alias",
+               "/artifacts/tokenizer/special_tokens",
+               [](json& candidate) {
+                 candidate.at("artifacts")
+                     .at("tokenizer")
+                     .at("special_tokens")
+                     .at("bos_token_id") = 3358;
+               },
+           },
+           {
+               "Japanese pad is not a normal row",
+               "/artifacts/tokenizer/special_tokens/japanese_global_pad_token_id",
+               [](json& candidate) {
+                 candidate.at("artifacts")
+                     .at("tokenizer")
+                     .at("special_tokens")
+                     .at("japanese_global_pad_token_id") = 3357;
+               },
+           },
+       }) {
+    json candidate = valid;
+    mutate(candidate);
+    expect_manifest_error(
+        label,
+        ManifestStage::artifacts,
+        ManifestErrorCode::invariant_violation,
+        path,
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(
+                  candidate.dump()));
+        });
+  }
+}
+
+void test_rejected_plugin_library_name_as_creator(const json& valid) {
   json candidate = valid;
-  candidate.at("artifacts").at("model").at("file").at("sha256") =
-      "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+  candidate.at("local_ar").at("sampling_plugin_name") =
+      candidate.at("artifacts").at("plugin").at("name");
   expect_manifest_error(
-      "malformed SHA-256",
-      ManifestStage::artifacts,
-      ManifestErrorCode::invalid_value,
-      "/artifacts/model/file/sha256",
+      "plugin library logical name is not a creator identity",
+      ManifestStage::local_ar,
+      ManifestErrorCode::invariant_violation,
+      "/local_ar/sampling_plugin_name",
       [&candidate] {
         static_cast<void>(
-            magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+            magpie_tts_rt::parse_runtime_bundle_manifest(
+                candidate.dump()));
       });
 }
 
@@ -248,13 +680,13 @@ void test_rejected_control_byte_in_artifact_path(const json& valid) {
   std::string path_with_nul = "model/model.nemo";
   path_with_nul.push_back('\0');
   path_with_nul += "suffix";
-  candidate.at("artifacts").at("model").at("file").at("path") =
+  candidate.at("artifacts").at("source_model").at("acceptance_receipt").at("path") =
       path_with_nul;
   expect_manifest_error(
       "NUL in artifact path",
       ManifestStage::artifacts,
       ManifestErrorCode::invalid_value,
-      "/artifacts/model/file/path",
+      "/artifacts/source_model/acceptance_receipt/path",
       [&candidate] {
         static_cast<void>(
             magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
@@ -296,6 +728,20 @@ void test_rejected_non_sofia_export(const json& valid) {
       ManifestStage::artifacts,
       ManifestErrorCode::invalid_value,
       "/artifacts/export/voice_id",
+      [&candidate] {
+        static_cast<void>(
+            magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+      });
+}
+
+void test_rejected_noncanonical_export_format(const json& valid) {
+  json candidate = valid;
+  candidate.at("artifacts").at("export").at("format") = "another_export";
+  expect_manifest_error(
+      "noncanonical export format",
+      ManifestStage::artifacts,
+      ManifestErrorCode::invalid_value,
+      "/artifacts/export/format",
       [&candidate] {
         static_cast<void>(
             magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
@@ -349,6 +795,50 @@ void test_rejected_golden_context_hash_mismatch(const json& valid) {
   }
 }
 
+void test_rejected_golden_sample_count_mismatch(const json& valid) {
+  json candidate = valid;
+  candidate.at("golden_receipt").at("sample_count") = 12287;
+  expect_manifest_error(
+      "golden sample count mismatch",
+      ManifestStage::golden_receipt,
+      ManifestErrorCode::invariant_violation,
+      "/golden_receipt/sample_count",
+      [&candidate] {
+        static_cast<void>(
+            magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+      });
+}
+
+void test_rejected_golden_seed_and_frame_limit(const json& valid) {
+  {
+    json candidate = valid;
+    candidate.at("golden_receipt").at("seed") = 4294967296ULL;
+    expect_manifest_error(
+        "golden seed exceeds public uint32 contract",
+        ManifestStage::golden_receipt,
+        ManifestErrorCode::invalid_value,
+        "/golden_receipt/seed",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+  {
+    json candidate = valid;
+    candidate.at("golden_receipt").at("codec_frame_count") = 501;
+    candidate.at("golden_receipt").at("sample_count") = 501 * 1024;
+    expect_manifest_error(
+        "golden frame count exceeds runtime limit",
+        ManifestStage::golden_receipt,
+        ManifestErrorCode::invariant_violation,
+        "/golden_receipt/codec_frame_count",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+}
+
 void test_rejected_cfg_row_contract(const json& valid) {
   {
     json candidate = valid;
@@ -367,9 +857,9 @@ void test_rejected_cfg_row_contract(const json& valid) {
   {
     json candidate = valid;
     candidate.at("classifier_free_guidance").at(
-        "unconditional_mask_source") = "text_mask";
+        "unconditional_mask_source") = "all_false";
     expect_manifest_error(
-        "non-zero unconditional CFG mask",
+        "all-false unconditional CFG mask",
         ManifestStage::classifier_free_guidance,
         ManifestErrorCode::invariant_violation,
         "/classifier_free_guidance",
@@ -460,18 +950,106 @@ void test_rejected_four_twelve_schedule(const json& valid) {
       });
 }
 
+void test_rejected_eos_frame_contract(const json& valid) {
+  {
+    json candidate = valid;
+    candidate.at("codec").at("eos_frame_is_audio") = true;
+    expect_manifest_error(
+        "AUDIO_EOS declared as audio",
+        ManifestStage::codec,
+        ManifestErrorCode::invariant_violation,
+        "/codec/eos_frame_is_audio",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+  {
+    json candidate = valid;
+    candidate.at("codec").at("zero_frame_finalization") =
+        "invoke_tail_with_zero";
+    expect_manifest_error(
+        "zero-frame tail invocation",
+        ManifestStage::codec,
+        ManifestErrorCode::invariant_violation,
+        "/codec/zero_frame_finalization",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+  {
+    json candidate = valid;
+    candidate.at("golden_receipt").at("zero_frame_finalization") =
+        "invoke_tail_with_zero";
+    expect_manifest_error(
+        "golden zero-frame contract mismatch",
+        ManifestStage::golden_receipt,
+        ManifestErrorCode::invariant_violation,
+        "/golden_receipt",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+}
+
 void test_rejected_local_ar_position(const json& valid) {
-  json candidate = valid;
-  candidate.at("local_ar").at("positions").at(15) = 14;
-  expect_manifest_error(
-      "Local AR position ordering",
-      ManifestStage::local_ar,
-      ManifestErrorCode::invariant_violation,
-      "/local_ar/positions/15",
-      [&candidate] {
-        static_cast<void>(
-            magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
-      });
+  {
+    json candidate = valid;
+    candidate.at("local_ar").at("positions").at(15) = 14;
+    expect_manifest_error(
+        "Local AR position ordering",
+        ManifestStage::local_ar,
+        ManifestErrorCode::invariant_violation,
+        "/local_ar/positions/15",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+  {
+    json candidate = valid;
+    candidate.at("local_ar").at("position_embedding").at("kind") =
+        "sinusoidal";
+    expect_manifest_error(
+        "Local AR position embedding kind",
+        ManifestStage::local_ar,
+        ManifestErrorCode::invalid_value,
+        "/local_ar/position_embedding/kind",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+  {
+    json candidate = valid;
+    candidate.at("local_ar").at("position_embedding").at("positions").at(0) =
+        1;
+    expect_manifest_error(
+        "Local AR position embedding row ordering",
+        ManifestStage::local_ar,
+        ManifestErrorCode::invariant_violation,
+        "/local_ar/position_embedding/positions/0",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+  {
+    json candidate = valid;
+    candidate.at("local_ar").at("position_embedding").at("source_shape") =
+        json::array({17, 768});
+    expect_manifest_error(
+        "Local AR position embedding source shape",
+        ManifestStage::local_ar,
+        ManifestErrorCode::invalid_value,
+        "/local_ar/position_embedding/source_shape",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
 }
 
 void test_rejected_duplicate_kv_layer(const json& valid) {
@@ -618,7 +1196,9 @@ void test_rejected_initial_codec_state_input(const json& valid) {
   initial->at("inputs").push_back(
       {{"name", "implicit_zero_state"},
        {"dtype", "fp32"},
-       {"shape", json::array({1, 1})}});
+       {"shape", json::array({1, 1})},
+       {"location", "device"},
+       {"shape_inference_io", false}});
   expect_manifest_error(
       "initial codec state input",
       ManifestStage::engine,
@@ -641,7 +1221,8 @@ void test_rejected_missing_initial_codec_state_output(const json& valid) {
   json& outputs = initial->at("outputs");
   const auto state_output = std::find_if(
       outputs.begin(), outputs.end(), [](const json& output) {
-        return output.at("name") == "codec_state_initial_out";
+        return output.at("name") ==
+               "state_out.pre_conv.input_history";
       });
   require(state_output != outputs.end(), "initial codec state output fixture");
   outputs.erase(state_output);
@@ -654,6 +1235,70 @@ void test_rejected_missing_initial_codec_state_output(const json& valid) {
         static_cast<void>(
             magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
       });
+}
+
+void test_rejected_noncanonical_codec_state_registry(const json& valid) {
+  {
+    json candidate = valid;
+    candidate.at("codec")
+        .at("state_bindings")
+        .at(0)
+        .at("shape") = json::array({1, 32, 5});
+    expect_manifest_error(
+        "wrong canonical codec state shape",
+        ManifestStage::codec,
+        ManifestErrorCode::invariant_violation,
+        "/codec/state_bindings/0/shape",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+  {
+    json candidate = valid;
+    json& states = candidate.at("codec").at("state_bindings");
+    std::swap(states.at(0), states.at(1));
+    expect_manifest_error(
+        "reordered canonical codec states",
+        ManifestStage::codec,
+        ManifestErrorCode::invariant_violation,
+        "/codec/state_bindings/0/logical_name",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+  {
+    json candidate = valid;
+    candidate.at("codec").at("state_bindings").erase(
+        candidate.at("codec").at("state_bindings").begin());
+    expect_manifest_error(
+        "missing canonical codec state",
+        ManifestStage::codec,
+        ManifestErrorCode::invariant_violation,
+        "/codec/state_bindings",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+  {
+    json candidate = valid;
+    candidate.at("codec")
+        .at("state_bindings")
+        .at(0)
+        .at("steady_input_binding") =
+        "state_in.opaque_aggregate";
+    expect_manifest_error(
+        "opaque codec state binding",
+        ManifestStage::codec,
+        ManifestErrorCode::invariant_violation,
+        "/codec/state_bindings/0/steady_input_binding",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
 }
 
 void test_rejected_fixed_cross_attention_shape(const json& valid) {
@@ -761,7 +1406,7 @@ void test_rejected_canonical_profile_mutations(const json& valid) {
     step->at("profiles")
         .at(0)
         .at("input_shapes")
-        .at(1)
+        .at(2)
         .at("opt")
         .at(1) = 65;
     expect_manifest_error(
@@ -863,12 +1508,12 @@ void test_rejected_sampling_contract_mutations(const json& valid) {
   }
   {
     json candidate = valid;
-    candidate.at("sampling").at("forbidden_token_ids").push_back(2024);
+    candidate.at("sampling").at("eos_token_id") = 2;
     expect_manifest_error(
-        "out-of-range sampling token",
+        "noncanonical AUDIO_EOS",
         ManifestStage::sampling,
-        ManifestErrorCode::invalid_value,
-        "/sampling/forbidden_token_ids/2",
+        ManifestErrorCode::invariant_violation,
+        "/sampling/eos_token_id",
         [&candidate] {
           static_cast<void>(
               magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
@@ -876,12 +1521,66 @@ void test_rejected_sampling_contract_mutations(const json& valid) {
   }
   {
     json candidate = valid;
-    candidate.at("sampling").at("forbidden_token_ids").push_back(2);
+    candidate.at("sampling").at("forbidden_token_ids").push_back(2024);
+    expect_manifest_error(
+        "out-of-range sampling token",
+        ManifestStage::sampling,
+        ManifestErrorCode::invalid_value,
+        "/sampling/forbidden_token_ids/7",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+  {
+    json candidate = valid;
+    candidate.at("sampling").at("forbidden_token_ids").push_back(2017);
     expect_manifest_error(
         "EOS in forbidden set",
         ManifestStage::sampling,
         ManifestErrorCode::invariant_violation,
-        "/sampling/forbidden_token_ids/2",
+        "/sampling/forbidden_token_ids/7",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+  {
+    json candidate = valid;
+    candidate.at("sampling").at("forbidden_token_ids").erase(0);
+    expect_manifest_error(
+        "special token 2016 must stay forbidden",
+        ManifestStage::sampling,
+        ManifestErrorCode::invariant_violation,
+        "/sampling/forbidden_token_ids",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+  {
+    json candidate = valid;
+    candidate.at("sampling").at("forbidden_token_ids").push_back(0);
+    expect_manifest_error(
+        "codec token IDs 0 through 2015 remain eligible",
+        ManifestStage::sampling,
+        ManifestErrorCode::invariant_violation,
+        "/sampling/forbidden_token_ids",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+  {
+    json candidate = valid;
+    std::swap(
+        candidate.at("sampling").at("forbidden_token_ids").at(0),
+        candidate.at("sampling").at("forbidden_token_ids").at(1));
+    expect_manifest_error(
+        "static forbidden-token order is canonical",
+        ManifestStage::sampling,
+        ManifestErrorCode::invariant_violation,
+        "/sampling/forbidden_token_ids",
         [&candidate] {
           static_cast<void>(
               magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
@@ -892,7 +1591,7 @@ void test_rejected_sampling_contract_mutations(const json& valid) {
     json forbidden = json::array();
     for (std::uint32_t token = 0; token < 2024 && forbidden.size() < 1945;
          ++token) {
-      if (token != 2) {
+      if (token != 2017) {
         forbidden.push_back(token);
       }
     }
@@ -911,6 +1610,22 @@ void test_rejected_sampling_contract_mutations(const json& valid) {
 }
 
 void test_rejected_local_ar_output_encoding_mutations(const json& valid) {
+  {
+    json candidate = valid;
+    candidate.at("local_ar")
+        .at("position_embedding")
+        .at("source_table_sha256") =
+        "abababababababababababababababababababababababababababababababab";
+    expect_manifest_error(
+        "wrong Sofia Local AR position table",
+        ManifestStage::local_ar,
+        ManifestErrorCode::invariant_violation,
+        "/local_ar/position_embedding/source_table_sha256",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
   {
     json candidate = valid;
     candidate.at("local_ar").at("invalid_rows_encoding") = "row_index";
@@ -939,12 +1654,60 @@ void test_rejected_local_ar_output_encoding_mutations(const json& valid) {
   }
 }
 
+void test_rejected_alignment_controller_mutations(const json& valid) {
+  const auto expect_noncanonical =
+      [&valid](
+          const std::string_view name,
+          const std::string_view field,
+          const json& replacement) {
+        json candidate = valid;
+        candidate.at("alignment").at(field) = replacement;
+        const std::string path = "/alignment/" + std::string(field);
+        expect_manifest_error(
+            name,
+            ManifestStage::alignment,
+            ManifestErrorCode::invariant_violation,
+            path,
+            [&candidate] {
+              static_cast<void>(
+                  magpie_tts_rt::parse_runtime_bundle_manifest(
+                      candidate.dump()));
+            });
+      };
+  expect_noncanonical("alignment prior epsilon", "prior_epsilon", 0.2);
+  expect_noncanonical("alignment initial attended", "initial_attended", 2);
+  expect_noncanonical(
+      "alignment ignored terminal tokens", "ignored_terminal_tokens", 4);
+  expect_noncanonical(
+      "alignment short-text prior boundary",
+      "short_text_no_prior_max_tokens",
+      6);
+  expect_noncanonical("alignment lookahead", "lookahead", 7);
+  expect_noncanonical("alignment sink threshold", "sink_threshold", 5);
+}
+
+void test_rejected_multiple_requests_per_session(const json& valid) {
+  json candidate = valid;
+  candidate.at("limits").at("maximum_sessions") = 2;
+  candidate.at("limits").at("maximum_concurrent_requests") = 2;
+  expect_manifest_error(
+      "multiple active requests per session",
+      ManifestStage::limits,
+      ManifestErrorCode::invariant_violation,
+      "/limits/maximum_concurrent_requests",
+      [&candidate] {
+        static_cast<void>(
+            magpie_tts_rt::parse_runtime_bundle_manifest(
+                candidate.dump()));
+      });
+}
+
 void test_rejected_snapshot_size_contract_mutations(const json& valid) {
   {
     json candidate = valid;
     candidate.at("artifacts")
-        .at("model")
-        .at("file")
+        .at("source_model")
+        .at("acceptance_receipt")
         .at("size_bytes") = 4;
     expect_manifest_error(
         "snapshot budget does not match artifact sum",
@@ -973,8 +1736,8 @@ void test_rejected_snapshot_size_contract_mutations(const json& valid) {
   {
     json candidate = valid;
     candidate.at("artifacts")
-        .at("model")
-        .at("file")
+        .at("source_model")
+        .at("acceptance_receipt")
         .at("size_bytes") =
         magpie_tts_rt::kMaximumBundleSnapshotBytes;
     candidate.at("limits").at("maximum_bundle_snapshot_bytes") =
@@ -983,7 +1746,7 @@ void test_rejected_snapshot_size_contract_mutations(const json& valid) {
         "artifact sum exceeds runtime hard limit",
         ManifestStage::limits,
         ManifestErrorCode::size_limit_exceeded,
-        "/artifacts/export/file/size_bytes",
+        "/artifacts/export/export_receipt/size_bytes",
         [&candidate] {
           static_cast<void>(
               magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
@@ -1024,17 +1787,25 @@ int main(int argc, char** argv) {
     test_load_manifest_rejects_fifo_without_blocking();
     test_missing_field(valid);
     test_unknown_field(valid);
+    test_rejected_license_inventory(valid);
     test_malformed_sha256(valid);
+    test_character_validation_boundaries(valid);
+    test_rejected_tokenizer_row_contract(valid);
+    test_rejected_plugin_library_name_as_creator(valid);
     test_rejected_control_byte_in_artifact_path(valid);
     test_rejected_impossible_timestamp(valid);
     test_rejected_non_sofia_export(valid);
+    test_rejected_noncanonical_export_format(valid);
     test_rejected_unbaked_audio_bos(valid);
     test_rejected_golden_context_hash_mismatch(valid);
+    test_rejected_golden_sample_count_mismatch(valid);
+    test_rejected_golden_seed_and_frame_limit(valid);
     test_rejected_cfg_row_contract(valid);
     test_rejected_step_position_contract(valid);
     test_malformed_json();
     test_duplicate_json_key();
     test_rejected_four_twelve_schedule(valid);
+    test_rejected_eos_frame_contract(valid);
     test_rejected_local_ar_position(valid);
     test_rejected_duplicate_kv_layer(valid);
     test_rejected_missing_engine_binding(valid);
@@ -1044,10 +1815,13 @@ int main(int argc, char** argv) {
     test_rejected_empty_codec_state_contract(valid);
     test_rejected_initial_codec_state_input(valid);
     test_rejected_missing_initial_codec_state_output(valid);
+    test_rejected_noncanonical_codec_state_registry(valid);
     test_rejected_fixed_cross_attention_shape(valid);
     test_rejected_canonical_profile_mutations(valid);
     test_rejected_sampling_contract_mutations(valid);
     test_rejected_local_ar_output_encoding_mutations(valid);
+    test_rejected_alignment_controller_mutations(valid);
+    test_rejected_multiple_requests_per_session(valid);
     test_rejected_snapshot_size_contract_mutations(valid);
     test_rejected_runtime_fingerprint(valid_text);
   } catch (const std::exception& error) {

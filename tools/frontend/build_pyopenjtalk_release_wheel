@@ -1,0 +1,301 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BUILD_REQUIREMENTS="${SCRIPT_DIR}/requirements-pyopenjtalk-wheel-build-aarch64-cp312.lock"
+RUNTIME_DEPENDENCIES="${SCRIPT_DIR}/requirements-frontend-runtime-dependencies-aarch64-cp312.lock"
+INPUT_WHEELHOUSE=""
+OUTPUT_DIR=""
+PYOPENJTALK_SDIST_FILENAME="pyopenjtalk-0.4.1.tar.gz"
+PYOPENJTALK_SDIST_SHA256="d5ada46f7fc2b52c1c79c273eb9668ff6ad7ab276a8db9d8be119ef93440f0dc"
+PYOPENJTALK_WHEEL_FILENAME="pyopenjtalk-0.4.1-cp312-cp312-linux_aarch64.whl"
+PYOPENJTALK_BUILD_RECEIPT_FILENAME="${PYOPENJTALK_WHEEL_FILENAME}.build-receipt.json"
+SOURCE_DATE_EPOCH_VALUE="1744093666"
+
+usage() {
+  cat <<'EOF'
+usage: tools/frontend/build_pyopenjtalk_release_wheel \
+  --input-wheelhouse /absolute/pinned-build-inputs \
+  --output /absolute/new/release-asset-directory
+
+Builds the Linux aarch64 / CPython 3.12 pyopenjtalk release wheel in a fresh
+venv. The source archive and every PEP-517 build dependency must already be
+present in the input wheelhouse and match the tracked hashes. Package indexes
+and build isolation downloads are disabled. The destination must not exist.
+EOF
+}
+
+die() {
+  echo "pyopenjtalk release-wheel build failed: $*" >&2
+  exit 2
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --input-wheelhouse)
+      [[ $# -ge 2 ]] || die "--input-wheelhouse requires a path"
+      INPUT_WHEELHOUSE="$2"
+      shift 2
+      ;;
+    --output)
+      [[ $# -ge 2 ]] || die "--output requires a path"
+      OUTPUT_DIR="$2"
+      shift 2
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      die "unknown argument: $1"
+      ;;
+  esac
+done
+
+[[ "$(uname -s)" == "Linux" ]] || die "Linux is required"
+[[ "$(uname -m)" == "aarch64" ]] || die "aarch64 is required"
+[[ "$(python3 -c 'import platform; print(platform.python_version())')" == 3.12.* ]] \
+  || die "CPython 3.12 is required"
+[[ "${INPUT_WHEELHOUSE}" == /* && -d "${INPUT_WHEELHOUSE}" \
+   && ! -L "${INPUT_WHEELHOUSE}" ]] \
+  || die "--input-wheelhouse must be an absolute non-symlink directory"
+[[ "${OUTPUT_DIR}" == /* && ! -e "${OUTPUT_DIR}" ]] \
+  || die "--output must be an absolute path that does not exist"
+OUTPUT_PARENT="$(dirname "${OUTPUT_DIR}")"
+[[ -d "${OUTPUT_PARENT}" && ! -L "${OUTPUT_PARENT}" ]] \
+  || die "output parent must be an existing non-symlink directory"
+
+for command_name in cmake c++ make python3 sha256sum; do
+  command -v "${command_name}" >/dev/null 2>&1 \
+    || die "${command_name} is required"
+done
+for required_file in "${BUILD_REQUIREMENTS}" "${RUNTIME_DEPENDENCIES}"; do
+  [[ -f "${required_file}" && ! -L "${required_file}" ]] \
+    || die "tracked requirements lock is missing: ${required_file}"
+done
+
+SOURCE_ARCHIVE="${INPUT_WHEELHOUSE}/${PYOPENJTALK_SDIST_FILENAME}"
+[[ -f "${SOURCE_ARCHIVE}" && ! -L "${SOURCE_ARCHIVE}" ]] \
+  || die "pinned pyopenjtalk source archive is missing: ${SOURCE_ARCHIVE}"
+[[ "$(sha256sum "${SOURCE_ARCHIVE}" | awk '{print $1}')" == \
+   "${PYOPENJTALK_SDIST_SHA256}" ]] \
+  || die "pyopenjtalk source archive SHA-256 mismatch"
+
+STAGING_ROOT="$(mktemp -d "${OUTPUT_PARENT}/.pyopenjtalk-wheel-build.XXXXXX")"
+cleanup() {
+  if [[ -n "${STAGING_ROOT:-}" && -d "${STAGING_ROOT}" ]]; then
+    rm -rf -- "${STAGING_ROOT}"
+  fi
+}
+trap cleanup EXIT
+
+BUILD_VENV="${STAGING_ROOT}/build-venv"
+TEST_VENV="${STAGING_ROOT}/test-venv"
+ARTIFACTS="${STAGING_ROOT}/artifacts"
+mkdir -p "${ARTIFACTS}"
+python3 -m venv --copies "${BUILD_VENV}"
+PIP_CONFIG_FILE=/dev/null \
+PIP_NO_INPUT=1 \
+PYTHONNOUSERSITE=1 \
+  "${BUILD_VENV}/bin/python" -m pip install \
+  --isolated \
+  --disable-pip-version-check \
+  --no-cache-dir \
+  --no-index \
+  --only-binary=:all: \
+  --require-hashes \
+  --find-links "${INPUT_WHEELHOUSE}" \
+  --requirement "${BUILD_REQUIREMENTS}"
+
+PATH="${BUILD_VENV}/bin:/usr/bin:/bin" \
+SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH_VALUE}" \
+PYTHONHASHSEED=0 \
+PIP_CONFIG_FILE=/dev/null \
+PIP_NO_INPUT=1 \
+PYTHONNOUSERSITE=1 \
+  "${BUILD_VENV}/bin/python" -m pip wheel \
+    --isolated \
+    --disable-pip-version-check \
+    --no-cache-dir \
+    --no-index \
+    --no-build-isolation \
+    --no-deps \
+    --wheel-dir "${ARTIFACTS}" \
+    "${SOURCE_ARCHIVE}"
+
+BUILT_WHEEL="${ARTIFACTS}/${PYOPENJTALK_WHEEL_FILENAME}"
+[[ -f "${BUILT_WHEEL}" && ! -L "${BUILT_WHEEL}" ]] \
+  || die "build did not produce the canonical aarch64 CPython 3.12 wheel"
+
+python3 - "${BUILT_WHEEL}" <<'PY'
+from pathlib import Path
+import sys
+import zipfile
+
+wheel = Path(sys.argv[1])
+with zipfile.ZipFile(wheel) as archive:
+    corrupt = archive.testzip()
+if corrupt is not None:
+    raise SystemExit(f"wheel ZIP member is corrupt: {corrupt}")
+PY
+
+python3 -m venv --copies "${TEST_VENV}"
+PIP_CONFIG_FILE=/dev/null \
+PIP_NO_INPUT=1 \
+PYTHONNOUSERSITE=1 \
+  "${TEST_VENV}/bin/python" -m pip install \
+  --isolated \
+  --disable-pip-version-check \
+  --no-cache-dir \
+  --no-index \
+  --only-binary=:all: \
+  --require-hashes \
+  --find-links "${INPUT_WHEELHOUSE}" \
+  --requirement "${RUNTIME_DEPENDENCIES}"
+PIP_CONFIG_FILE=/dev/null \
+PIP_NO_INPUT=1 \
+PYTHONNOUSERSITE=1 \
+  "${TEST_VENV}/bin/python" -m pip install \
+  --isolated \
+  --disable-pip-version-check \
+  --no-cache-dir \
+  --no-index \
+  --no-deps \
+  "${BUILT_WHEEL}"
+"${TEST_VENV}/bin/python" -I -B -c \
+  'import importlib.metadata, pyopenjtalk; assert importlib.metadata.version("pyopenjtalk") == "0.4.1"'
+
+WHEEL_SHA256="$(sha256sum "${BUILT_WHEEL}" | awk '{print $1}')"
+BUILD_PYTHON_VERSION="$("${BUILD_VENV}/bin/python" -c 'import platform; print(platform.python_version())')"
+BUILD_CMAKE_VERSION="$(PATH="${BUILD_VENV}/bin:/usr/bin:/bin" cmake --version | head -n 1)"
+BUILD_COMPILER_VERSION="$(c++ --version | head -n 1)"
+cp -- "${BUILT_WHEEL}" "${STAGING_ROOT}/${PYOPENJTALK_WHEEL_FILENAME}"
+printf '%s  %s\n' "${WHEEL_SHA256}" "${PYOPENJTALK_WHEEL_FILENAME}" \
+  > "${STAGING_ROOT}/${PYOPENJTALK_WHEEL_FILENAME}.sha256"
+
+python3 - \
+  "${STAGING_ROOT}/${PYOPENJTALK_BUILD_RECEIPT_FILENAME}" \
+  "${PYOPENJTALK_SDIST_FILENAME}" \
+  "${PYOPENJTALK_SDIST_SHA256}" \
+  "${PYOPENJTALK_WHEEL_FILENAME}" \
+  "${WHEEL_SHA256}" \
+  "${BUILD_PYTHON_VERSION}" \
+  "${BUILD_CMAKE_VERSION}" \
+  "${BUILD_COMPILER_VERSION}" \
+  "${SOURCE_DATE_EPOCH_VALUE}" \
+  "${BUILD_REQUIREMENTS}" \
+  "${RUNTIME_DEPENDENCIES}" <<'PY'
+from datetime import datetime, timezone
+import hashlib
+import json
+from pathlib import Path
+import sys
+
+(
+    receipt_name,
+    source_filename,
+    source_sha256,
+    wheel_filename,
+    wheel_sha256,
+    python_version,
+    cmake_version,
+    compiler_version,
+    source_date_epoch,
+    build_requirements_name,
+    runtime_dependencies_name,
+) = sys.argv[1:]
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+receipt = {
+    "schema": "magpie-tts-rt.pyopenjtalk-release-wheel.v1",
+    "built_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "platform": "linux_aarch64",
+    "python_abi": "cp312",
+    "source": {
+        "filename": source_filename,
+        "sha256": source_sha256,
+    },
+    "build_environment": {
+        "python_version": python_version,
+        "cmake_version": cmake_version,
+        "compiler_version": compiler_version,
+        "source_date_epoch": int(source_date_epoch),
+        "build_requirements_sha256": sha256_file(build_requirements_name),
+        "runtime_dependencies_sha256": sha256_file(runtime_dependencies_name),
+        "network_package_access": False,
+    },
+    "wheel": {
+        "filename": wheel_filename,
+        "sha256": wheel_sha256,
+    },
+}
+Path(receipt_name).write_text(
+    json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+    encoding="utf-8",
+)
+PY
+
+rm -rf -- "${BUILD_VENV}" "${TEST_VENV}" "${ARTIFACTS}"
+chmod 0644 \
+  "${STAGING_ROOT}/${PYOPENJTALK_WHEEL_FILENAME}" \
+  "${STAGING_ROOT}/${PYOPENJTALK_WHEEL_FILENAME}.sha256" \
+  "${STAGING_ROOT}/${PYOPENJTALK_BUILD_RECEIPT_FILENAME}"
+chmod 0755 "${STAGING_ROOT}"
+python3 - "${STAGING_ROOT}" "${OUTPUT_DIR}" <<'PY'
+import ctypes
+import errno
+import os
+from pathlib import Path
+import sys
+
+source = Path(sys.argv[1])
+destination = Path(sys.argv[2])
+if source.parent != destination.parent:
+    raise SystemExit("staging and output must share one parent filesystem")
+
+libc = ctypes.CDLL(None, use_errno=True)
+try:
+    renameat2 = libc.renameat2
+except AttributeError as error:
+    raise SystemExit("libc renameat2 is unavailable; refusing non-atomic publish") from error
+renameat2.argtypes = [
+    ctypes.c_int,
+    ctypes.c_char_p,
+    ctypes.c_int,
+    ctypes.c_char_p,
+    ctypes.c_uint,
+]
+renameat2.restype = ctypes.c_int
+at_fdcwd = -100
+rename_noreplace = 1
+result = renameat2(
+    at_fdcwd,
+    os.fsencode(source),
+    at_fdcwd,
+    os.fsencode(destination),
+    rename_noreplace,
+)
+if result != 0:
+    error_number = ctypes.get_errno()
+    if error_number == errno.EEXIST:
+        raise SystemExit(f"output already exists: {destination}")
+    if error_number in (errno.ENOSYS, errno.EINVAL, errno.ENOTSUP):
+        raise SystemExit(
+            "filesystem/kernel does not support atomic RENAME_NOREPLACE; "
+            "release asset was not published"
+        )
+    raise OSError(error_number, os.strerror(error_number), str(destination))
+PY
+STAGING_ROOT=""
+trap - EXIT
+printf 'wheel=%s\n' "${OUTPUT_DIR}/${PYOPENJTALK_WHEEL_FILENAME}"
+printf 'sha256=%s\n' "${WHEEL_SHA256}"
+printf 'status=release-asset-built-and-offline-tested\n'

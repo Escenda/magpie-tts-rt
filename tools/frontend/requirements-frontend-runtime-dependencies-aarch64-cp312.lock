@@ -1,0 +1,8 @@
+# Runtime dependencies installed while validating a newly built pyopenjtalk
+# release wheel. pyopenjtalk itself is the output under test and is installed
+# separately with --no-deps; its SHA-256 becomes a release pin only after this
+# clean build completes.
+numpy==2.4.6 \
+    --hash=sha256:5f9fb9157b4ce2971008323afe46053787b526ef624fea915b261468a8421a0f
+tqdm==4.70.0 \
+    --hash=sha256:7f585706bfddbdebf89daac705b2dfcc16890130727d3197ca62c732b4310953

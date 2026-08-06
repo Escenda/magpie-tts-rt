@@ -63,6 +63,31 @@ pub struct mtt_model_desc_v1 {
 pub type mtt_model_desc_v1_t = mtt_model_desc_v1;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
+pub struct mtt_model_info_v1 {
+    pub struct_size: u32,
+    pub abi_version: u32,
+    pub tokenizer_vocabulary_size: u32,
+    pub text_embedding_rows: u32,
+    pub bos_token_id: u32,
+    pub eos_token_id: u32,
+    pub japanese_global_pad_token_id: u32,
+    pub maximum_text_tokens: u32,
+    pub maximum_audio_frames: u32,
+    pub sample_rate_hz: u32,
+    pub channels: u32,
+    pub pcm_format: mtt_pcm_format_t,
+    pub codec_frame_samples: u32,
+    pub initial_frames: u32,
+    pub steady_frames: u32,
+    pub tail_min_frames: u32,
+    pub tail_max_frames: u32,
+    pub tokenizer_identity_sha256: [u8; 32usize],
+    pub reserved_0: u32,
+    pub reserved: [u64; 4usize],
+}
+pub type mtt_model_info_v1_t = mtt_model_info_v1;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
 pub struct mtt_session_desc_v1 {
     pub struct_size: u32,
     pub abi_version: u32,
@@ -103,6 +128,16 @@ pub struct mtt_request_snapshot_v1 {
 pub type mtt_request_snapshot_v1_t = mtt_request_snapshot_v1;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
+pub struct mtt_alignment_event_v1 {
+    pub struct_size: u32,
+    pub abi_version: u32,
+    pub sample_index: u64,
+    pub committed_text_tokens: u64,
+    pub reserved: [u64; 2usize],
+}
+pub type mtt_alignment_event_v1_t = mtt_alignment_event_v1;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
 pub struct mtt_audio_lease_v1 {
     pub struct_size: u32,
     pub abi_version: u32,
@@ -116,7 +151,9 @@ pub struct mtt_audio_lease_v1 {
     pub format: mtt_pcm_format_t,
     pub flags: u32,
     pub committed_text_tokens: u64,
-    pub reserved: [u64; 4usize],
+    pub alignment_events: *const mtt_alignment_event_v1_t,
+    pub alignment_event_count: u64,
+    pub reserved: [u64; 2usize],
 }
 pub type mtt_audio_lease_v1_t = mtt_audio_lease_v1;
 #[repr(C)]
@@ -147,6 +184,13 @@ pub struct mtt_api_v1 {
     >,
     pub model_destroy: ::core::option::Option<
         unsafe extern "C" fn(model: *mut mtt_model_t, error: *mut mtt_error_v1_t) -> mtt_status_t,
+    >,
+    pub model_get_info: ::core::option::Option<
+        unsafe extern "C" fn(
+            model: *mut mtt_model_t,
+            info: *mut mtt_model_info_v1_t,
+            error: *mut mtt_error_v1_t,
+        ) -> mtt_status_t,
     >,
     pub session_create: ::core::option::Option<
         unsafe extern "C" fn(

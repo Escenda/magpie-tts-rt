@@ -181,18 +181,24 @@ void configure_file_artifact(Json& file) {
 
 [[nodiscard]] std::vector<Json*> json_file_artifacts(Json& document) {
   std::vector<Json*> files;
-  files.reserve(5 + document.at("engines").size());
+  files.reserve(15 + document.at("engines").size());
   files.push_back(
-      &document.at("artifacts").at("model").at("file"));
+      &document.at("artifacts").at("source_model").at("acceptance_receipt"));
   files.push_back(
-      &document.at("artifacts").at("export").at("file"));
+      &document.at("artifacts").at("export").at("export_receipt"));
   files.push_back(
-      &document.at("artifacts").at("tokenizer").at("file"));
+      &document.at("artifacts").at("tokenizer").at("identity_receipt"));
   files.push_back(
       &document.at("artifacts").at("plugin").at("file"));
+  files.push_back(
+      &document.at("artifacts").at("plugin").at("build_receipt"));
+  for (Json& license : document.at("licenses")) {
+    files.push_back(&license.at("file"));
+  }
   for (Json& engine : document.at("engines")) {
     files.push_back(&engine.at("file"));
   }
+  files.push_back(&document.at("golden_fixture"));
   return files;
 }
 
@@ -210,7 +216,7 @@ void configure_file_artifact(Json& file) {
   document.at("golden_receipt").at("size_bytes") =
       kFileContents.size();
   document.at("limits").at("maximum_bundle_snapshot_bytes") =
-      (document.at("engines").size() + 5U) * kFileContents.size();
+      (document.at("engines").size() + 15U) * kFileContents.size();
   write_file(
       root /
           document.at("golden_receipt").at("path").get<std::string>(),
@@ -265,7 +271,7 @@ void test_known_hash_and_complete_artifact_set(const Json& fixture) {
       magpie_tts_rt::load_and_verify_runtime_bundle(
           root, trusted_manifest_sha256);
   require(
-      bundle.artifacts.size() == manifest.engines.size() + 5,
+      bundle.artifacts.size() == manifest.engines.size() + 15,
       "all artifact classes were verified");
   require(
       bundle.canonical_root == std::filesystem::canonical(root),
@@ -284,8 +290,11 @@ void test_known_hash_and_complete_artifact_set(const Json& fixture) {
   std::size_t model_count = 0;
   std::size_t export_count = 0;
   std::size_t tokenizer_count = 0;
+  std::size_t plugin_build_receipt_count = 0;
   std::size_t plugin_count = 0;
+  std::size_t license_count = 0;
   std::size_t engine_count = 0;
+  std::size_t fixture_count = 0;
   std::size_t receipt_count = 0;
   for (const auto& artifact : bundle.artifacts) {
     require(artifact.sha256 == kFileSha256, "known SHA-256");
@@ -296,20 +305,29 @@ void test_known_hash_and_complete_artifact_set(const Json& fixture) {
     switch (artifact.kind) {
       case BundleArtifactKind::manifest:
         test_failure("manifest must not be duplicated in artifact vector");
-      case BundleArtifactKind::model:
+      case BundleArtifactKind::source_model_receipt:
         ++model_count;
         break;
-      case BundleArtifactKind::export_artifact:
+      case BundleArtifactKind::export_receipt:
         ++export_count;
         break;
-      case BundleArtifactKind::tokenizer:
+      case BundleArtifactKind::tokenizer_identity_receipt:
         ++tokenizer_count;
+        break;
+      case BundleArtifactKind::plugin_build_receipt:
+        ++plugin_build_receipt_count;
         break;
       case BundleArtifactKind::plugin:
         ++plugin_count;
         break;
+      case BundleArtifactKind::license:
+        ++license_count;
+        break;
       case BundleArtifactKind::engine:
         ++engine_count;
+        break;
+      case BundleArtifactKind::golden_fixture:
+        ++fixture_count;
         break;
       case BundleArtifactKind::golden_receipt:
         ++receipt_count;
@@ -319,18 +337,17 @@ void test_known_hash_and_complete_artifact_set(const Json& fixture) {
   require(model_count == 1, "model artifact");
   require(export_count == 1, "export artifact");
   require(tokenizer_count == 1, "tokenizer artifact");
+  require(plugin_build_receipt_count == 1, "plugin build receipt artifact");
   require(plugin_count == 1, "plugin artifact");
+  require(license_count == manifest.licenses.size(), "every license artifact");
   require(engine_count == manifest.engines.size(), "every engine artifact");
+  require(fixture_count == 1, "golden fixture artifact");
   require(receipt_count == 1, "golden receipt artifact");
 
   const std::filesystem::path explicit_manifest =
       root / "metadata/runtime.json";
-  write_file(
-      explicit_manifest,
-      read_file(
-          root /
-          std::filesystem::path(
-              magpie_tts_rt::kDefaultRuntimeBundleManifestPath)));
+  std::filesystem::create_directories(explicit_manifest.parent_path());
+  std::filesystem::rename(manifest_path, explicit_manifest);
   const magpie_tts_rt::VerifiedRuntimeBundle explicit_bundle =
       magpie_tts_rt::load_and_verify_runtime_bundle(
           root,
@@ -342,20 +359,148 @@ void test_known_hash_and_complete_artifact_set(const Json& fixture) {
       "explicit manifest path");
 }
 
+void test_exact_bundle_entry_inventory(const Json& fixture) {
+  const auto expect_extra_entry =
+      [&fixture](
+          const std::string_view name,
+          const std::function<void(const std::filesystem::path&)>& add_extra) {
+        TemporaryDirectory temporary;
+        const std::filesystem::path root = temporary.path() / "bundle";
+        static_cast<void>(create_valid_bundle(fixture, root));
+        add_extra(root);
+        expect_bundle_error(
+            name,
+            BundleStage::artifact_path,
+            BundleErrorCode::unexpected_entry,
+            "/",
+            [&root] {
+              const std::filesystem::path manifest_path =
+                  root /
+                  std::filesystem::path(
+                      magpie_tts_rt::kDefaultRuntimeBundleManifestPath);
+              static_cast<void>(
+                  magpie_tts_rt::load_and_verify_runtime_bundle(
+                      root, sha256_file(manifest_path)));
+            });
+      };
+
+  expect_extra_entry(
+      "unlisted regular file",
+      [](const std::filesystem::path& root) {
+        write_file(root / "extra.bin", "extra");
+      });
+  expect_extra_entry(
+      "unlisted empty directory",
+      [](const std::filesystem::path& root) {
+        std::filesystem::create_directory(root / "extra");
+      });
+  expect_extra_entry(
+      "unlisted symbolic link",
+      [](const std::filesystem::path& root) {
+        std::filesystem::create_symlink(
+            root /
+                std::filesystem::path(
+                    magpie_tts_rt::kDefaultRuntimeBundleManifestPath),
+            root / "extra-link");
+      });
+  expect_extra_entry(
+      "unlisted special file",
+      [](const std::filesystem::path& root) {
+        if (::mkfifo((root / "extra-fifo").c_str(), 0600) != 0) {
+          throw std::runtime_error("mkfifo failed");
+        }
+      });
+}
+
+void test_optional_manifest_digest_transport(const Json& fixture) {
+  {
+    TemporaryDirectory temporary;
+    const std::filesystem::path root = temporary.path() / "bundle";
+    static_cast<void>(create_valid_bundle(fixture, root));
+    const std::filesystem::path manifest_path =
+        root /
+        std::filesystem::path(
+            magpie_tts_rt::kDefaultRuntimeBundleManifestPath);
+    const std::string manifest_sha256 = sha256_file(manifest_path);
+    write_file(
+        root / "runtime-bundle-manifest.json.sha256",
+        manifest_sha256 + "  runtime-bundle-manifest.json\n");
+    static_cast<void>(
+        magpie_tts_rt::load_and_verify_runtime_bundle(
+            root, manifest_sha256));
+  }
+  {
+    TemporaryDirectory temporary;
+    const std::filesystem::path root = temporary.path() / "bundle";
+    static_cast<void>(create_valid_bundle(fixture, root));
+    const std::filesystem::path manifest_path =
+        root /
+        std::filesystem::path(
+            magpie_tts_rt::kDefaultRuntimeBundleManifestPath);
+    const std::string manifest_sha256 = sha256_file(manifest_path);
+    write_file(
+        root / "runtime-bundle-manifest.json.sha256",
+        std::string(kZeroSha256) + "  runtime-bundle-manifest.json\n");
+    expect_bundle_error(
+        "incorrect manifest digest transport",
+        BundleStage::sha256,
+        BundleErrorCode::digest_mismatch,
+        "/",
+        [&root, &manifest_sha256] {
+          static_cast<void>(
+              magpie_tts_rt::load_and_verify_runtime_bundle(
+                  root, manifest_sha256));
+        });
+  }
+}
+
 void test_missing_artifact(const Json& fixture) {
   TemporaryDirectory temporary;
   const std::filesystem::path root = temporary.path() / "bundle";
   const RuntimeBundleManifest manifest = create_valid_bundle(fixture, root);
-  std::filesystem::remove(root / manifest.artifacts.model.file.path);
+  std::filesystem::remove(root / manifest.artifacts.source_model.acceptance_receipt.path);
   expect_bundle_error(
       "missing artifact",
       BundleStage::artifact_file,
       BundleErrorCode::not_found,
-      "/artifacts/model/file/path",
+      "/artifacts/source_model/acceptance_receipt/path",
       [&root, &manifest] {
         static_cast<void>(
             magpie_tts_rt::verify_runtime_bundle_files(root, manifest));
       });
+}
+
+void test_missing_or_mutated_license_fails_closed(const Json& fixture) {
+  {
+    TemporaryDirectory temporary;
+    const std::filesystem::path root = temporary.path() / "bundle";
+    const RuntimeBundleManifest manifest = create_valid_bundle(fixture, root);
+    std::filesystem::remove(root / manifest.licenses.front().file.path);
+    expect_bundle_error(
+        "missing license",
+        BundleStage::artifact_file,
+        BundleErrorCode::not_found,
+        "/licenses/0/file/path",
+        [&root, &manifest] {
+          static_cast<void>(
+              magpie_tts_rt::verify_runtime_bundle_files(root, manifest));
+        });
+  }
+  {
+    TemporaryDirectory temporary;
+    const std::filesystem::path root = temporary.path() / "bundle";
+    const RuntimeBundleManifest manifest = create_valid_bundle(fixture, root);
+    write_file(root / manifest.licenses.front().file.path, "xyz");
+    expect_bundle_error(
+        "mutated license",
+        BundleStage::sha256,
+        BundleErrorCode::digest_mismatch,
+        "/licenses/0/file/sha256",
+        [&root, &manifest] {
+          static_cast<void>(
+              magpie_tts_rt::verify_runtime_bundle_files(root, manifest));
+        });
+  }
 }
 
 void test_manifest_trust_anchor_mismatch(const Json& fixture) {
@@ -382,24 +527,34 @@ struct DigestField {
 [[nodiscard]] std::vector<DigestField> digest_fields(
     RuntimeBundleManifest& manifest) {
   std::vector<DigestField> fields;
-  fields.reserve(5 + manifest.engines.size());
+  fields.reserve(15 + manifest.engines.size());
   fields.push_back(
-      {&manifest.artifacts.model.file.sha256,
-       "/artifacts/model/file/sha256"});
+      {&manifest.artifacts.source_model.acceptance_receipt.sha256,
+       "/artifacts/source_model/acceptance_receipt/sha256"});
   fields.push_back(
-      {&manifest.artifacts.export_artifact.file.sha256,
-       "/artifacts/export/file/sha256"});
+      {&manifest.artifacts.export_artifact.export_receipt.sha256,
+       "/artifacts/export/export_receipt/sha256"});
   fields.push_back(
-      {&manifest.artifacts.tokenizer.file.sha256,
-       "/artifacts/tokenizer/file/sha256"});
+      {&manifest.artifacts.tokenizer.identity_receipt.sha256,
+       "/artifacts/tokenizer/identity_receipt/sha256"});
   fields.push_back(
       {&manifest.artifacts.plugin.file.sha256,
        "/artifacts/plugin/file/sha256"});
+  fields.push_back(
+      {&manifest.artifacts.plugin.build_receipt.sha256,
+       "/artifacts/plugin/build_receipt/sha256"});
+  for (std::size_t index = 0; index < manifest.licenses.size(); ++index) {
+    fields.push_back(
+        {&manifest.licenses.at(index).file.sha256,
+         "/licenses/" + std::to_string(index) + "/file/sha256"});
+  }
   for (std::size_t index = 0; index < manifest.engines.size(); ++index) {
     fields.push_back(
         {&manifest.engines.at(index).file.sha256,
          "/engines/" + std::to_string(index) + "/file/sha256"});
   }
+  fields.push_back(
+      {&manifest.golden_fixture.sha256, "/golden_fixture/sha256"});
   fields.push_back(
       {&manifest.golden_receipt.sha256, "/golden_receipt/sha256"});
   return fields;
@@ -430,13 +585,13 @@ void test_authenticated_artifact_size_is_verified(const Json& fixture) {
   TemporaryDirectory temporary;
   const std::filesystem::path root = temporary.path() / "bundle";
   RuntimeBundleManifest manifest = create_valid_bundle(fixture, root);
-  ++manifest.artifacts.model.file.size_bytes;
+  ++manifest.artifacts.source_model.acceptance_receipt.size_bytes;
   ++manifest.limits.maximum_bundle_snapshot_bytes;
   expect_bundle_error(
       "authenticated artifact size mismatch",
       BundleStage::artifact_file,
       BundleErrorCode::size_mismatch,
-      "/artifacts/model/file/size_bytes",
+      "/artifacts/source_model/acceptance_receipt/size_bytes",
       [&root, &manifest] {
         static_cast<void>(
             magpie_tts_rt::verify_runtime_bundle_files(root, manifest));
@@ -463,14 +618,14 @@ void test_uppercase_digest_is_rejected(const Json& fixture) {
   TemporaryDirectory temporary;
   const std::filesystem::path root = temporary.path() / "bundle";
   RuntimeBundleManifest manifest = create_valid_bundle(fixture, root);
-  manifest.artifacts.model.file.sha256 =
+  manifest.artifacts.source_model.acceptance_receipt.sha256 =
       "BA7816BF8F01CFEA414140DE5DAE2223"
       "B00361A396177A9CB410FF61F20015AD";
   expect_bundle_error(
       "uppercase digest",
       BundleStage::sha256,
       BundleErrorCode::invalid_digest,
-      "/artifacts/model/file/sha256",
+      "/artifacts/source_model/acceptance_receipt/sha256",
       [&root, &manifest] {
         static_cast<void>(
             magpie_tts_rt::verify_runtime_bundle_files(root, manifest));
@@ -482,12 +637,12 @@ void test_parent_component_is_rejected(const Json& fixture) {
   const std::filesystem::path root = temporary.path() / "bundle";
   RuntimeBundleManifest manifest = create_valid_bundle(fixture, root);
   write_file(temporary.path() / "outside.bin", kFileContents);
-  manifest.artifacts.model.file.path = "../outside.bin";
+  manifest.artifacts.source_model.acceptance_receipt.path = "../outside.bin";
   expect_bundle_error(
       "parent component",
       BundleStage::artifact_path,
       BundleErrorCode::invalid_relative_path,
-      "/artifacts/model/file/path",
+      "/artifacts/source_model/acceptance_receipt/path",
       [&root, &manifest] {
         static_cast<void>(
             magpie_tts_rt::verify_runtime_bundle_files(root, manifest));
@@ -501,12 +656,12 @@ void test_embedded_nul_is_rejected(const Json& fixture) {
   std::string path_with_nul = "model/model.nemo";
   path_with_nul.push_back('\0');
   path_with_nul += "suffix";
-  manifest.artifacts.model.file.path = path_with_nul;
+  manifest.artifacts.source_model.acceptance_receipt.path = path_with_nul;
   expect_bundle_error(
       "embedded NUL",
       BundleStage::artifact_path,
       BundleErrorCode::invalid_relative_path,
-      "/artifacts/model/file/path",
+      "/artifacts/source_model/acceptance_receipt/path",
       [&root, &manifest] {
         static_cast<void>(
             magpie_tts_rt::verify_runtime_bundle_files(root, manifest));
@@ -518,7 +673,7 @@ void test_symlink_escape_is_rejected(const Json& fixture) {
   const std::filesystem::path root = temporary.path() / "bundle";
   const RuntimeBundleManifest manifest = create_valid_bundle(fixture, root);
   const std::filesystem::path model_path =
-      root / manifest.artifacts.model.file.path;
+      root / manifest.artifacts.source_model.acceptance_receipt.path;
   const std::filesystem::path outside_path =
       temporary.path() / "outside.bin";
   write_file(outside_path, kFileContents);
@@ -528,7 +683,7 @@ void test_symlink_escape_is_rejected(const Json& fixture) {
       "symlink escape",
       BundleStage::artifact_path,
       BundleErrorCode::path_escape,
-      "/artifacts/model/file/path",
+      "/artifacts/source_model/acceptance_receipt/path",
       [&root, &manifest] {
         static_cast<void>(
             magpie_tts_rt::verify_runtime_bundle_files(root, manifest));
@@ -540,16 +695,16 @@ void test_duplicate_canonical_path_is_rejected(const Json& fixture) {
   const std::filesystem::path root = temporary.path() / "bundle";
   const RuntimeBundleManifest manifest = create_valid_bundle(fixture, root);
   const std::filesystem::path model_path =
-      root / manifest.artifacts.model.file.path;
+      root / manifest.artifacts.source_model.acceptance_receipt.path;
   const std::filesystem::path export_path =
-      root / manifest.artifacts.export_artifact.file.path;
+      root / manifest.artifacts.export_artifact.export_receipt.path;
   std::filesystem::remove(export_path);
   std::filesystem::create_symlink(model_path, export_path);
   expect_bundle_error(
       "duplicate canonical path",
       BundleStage::artifact_path,
       BundleErrorCode::duplicate_canonical_path,
-      "/artifacts/export/file/path",
+      "/artifacts/export/export_receipt/path",
       [&root, &manifest] {
         static_cast<void>(
             magpie_tts_rt::verify_runtime_bundle_files(root, manifest));
@@ -561,16 +716,16 @@ void test_hard_link_alias_is_rejected(const Json& fixture) {
   const std::filesystem::path root = temporary.path() / "bundle";
   const RuntimeBundleManifest manifest = create_valid_bundle(fixture, root);
   const std::filesystem::path model_path =
-      root / manifest.artifacts.model.file.path;
+      root / manifest.artifacts.source_model.acceptance_receipt.path;
   const std::filesystem::path export_path =
-      root / manifest.artifacts.export_artifact.file.path;
+      root / manifest.artifacts.export_artifact.export_receipt.path;
   std::filesystem::remove(export_path);
   std::filesystem::create_hard_link(model_path, export_path);
   expect_bundle_error(
       "hard-link alias",
       BundleStage::artifact_path,
       BundleErrorCode::duplicate_file_identity,
-      "/artifacts/export/file/path",
+      "/artifacts/export/export_receipt/path",
       [&root, &manifest] {
         static_cast<void>(
             magpie_tts_rt::verify_runtime_bundle_files(root, manifest));
@@ -582,14 +737,14 @@ void test_non_regular_artifact_is_rejected(const Json& fixture) {
   const std::filesystem::path root = temporary.path() / "bundle";
   const RuntimeBundleManifest manifest = create_valid_bundle(fixture, root);
   const std::filesystem::path model_path =
-      root / manifest.artifacts.model.file.path;
+      root / manifest.artifacts.source_model.acceptance_receipt.path;
   std::filesystem::remove(model_path);
   std::filesystem::create_directory(model_path);
   expect_bundle_error(
       "non-regular artifact",
       BundleStage::artifact_file,
       BundleErrorCode::not_regular_file,
-      "/artifacts/model/file/path",
+      "/artifacts/source_model/acceptance_receipt/path",
       [&root, &manifest] {
         static_cast<void>(
             magpie_tts_rt::verify_runtime_bundle_files(root, manifest));
@@ -601,7 +756,7 @@ void test_fifo_artifact_is_rejected_without_blocking(const Json& fixture) {
   const std::filesystem::path root = temporary.path() / "bundle";
   const RuntimeBundleManifest manifest = create_valid_bundle(fixture, root);
   const std::filesystem::path model_path =
-      root / manifest.artifacts.model.file.path;
+      root / manifest.artifacts.source_model.acceptance_receipt.path;
   std::filesystem::remove(model_path);
   if (::mkfifo(model_path.c_str(), 0600) != 0) {
     throw std::runtime_error("mkfifo failed");
@@ -610,7 +765,7 @@ void test_fifo_artifact_is_rejected_without_blocking(const Json& fixture) {
       "FIFO artifact",
       BundleStage::artifact_file,
       BundleErrorCode::not_regular_file,
-      "/artifacts/model/file/path",
+      "/artifacts/source_model/acceptance_receipt/path",
       [&root, &manifest] {
         static_cast<void>(
             magpie_tts_rt::verify_runtime_bundle_files(root, manifest));
@@ -628,7 +783,7 @@ void test_verified_descriptor_survives_path_replacement(
         magpie_tts_rt::verify_runtime_bundle_files(root, manifest);
     const auto model = std::find_if(
         artifacts.begin(), artifacts.end(), [](const auto& artifact) {
-          return artifact.kind == BundleArtifactKind::model;
+          return artifact.kind == BundleArtifactKind::source_model_receipt;
         });
     require(model != artifacts.end(), "verified model descriptor");
     retained_descriptor = model->verified_file_descriptor();
@@ -765,8 +920,11 @@ int main(int argc, char** argv) {
   try {
     const Json fixture = Json::parse(read_file(argv[1]));
     test_known_hash_and_complete_artifact_set(fixture);
+    test_exact_bundle_entry_inventory(fixture);
+    test_optional_manifest_digest_transport(fixture);
     test_manifest_trust_anchor_mismatch(fixture);
     test_missing_artifact(fixture);
+    test_missing_or_mutated_license_fails_closed(fixture);
     test_every_digest_is_verified(fixture);
     test_authenticated_artifact_size_is_verified(fixture);
     test_snapshot_budget_is_verified(fixture);

@@ -1,0 +1,1796 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Escenda/magpie-tts-rt/schemas/runtime-benchmark-receipt.schema.json",
+  "title": "MagpieTTS-RT acceptance benchmark receipt v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "status",
+    "completed_at_unix_ms",
+    "abi_version",
+    "measurement_scope",
+    "ttfa_stages",
+    "component_latency",
+    "resource_scope",
+    "inputs",
+    "model",
+    "stream_contract",
+    "startup",
+    "cold",
+    "warm",
+    "cancellation",
+    "long_run",
+    "memory",
+    "cpu",
+    "thresholds",
+    "verification"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "magpie-tts-rt.acceptance-benchmark.v2"
+    },
+    "status": {
+      "enum": ["accepted", "rejected"]
+    },
+    "completed_at_unix_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "abi_version": {
+      "const": 1
+    },
+    "measurement_scope": {
+      "$ref": "#/$defs/measurement_scope"
+    },
+    "ttfa_stages": {
+      "$ref": "#/$defs/ttfa_stages"
+    },
+    "component_latency": {
+      "$ref": "#/$defs/component_latency"
+    },
+    "resource_scope": {
+      "$ref": "#/$defs/resource_scope"
+    },
+    "inputs": {
+      "$ref": "#/$defs/inputs"
+    },
+    "model": {
+      "$ref": "#/$defs/model"
+    },
+    "stream_contract": {
+      "$ref": "#/$defs/stream_contract"
+    },
+    "startup": {
+      "$ref": "#/$defs/startup"
+    },
+    "cold": {
+      "$ref": "#/$defs/cold"
+    },
+    "warm": {
+      "$ref": "#/$defs/warm"
+    },
+    "cancellation": {
+      "$ref": "#/$defs/cancellation"
+    },
+    "long_run": {
+      "$ref": "#/$defs/long_run"
+    },
+    "memory": {
+      "$ref": "#/$defs/memory_phases"
+    },
+    "cpu": {
+      "$ref": "#/$defs/process_cpu"
+    },
+    "thresholds": {
+      "$ref": "#/$defs/thresholds"
+    },
+    "verification": {
+      "$ref": "#/$defs/verification"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "accepted"
+          }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "cancellation": {
+            "properties": {
+              "results": {
+                "items": {
+                  "properties": {
+                    "post_cancel_lease_count": {
+                      "const": 0
+                    },
+                    "terminal_cancelled": {
+                      "const": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "long_run": {
+            "properties": {
+              "completed_iterations": {
+                "const": 1000
+              },
+              "failure": {
+                "type": "null"
+              }
+            }
+          },
+          "thresholds": {
+            "properties": {
+              "warm_case_count_exactly_108": {
+                "properties": {
+                  "passed": {
+                    "const": true
+                  }
+                }
+              },
+              "warm_ttfa_p95_target_ms": {
+                "properties": {
+                  "passed": {
+                    "const": true
+                  }
+                }
+              },
+              "generation_rtf_p95_target": {
+                "properties": {
+                  "passed": {
+                    "const": true
+                  }
+                }
+              },
+              "maximum_positive_playback_lateness_regression_ceiling_ms": {
+                "properties": {
+                  "passed": {
+                    "const": true
+                  }
+                }
+              },
+              "all_cancel_points_terminal_without_post_cancel_pcm": {
+                "properties": {
+                  "passed": {
+                    "const": true
+                  }
+                }
+              },
+              "long_run_exactly_1000_without_failure": {
+                "properties": {
+                  "passed": {
+                    "const": true
+                  }
+                }
+              },
+              "long_run_ttfa_p95_regression_ceiling_ms": {
+                "properties": {
+                  "observed": {
+                    "$ref": "#/$defs/nonnegative_number"
+                  },
+                  "passed": {
+                    "const": true
+                  }
+                }
+              },
+              "long_run_generation_rtf_p95_regression_ceiling": {
+                "properties": {
+                  "observed": {
+                    "$ref": "#/$defs/nonnegative_number"
+                  },
+                  "passed": {
+                    "const": true
+                  }
+                }
+              },
+              "long_run_maximum_positive_playback_lateness_regression_ceiling_ms": {
+                "properties": {
+                  "observed": {
+                    "$ref": "#/$defs/nonnegative_number"
+                  },
+                  "passed": {
+                    "const": true
+                  }
+                }
+              },
+              "long_run_process_rss_growth_from_warm_maximum_bytes": {
+                "properties": {
+                  "passed": {
+                    "const": true
+                  }
+                }
+              },
+              "long_run_process_rss_linear_slope_maximum_bytes_per_iteration": {
+                "properties": {
+                  "observed": {
+                    "type": "number"
+                  },
+                  "passed": {
+                    "const": true
+                  }
+                }
+              }
+            }
+          },
+          "verification": {
+            "properties": {
+              "startup_golden": {
+                "const": "passed"
+              },
+              "corpus_tokenizer_identity": {
+                "const": "passed"
+              },
+              "stream_first_to_final": {
+                "const": "passed"
+              },
+              "snapshot_contract": {
+                "const": "passed"
+              },
+              "cancel_contract": {
+                "const": "passed"
+              },
+              "long_run_performance_regression": {
+                "const": "passed"
+              },
+              "long_run_process_rss_stability": {
+                "const": "passed"
+              },
+              "native_cleanup": {
+                "const": "passed"
+              },
+              "cuda_cleanup": {
+                "const": "passed"
+              },
+              "nvml_cleanup": {
+                "const": "passed"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "publicArtifactName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+~-]{0,254}$"
+    },
+    "nonnegative_number": {
+      "type": "number",
+      "minimum": 0
+    },
+    "distribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["median", "p95", "maximum"],
+      "properties": {
+        "median": {
+          "$ref": "#/$defs/nonnegative_number"
+        },
+        "p95": {
+          "$ref": "#/$defs/nonnegative_number"
+        },
+        "maximum": {
+          "$ref": "#/$defs/nonnegative_number"
+        }
+      }
+    },
+    "measurement_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "input_contract",
+        "process_scope",
+        "measured",
+        "not_measured"
+      ],
+      "properties": {
+        "input_contract": {
+          "const": "prepared_token_ids"
+        },
+        "process_scope": {
+          "type": "string",
+          "minLength": 1
+        },
+        "measured": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "not_measured": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "unmeasured_ttfa_stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["measured", "value_ms", "boundary", "reason"],
+      "properties": {
+        "measured": {
+          "const": false
+        },
+        "value_ms": {
+          "type": "null"
+        },
+        "boundary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "ttfa_stages": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "frontend",
+        "native_prepared_tokens",
+        "ros_transport",
+        "physical_output"
+      ],
+      "properties": {
+        "frontend": {
+          "$ref": "#/$defs/unmeasured_ttfa_stage"
+        },
+        "native_prepared_tokens": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["measured", "warm_ms", "boundary"],
+          "properties": {
+            "measured": {
+              "const": true
+            },
+            "warm_ms": {
+              "$ref": "#/$defs/distribution"
+            },
+            "boundary": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "ros_transport": {
+          "$ref": "#/$defs/unmeasured_ttfa_stage"
+        },
+        "physical_output": {
+          "$ref": "#/$defs/unmeasured_ttfa_stage"
+        }
+      }
+    },
+    "component_latency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_start_call_ms",
+        "request_start_to_first_audio_ms",
+        "native_prepared_ttfa_ms",
+        "engine_internal"
+      ],
+      "properties": {
+        "request_start_call_ms": {
+          "$ref": "#/$defs/distribution"
+        },
+        "request_start_to_first_audio_ms": {
+          "$ref": "#/$defs/distribution"
+        },
+        "native_prepared_ttfa_ms": {
+          "$ref": "#/$defs/distribution"
+        },
+        "engine_internal": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["measured", "reason"],
+          "properties": {
+            "measured": {
+              "const": false
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "measured_resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["measured", "scope", "source"],
+      "properties": {
+        "measured": {
+          "const": true
+        },
+        "scope": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "unmeasured_resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["measured", "reason"],
+      "properties": {
+        "measured": {
+          "const": false
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "resource_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "process_rss",
+        "process_cpu",
+        "cuda_memory",
+        "process_isolated_vram",
+        "gpu_utilization",
+        "companion_profile_manifest"
+      ],
+      "properties": {
+        "process_rss": {
+          "$ref": "#/$defs/measured_resource"
+        },
+        "process_cpu": {
+          "$ref": "#/$defs/measured_resource"
+        },
+        "cuda_memory": {
+          "$ref": "#/$defs/measured_resource"
+        },
+        "process_isolated_vram": {
+          "$ref": "#/$defs/unmeasured_resource"
+        },
+        "gpu_utilization": {
+          "$ref": "#/$defs/unmeasured_resource"
+        },
+        "companion_profile_manifest": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "required",
+            "schema_version",
+            "generated_after_benchmark_exit",
+            "required_artifacts"
+          ],
+          "properties": {
+            "required": {
+              "const": true
+            },
+            "schema_version": {
+              "const": "magpie-tts-rt.thor-profile-evidence.v1"
+            },
+            "generated_after_benchmark_exit": {
+              "const": true
+            },
+            "required_artifacts": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "prefixItems": [
+                {
+                  "const": "benchmark_receipt"
+                },
+                {
+                  "const": "nsys_report"
+                },
+                {
+                  "const": "tegrastats_log"
+                }
+              ],
+              "items": false
+            }
+          }
+        }
+      }
+    },
+    "chunk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sequence",
+        "first_sample_index",
+        "sample_count",
+        "codec_frames",
+        "arrival_ms",
+        "interval_ms",
+        "positive_playback_lateness_ms",
+        "first",
+        "final"
+      ],
+      "properties": {
+        "sequence": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "first_sample_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sample_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "codec_frames": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        },
+        "arrival_ms": {
+          "$ref": "#/$defs/nonnegative_number"
+        },
+        "interval_ms": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/nonnegative_number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "positive_playback_lateness_ms": {
+          "$ref": "#/$defs/nonnegative_number"
+        },
+        "first": {
+          "type": "boolean"
+        },
+        "final": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "codec_frames"
+            ],
+            "properties": {
+              "codec_frames": {
+                "const": 0
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "sample_count": {
+                "const": 0
+              },
+              "first": {
+                "const": false
+              },
+              "final": {
+                "const": true
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "sample_count": {
+                "minimum": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "case_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case_id",
+        "prepared_token_count",
+        "random_seed",
+        "request_start_call_ms",
+        "request_start_to_first_audio_ms",
+        "ttfa_ms",
+        "generation_ms",
+        "total_ms",
+        "audio_samples",
+        "audio_seconds",
+        "generation_rtf",
+        "total_rtf",
+        "maximum_positive_playback_lateness_ms",
+        "chunks"
+      ],
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "prepared_token_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 512
+        },
+        "random_seed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "request_start_call_ms": {
+          "$ref": "#/$defs/nonnegative_number"
+        },
+        "request_start_to_first_audio_ms": {
+          "$ref": "#/$defs/nonnegative_number"
+        },
+        "ttfa_ms": {
+          "$ref": "#/$defs/nonnegative_number"
+        },
+        "generation_ms": {
+          "$ref": "#/$defs/nonnegative_number"
+        },
+        "total_ms": {
+          "$ref": "#/$defs/nonnegative_number"
+        },
+        "audio_samples": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "audio_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "generation_rtf": {
+          "$ref": "#/$defs/nonnegative_number"
+        },
+        "total_rtf": {
+          "$ref": "#/$defs/nonnegative_number"
+        },
+        "maximum_positive_playback_lateness_ms": {
+          "$ref": "#/$defs/nonnegative_number"
+        },
+        "chunks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/chunk"
+          }
+        }
+      }
+    },
+    "memory_point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "process_rss_bytes",
+        "cuda_total_bytes",
+        "cuda_free_bytes",
+        "cuda_used_bytes"
+      ],
+      "properties": {
+        "process_rss_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cuda_total_bytes": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "cuda_free_bytes": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "cuda_used_bytes": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        }
+      }
+    },
+    "process_only_memory_point": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/memory_point"
+        },
+        {
+          "properties": {
+            "cuda_total_bytes": {
+              "type": "null"
+            },
+            "cuda_free_bytes": {
+              "type": "null"
+            },
+            "cuda_used_bytes": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    },
+    "cuda_memory_point": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/memory_point"
+        },
+        {
+          "properties": {
+            "cuda_total_bytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "cuda_free_bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "cuda_used_bytes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      ]
+    },
+    "memory_trend": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sample_count",
+        "first_bytes",
+        "last_bytes",
+        "minimum_bytes",
+        "maximum_bytes",
+        "delta_bytes",
+        "linear_slope_bytes_per_iteration"
+      ],
+      "properties": {
+        "sample_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "first_bytes": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "last_bytes": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "minimum_bytes": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "maximum_bytes": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "delta_bytes": {
+          "type": ["integer", "null"]
+        },
+        "linear_slope_bytes_per_iteration": {
+          "type": ["number", "null"]
+        }
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "library_name",
+        "library_sha256",
+        "library_size_bytes",
+        "bundle_name",
+        "bundle_manifest_name",
+        "bundle_manifest_sha256",
+        "bundle_manifest_size_bytes",
+        "corpus_name",
+        "corpus_sha256",
+        "corpus_size_bytes",
+        "corpus_id",
+        "cuda_device_index",
+        "cuda_runtime_library_name",
+        "cuda_runtime_library_sha256",
+        "cuda_runtime_library_size_bytes",
+        "cuda_driver_version",
+        "cuda_runtime_version",
+        "nvml_library_name",
+        "nvml_library_sha256",
+        "nvml_library_size_bytes",
+        "nvml_device_index",
+        "nvml_driver_version",
+        "nvml_device_name",
+        "nvml_device_uuid",
+        "nvml_compute_capability_major",
+        "nvml_compute_capability_minor",
+        "request_timeout_ms",
+        "normal_case_count",
+        "long_run_iterations"
+      ],
+      "properties": {
+        "library_name": {
+          "$ref": "#/$defs/publicArtifactName"
+        },
+        "library_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "library_size_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "bundle_name": {
+          "$ref": "#/$defs/publicArtifactName"
+        },
+        "bundle_manifest_name": {
+          "const": "runtime-bundle-manifest.json"
+        },
+        "bundle_manifest_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "bundle_manifest_size_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "corpus_name": {
+          "$ref": "#/$defs/publicArtifactName"
+        },
+        "corpus_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "corpus_size_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "corpus_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "cuda_device_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cuda_runtime_library_name": {
+          "$ref": "#/$defs/publicArtifactName"
+        },
+        "cuda_runtime_library_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "cuda_runtime_library_size_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cuda_driver_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cuda_runtime_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "nvml_library_name": {
+          "$ref": "#/$defs/publicArtifactName"
+        },
+        "nvml_library_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "nvml_library_size_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "nvml_device_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "nvml_driver_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "nvml_device_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "nvml_device_uuid": {
+          "type": "string",
+          "minLength": 1
+        },
+        "nvml_compute_capability_major": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "nvml_compute_capability_minor": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "request_timeout_ms": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "normal_case_count": {
+          "const": 108
+        },
+        "long_run_iterations": {
+          "const": 1000
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tokenizer_vocabulary_size",
+        "text_embedding_rows",
+        "bos_token_id",
+        "eos_token_id",
+        "japanese_global_pad_token_id",
+        "maximum_text_tokens",
+        "maximum_audio_frames",
+        "tokenizer_identity_sha256"
+      ],
+      "properties": {
+        "tokenizer_vocabulary_size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "text_embedding_rows": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "bos_token_id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "eos_token_id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "japanese_global_pad_token_id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maximum_text_tokens": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 512
+        },
+        "maximum_audio_frames": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "tokenizer_identity_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "stream_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sample_rate_hz",
+        "channels",
+        "pcm_format",
+        "codec_frame_samples",
+        "initial_frames",
+        "steady_frames",
+        "tail_min_frames",
+        "tail_max_frames"
+      ],
+      "properties": {
+        "sample_rate_hz": {
+          "const": 22050
+        },
+        "channels": {
+          "const": 1
+        },
+        "pcm_format": {
+          "const": "f32_mono"
+        },
+        "codec_frame_samples": {
+          "const": 1024
+        },
+        "initial_frames": {
+          "const": 4
+        },
+        "steady_frames": {
+          "const": 8
+        },
+        "tail_min_frames": {
+          "const": 1
+        },
+        "tail_max_frames": {
+          "const": 8
+        }
+      }
+    },
+    "startup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["startup_gate_ms", "definition"],
+      "properties": {
+        "startup_gate_ms": {
+          "$ref": "#/$defs/nonnegative_number"
+        },
+        "definition": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "cold": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["definition", "result"],
+      "properties": {
+        "definition": {
+          "type": "string",
+          "minLength": 1
+        },
+        "result": {
+          "$ref": "#/$defs/case_result"
+        }
+      }
+    },
+    "warm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "definition",
+        "case_count",
+        "ttfa_ms",
+        "generation_ms",
+        "total_ms",
+        "generation_rtf",
+        "total_rtf",
+        "chunk_interval_ms",
+        "positive_playback_lateness_ms",
+        "cases"
+      ],
+      "properties": {
+        "definition": {
+          "type": "string",
+          "minLength": 1
+        },
+        "case_count": {
+          "const": 108
+        },
+        "ttfa_ms": {
+          "$ref": "#/$defs/distribution"
+        },
+        "generation_ms": {
+          "$ref": "#/$defs/distribution"
+        },
+        "total_ms": {
+          "$ref": "#/$defs/distribution"
+        },
+        "generation_rtf": {
+          "$ref": "#/$defs/distribution"
+        },
+        "total_rtf": {
+          "$ref": "#/$defs/distribution"
+        },
+        "chunk_interval_ms": {
+          "$ref": "#/$defs/distribution"
+        },
+        "positive_playback_lateness_ms": {
+          "$ref": "#/$defs/distribution"
+        },
+        "cases": {
+          "type": "array",
+          "minItems": 108,
+          "maxItems": 108,
+          "items": {
+            "$ref": "#/$defs/case_result"
+          }
+        }
+      }
+    },
+    "cancel_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case_id",
+        "injection_point",
+        "audio_chunks_before_cancel",
+        "first_audio_ms",
+        "cancel_call_ms",
+        "cancel_latency_ms",
+        "audio_samples_before_cancel",
+        "post_cancel_lease_count",
+        "terminal_cancelled"
+      ],
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "injection_point": {
+          "enum": [
+            "immediately_after_request_start",
+            "after_first_audio_chunk",
+            "after_second_audio_chunk"
+          ]
+        },
+        "audio_chunks_before_cancel": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "first_audio_ms": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/nonnegative_number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cancel_call_ms": {
+          "$ref": "#/$defs/nonnegative_number"
+        },
+        "cancel_latency_ms": {
+          "$ref": "#/$defs/nonnegative_number"
+        },
+        "audio_samples_before_cancel": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "post_cancel_lease_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "terminal_cancelled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "cancellation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "definition",
+        "required_injection_points",
+        "results"
+      ],
+      "properties": {
+        "definition": {
+          "type": "string",
+          "minLength": 1
+        },
+        "required_injection_points": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "prefixItems": [
+            {
+              "const": "immediately_after_request_start"
+            },
+            {
+              "const": "after_first_audio_chunk"
+            },
+            {
+              "const": "after_second_audio_chunk"
+            }
+          ],
+          "items": false
+        },
+        "results": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "prefixItems": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/cancel_result"
+                },
+                {
+                  "properties": {
+                    "injection_point": {
+                      "const": "immediately_after_request_start"
+                    },
+                    "audio_chunks_before_cancel": {
+                      "const": 0
+                    },
+                    "first_audio_ms": {
+                      "type": "null"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/cancel_result"
+                },
+                {
+                  "properties": {
+                    "injection_point": {
+                      "const": "after_first_audio_chunk"
+                    },
+                    "audio_chunks_before_cancel": {
+                      "const": 1
+                    },
+                    "first_audio_ms": {
+                      "$ref": "#/$defs/nonnegative_number"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/cancel_result"
+                },
+                {
+                  "properties": {
+                    "injection_point": {
+                      "const": "after_second_audio_chunk"
+                    },
+                    "audio_chunks_before_cancel": {
+                      "const": 2
+                    },
+                    "first_audio_ms": {
+                      "$ref": "#/$defs/nonnegative_number"
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "items": false
+        }
+      }
+    },
+    "long_run_failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "iteration",
+        "case_id",
+        "diagnostic",
+        "diagnostic_sha256"
+      ],
+      "properties": {
+        "iteration": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "case_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "diagnostic": {
+          "const": "request_exception"
+        },
+        "diagnostic_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "long_run_distributions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ttfa_ms",
+        "generation_rtf",
+        "total_rtf",
+        "positive_playback_lateness_ms"
+      ],
+      "properties": {
+        "ttfa_ms": {
+          "$ref": "#/$defs/distribution"
+        },
+        "generation_rtf": {
+          "$ref": "#/$defs/distribution"
+        },
+        "total_rtf": {
+          "$ref": "#/$defs/distribution"
+        },
+        "positive_playback_lateness_ms": {
+          "$ref": "#/$defs/distribution"
+        }
+      }
+    },
+    "long_run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requested_iterations",
+        "completed_iterations",
+        "failure",
+        "distributions",
+        "process_rss_trend",
+        "process_rss_stability",
+        "cuda_used_memory_trend"
+      ],
+      "properties": {
+        "requested_iterations": {
+          "const": 1000
+        },
+        "completed_iterations": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "failure": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/long_run_failure"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "distributions": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/long_run_distributions"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "process_rss_trend": {
+          "$ref": "#/$defs/memory_trend"
+        },
+        "process_rss_stability": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "acceptance_scope",
+            "baseline_phase",
+            "final_phase",
+            "baseline_bytes",
+            "final_bytes",
+            "growth_bytes",
+            "maximum_growth_bytes",
+            "linear_slope_bytes_per_iteration",
+            "maximum_linear_slope_bytes_per_iteration"
+          ],
+          "properties": {
+            "source": {
+              "const": "linux_procfs_vmrss"
+            },
+            "acceptance_scope": {
+              "type": "string",
+              "minLength": 1
+            },
+            "baseline_phase": {
+              "const": "after_warm"
+            },
+            "final_phase": {
+              "const": "after_long_run"
+            },
+            "baseline_bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "final_bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "growth_bytes": {
+              "type": "integer"
+            },
+            "maximum_growth_bytes": {
+              "const": 67108864
+            },
+            "linear_slope_bytes_per_iteration": {
+              "type": ["number", "null"]
+            },
+            "maximum_linear_slope_bytes_per_iteration": {
+              "const": 65536
+            }
+          }
+        },
+        "cuda_used_memory_trend": {
+          "$ref": "#/$defs/memory_trend"
+        }
+      }
+    },
+    "memory_phases": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "before_runtime",
+        "sources",
+        "after_startup",
+        "after_cold",
+        "after_warm",
+        "after_cancel",
+        "after_long_run",
+        "after_native_cleanup"
+      ],
+      "properties": {
+        "sources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "process_rss",
+            "device_memory",
+            "cuda_first_call_phase",
+            "nvml_device_memory_status"
+          ],
+          "properties": {
+            "process_rss": {
+              "const": "linux_procfs_vmrss"
+            },
+            "device_memory": {
+              "const": "cudaMemGetInfo"
+            },
+            "cuda_first_call_phase": {
+              "const": "after_startup_gate"
+            },
+            "nvml_device_memory_status": {
+              "enum": ["unsupported", "supported_not_used"]
+            }
+          }
+        },
+        "before_runtime": {
+          "$ref": "#/$defs/process_only_memory_point"
+        },
+        "after_startup": {
+          "$ref": "#/$defs/cuda_memory_point"
+        },
+        "after_cold": {
+          "$ref": "#/$defs/cuda_memory_point"
+        },
+        "after_warm": {
+          "$ref": "#/$defs/cuda_memory_point"
+        },
+        "after_cancel": {
+          "$ref": "#/$defs/cuda_memory_point"
+        },
+        "after_long_run": {
+          "$ref": "#/$defs/cuda_memory_point"
+        },
+        "after_native_cleanup": {
+          "$ref": "#/$defs/cuda_memory_point"
+        }
+      }
+    },
+    "cpu_point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user_seconds", "system_seconds"],
+      "properties": {
+        "user_seconds": {
+          "$ref": "#/$defs/nonnegative_number"
+        },
+        "system_seconds": {
+          "$ref": "#/$defs/nonnegative_number"
+        }
+      }
+    },
+    "process_cpu": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "before_runtime",
+        "after_cleanup",
+        "delta_user_seconds",
+        "delta_system_seconds",
+        "measurement_wall_seconds",
+        "cpu_time_to_wall_ratio"
+      ],
+      "properties": {
+        "source": {
+          "const": "getrusage(RUSAGE_SELF)"
+        },
+        "before_runtime": {
+          "$ref": "#/$defs/cpu_point"
+        },
+        "after_cleanup": {
+          "$ref": "#/$defs/cpu_point"
+        },
+        "delta_user_seconds": {
+          "$ref": "#/$defs/nonnegative_number"
+        },
+        "delta_system_seconds": {
+          "$ref": "#/$defs/nonnegative_number"
+        },
+        "measurement_wall_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "cpu_time_to_wall_ratio": {
+          "$ref": "#/$defs/nonnegative_number"
+        }
+      }
+    },
+    "count_threshold": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "observed", "passed"],
+      "properties": {
+        "required": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "observed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "maximum_threshold": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maximum", "observed", "passed"],
+      "properties": {
+        "maximum": {
+          "$ref": "#/$defs/nonnegative_number"
+        },
+        "observed": {
+          "$ref": "#/$defs/nonnegative_number"
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "nullable_maximum_threshold": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maximum", "observed", "passed"],
+      "properties": {
+        "maximum": {
+          "$ref": "#/$defs/nonnegative_number"
+        },
+        "observed": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/nonnegative_number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "signed_maximum_threshold": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maximum", "observed", "passed"],
+      "properties": {
+        "maximum": {
+          "$ref": "#/$defs/nonnegative_number"
+        },
+        "observed": {
+          "type": "number"
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "nullable_signed_maximum_threshold": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maximum", "observed", "passed"],
+      "properties": {
+        "maximum": {
+          "$ref": "#/$defs/nonnegative_number"
+        },
+        "observed": {
+          "type": ["number", "null"]
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "boolean_threshold": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed"],
+      "properties": {
+        "passed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "warm_case_count_exactly_108",
+        "warm_ttfa_p95_target_ms",
+        "generation_rtf_p95_target",
+        "warm_ttfa_p95_regression_ceiling_ms",
+        "generation_rtf_p95_regression_ceiling",
+        "maximum_positive_playback_lateness_regression_ceiling_ms",
+        "all_cancel_points_terminal_without_post_cancel_pcm",
+        "long_run_exactly_1000_without_failure",
+        "long_run_ttfa_p95_regression_ceiling_ms",
+        "long_run_generation_rtf_p95_regression_ceiling",
+        "long_run_maximum_positive_playback_lateness_regression_ceiling_ms",
+        "long_run_process_rss_growth_from_warm_maximum_bytes",
+        "long_run_process_rss_linear_slope_maximum_bytes_per_iteration"
+      ],
+      "properties": {
+        "warm_case_count_exactly_108": {
+          "$ref": "#/$defs/count_threshold"
+        },
+        "warm_ttfa_p95_target_ms": {
+          "$ref": "#/$defs/maximum_threshold"
+        },
+        "generation_rtf_p95_target": {
+          "$ref": "#/$defs/maximum_threshold"
+        },
+        "warm_ttfa_p95_regression_ceiling_ms": {
+          "$ref": "#/$defs/maximum_threshold"
+        },
+        "generation_rtf_p95_regression_ceiling": {
+          "$ref": "#/$defs/maximum_threshold"
+        },
+        "maximum_positive_playback_lateness_regression_ceiling_ms": {
+          "$ref": "#/$defs/maximum_threshold"
+        },
+        "all_cancel_points_terminal_without_post_cancel_pcm": {
+          "$ref": "#/$defs/boolean_threshold"
+        },
+        "long_run_exactly_1000_without_failure": {
+          "$ref": "#/$defs/count_threshold"
+        },
+        "long_run_ttfa_p95_regression_ceiling_ms": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/nullable_maximum_threshold"
+            },
+            {
+              "properties": {
+                "maximum": {
+                  "const": 152.39
+                }
+              }
+            }
+          ]
+        },
+        "long_run_generation_rtf_p95_regression_ceiling": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/nullable_maximum_threshold"
+            },
+            {
+              "properties": {
+                "maximum": {
+                  "const": 0.401
+                }
+              }
+            }
+          ]
+        },
+        "long_run_maximum_positive_playback_lateness_regression_ceiling_ms": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/nullable_maximum_threshold"
+            },
+            {
+              "properties": {
+                "maximum": {
+                  "const": 0
+                }
+              }
+            }
+          ]
+        },
+        "long_run_process_rss_growth_from_warm_maximum_bytes": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/signed_maximum_threshold"
+            },
+            {
+              "properties": {
+                "maximum": {
+                  "const": 67108864
+                }
+              }
+            }
+          ]
+        },
+        "long_run_process_rss_linear_slope_maximum_bytes_per_iteration": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/nullable_signed_maximum_threshold"
+            },
+            {
+              "properties": {
+                "maximum": {
+                  "const": 65536
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "verification_value": {
+      "enum": ["passed", "failed"]
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "startup_golden",
+        "corpus_tokenizer_identity",
+        "stream_first_to_final",
+        "snapshot_contract",
+        "cancel_contract",
+        "long_run_performance_regression",
+        "long_run_process_rss_stability",
+        "native_cleanup",
+        "cuda_cleanup",
+        "nvml_cleanup"
+      ],
+      "properties": {
+        "startup_golden": {
+          "$ref": "#/$defs/verification_value"
+        },
+        "corpus_tokenizer_identity": {
+          "$ref": "#/$defs/verification_value"
+        },
+        "stream_first_to_final": {
+          "$ref": "#/$defs/verification_value"
+        },
+        "snapshot_contract": {
+          "$ref": "#/$defs/verification_value"
+        },
+        "cancel_contract": {
+          "$ref": "#/$defs/verification_value"
+        },
+        "long_run_performance_regression": {
+          "$ref": "#/$defs/verification_value"
+        },
+        "long_run_process_rss_stability": {
+          "$ref": "#/$defs/verification_value"
+        },
+        "native_cleanup": {
+          "$ref": "#/$defs/verification_value"
+        },
+        "cuda_cleanup": {
+          "$ref": "#/$defs/verification_value"
+        },
+        "nvml_cleanup": {
+          "$ref": "#/$defs/verification_value"
+        }
+      }
+    }
+  }
+}

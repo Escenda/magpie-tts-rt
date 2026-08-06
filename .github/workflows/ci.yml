@@ -34,6 +34,42 @@ jobs:
       - name: Run contract tests
         run: ctest --test-dir build --output-on-failure
 
+      - name: Run dependency-free oracle contract tests
+        run: |
+          python3 -m py_compile \
+            tools/export/*.py \
+            tools/oracle/*.py \
+            tests/oracle/*.py
+          for test_file in \
+            test_build_text_encoder_plan.py \
+            test_export_nanocodec.py \
+            test_export_text_encoder.py \
+            test_nanocodec_contract.py \
+            test_validate_boundary_fixture.py \
+            test_source_acceptance_receipt.py \
+            test_verify_oracle_lock.py; do
+            python3 "tests/oracle/$test_file" -v
+          done
+          python3 tools/oracle/verify_source_overlay.py \
+            --lock reference/oracle-lock.json \
+            --overlay-root reference/nemo-oracle-overlay
+
+      - name: Run locked Japanese frontend tests
+        run: |
+          python3 -m py_compile tools/frontend/*.py tests/frontend/*.py
+          python3 -m unittest discover \
+            -s tests/frontend -p 'test_*.py' -v
+
+      - name: Run runtime bundle packager contract tests
+        run: |
+          python3 -m py_compile \
+            tools/bundle/package_runtime_bundle.py \
+            tests/bundle/test_package_runtime_bundle.py
+          python3 -m unittest discover \
+            -s tests/bundle -p 'test_*.py' -v
+          python3 -m unittest discover \
+            -s tests/plugins -p 'test_*.py' -v
+
       - name: Validate JSON Schema and canonical fixture
         run: |
           python3 - <<'PY'
@@ -42,20 +78,48 @@ jobs:
 
           with open("schemas/runtime-bundle-manifest.schema.json", encoding="utf-8") as stream:
               schema = json.load(stream)
+          with open("schemas/golden-fixture.schema.json", encoding="utf-8") as stream:
+              golden_schema = json.load(stream)
+          with open("schemas/plugin-build-receipt.schema.json", encoding="utf-8") as stream:
+              plugin_build_schema = json.load(stream)
+          with open("schemas/runtime-benchmark-receipt.schema.json", encoding="utf-8") as stream:
+              benchmark_schema = json.load(stream)
+          with open("schemas/source-model-acceptance-receipt.schema.json", encoding="utf-8") as stream:
+              source_acceptance_schema = json.load(stream)
           with open("tests/manifest/fixtures/minimal-valid.json", encoding="utf-8") as stream:
               fixture = json.load(stream)
           Draft202012Validator.check_schema(schema)
+          Draft202012Validator.check_schema(golden_schema)
+          Draft202012Validator.check_schema(plugin_build_schema)
+          Draft202012Validator.check_schema(benchmark_schema)
+          Draft202012Validator.check_schema(source_acceptance_schema)
           Draft202012Validator(schema).validate(fixture)
           path_validator = Draft202012Validator(schema["$defs"]["relativePath"])
           for rejected in ("model\\engine.plan", "../engine.plan", "model/\0engine.plan"):
               if path_validator.is_valid(rejected):
                   raise AssertionError(f"relativePath accepted unsafe value: {rejected!r}")
           PY
+          python3 -m unittest tests.runtime.test_public_receipt_schemas -v
 
       - run: python3 tools/check_release_version.py
 
       - name: Verify contract-only installation
-        run: cmake --install build --prefix "$RUNNER_TEMP/magpie-tts-rt"
+        run: |
+          cmake --install build --prefix "$RUNNER_TEMP/magpie-tts-rt"
+          test -f \
+            "$RUNNER_TEMP/magpie-tts-rt/share/magpie-tts-rt/schemas/golden-fixture.schema.json"
+          test -f \
+            "$RUNNER_TEMP/magpie-tts-rt/share/magpie-tts-rt/schemas/source-model-acceptance-receipt.schema.json"
+          test -f \
+            "$RUNNER_TEMP/magpie-tts-rt/share/doc/magpie-tts-rt/third_party/nlohmann-json/LICENSE.MIT"
+          test -f \
+            "$RUNNER_TEMP/magpie-tts-rt/share/doc/magpie-tts-rt/LICENSE"
+          test -f \
+            "$RUNNER_TEMP/magpie-tts-rt/share/doc/magpie-tts-rt/NOTICE"
+          test -f \
+            "$RUNNER_TEMP/magpie-tts-rt/share/doc/magpie-tts-rt/third_party/pytorch/LICENSE"
+          test -x \
+            "$RUNNER_TEMP/magpie-tts-rt/share/magpie-tts-rt/tools/plugins/create_plugin_build_receipt.py"
 
   sanitizers:
     runs-on: ubuntu-24.04
@@ -74,18 +138,21 @@ jobs:
         run: |
           case "${{ matrix.sanitizer }}" in
             address-undefined)
-              echo "MTT_SANITIZER_FLAGS=-fsanitize=address,undefined -fno-omit-frame-pointer" \
+              echo "MTT_SANITIZER_FLAGS=-O1 -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer" \
                 >> "$GITHUB_ENV"
               ;;
             thread)
-              echo "MTT_SANITIZER_FLAGS=-fsanitize=thread -fno-omit-frame-pointer" \
+              echo "MTT_SANITIZER_FLAGS=-O1 -fsanitize=thread -fno-omit-frame-pointer" \
                 >> "$GITHUB_ENV"
               ;;
           esac
       - name: Configure the sanitizer contract build
+        # Debug supplies symbols while the explicit -O1 keeps sanitizer
+        # instrumentation practical and remains the optimization level
+        # recommended for useful AddressSanitizer stack traces.
         run: >-
           cmake -S . -B build-sanitized -G Ninja
-          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_BUILD_TYPE=Debug
           -DCMAKE_C_FLAGS="$MTT_SANITIZER_FLAGS"
           -DCMAKE_CXX_FLAGS="$MTT_SANITIZER_FLAGS"
           -DCMAKE_EXE_LINKER_FLAGS="$MTT_SANITIZER_FLAGS"
@@ -93,7 +160,37 @@ jobs:
           -DMAGPIE_TTS_RT_BUILD_TESTS=ON
           -DMAGPIE_TTS_RT_WARNINGS_AS_ERRORS=OFF
       - run: cmake --build build-sanitized
-      - run: ctest --test-dir build-sanitized --output-on-failure
+      - name: Run ASan and UBSan functional contracts
+        if: matrix.sanitizer == 'address-undefined'
+        # The real benchmark's fixed RSS/performance acceptance thresholds are
+        # mandatory in the Release contract job. Sanitizer allocator and
+        # quarantine overhead invalidates those measurements, so only that
+        # measurement test is excluded here; its pure threshold logic remains
+        # covered by runtime_benchmark_thresholds.
+        env:
+          ASAN_OPTIONS: detect_stack_use_after_return=0
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: >-
+          ctest --test-dir build-sanitized --output-on-failure
+          -E '^runtime_benchmark_tool$'
+      - name: Run targeted ASan stack-use-after-return gate
+        if: matrix.sanitizer == 'address-undefined'
+        # Full manifest mutation coverage remains in the functional ASan pass.
+        # On aarch64, FakeStack instrumentation of that large parser is not a
+        # practical CI gate. Keep UAR enabled for the runtime state,
+        # concurrency, and startup-golden paths where stack lifetime matters.
+        env:
+          ASAN_OPTIONS: detect_stack_use_after_return=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: >-
+          ctest --test-dir build-sanitized --output-on-failure
+          -R '^(request_state|async_pipeline_contract|startup_golden)$'
+      - name: Run TSan functional contracts
+        if: matrix.sanitizer == 'thread'
+        # As above, instrumented process RSS is not a performance receipt.
+        run: >-
+          ctest --test-dir build-sanitized --output-on-failure
+          -E '^runtime_benchmark_tool$'
 
   rust:
     runs-on: ubuntu-24.04

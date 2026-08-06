@@ -43,6 +43,7 @@ impl Api {
             runtime_destroy: None,
             model_load: None,
             model_destroy: None,
+            model_get_info: None,
             session_create: None,
             session_destroy: None,
             request_start: None,
@@ -89,6 +90,7 @@ impl Api {
         require_function(table.runtime_destroy, "runtime_destroy")?;
         require_function(table.model_load, "model_load")?;
         require_function(table.model_destroy, "model_destroy")?;
+        require_function(table.model_get_info, "model_get_info")?;
         require_function(table.session_create, "session_create")?;
         require_function(table.session_destroy, "session_destroy")?;
         require_function(table.request_start, "request_start")?;

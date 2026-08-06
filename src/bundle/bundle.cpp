@@ -8,6 +8,7 @@
 #include <sstream>
 #include <system_error>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 #include <fcntl.h>
@@ -51,6 +52,7 @@ namespace {
 
 constexpr std::size_t kSha256Bytes = 32;
 constexpr std::size_t kReadBufferBytes = 64 * 1024;
+constexpr std::uint64_t kMaximumManifestDigestTransportBytes = 4096;
 
 [[nodiscard]] std::string build_error_message(
     const BundleStage stage,
@@ -617,41 +619,55 @@ struct ArtifactRequest {
   std::string size_pointer;
 };
 
+struct VerifiedBundleInventory {
+  bool manifest_digest_transport_present;
+  std::filesystem::path manifest_digest_transport_path;
+};
+
 [[nodiscard]] std::vector<ArtifactRequest> collect_artifacts(
     const RuntimeBundleManifest& manifest) {
   std::vector<ArtifactRequest> artifacts;
-  artifacts.reserve(5 + manifest.engines.size());
+  artifacts.reserve(15 + manifest.engines.size());
   artifacts.push_back(ArtifactRequest{
-      .kind = BundleArtifactKind::model,
-      .logical_name = manifest.artifacts.model.model_id,
-      .relative_path = manifest.artifacts.model.file.path,
-      .expected_sha256 = manifest.artifacts.model.file.sha256,
-      .expected_size_bytes = manifest.artifacts.model.file.size_bytes,
-      .path_pointer = "/artifacts/model/file/path",
-      .hash_pointer = "/artifacts/model/file/sha256",
-      .size_pointer = "/artifacts/model/file/size_bytes",
+      .kind = BundleArtifactKind::source_model_receipt,
+      .logical_name = manifest.artifacts.source_model.model_id,
+      .relative_path =
+          manifest.artifacts.source_model.acceptance_receipt.path,
+      .expected_sha256 =
+          manifest.artifacts.source_model.acceptance_receipt.sha256,
+      .expected_size_bytes =
+          manifest.artifacts.source_model.acceptance_receipt.size_bytes,
+      .path_pointer = "/artifacts/source_model/acceptance_receipt/path",
+      .hash_pointer = "/artifacts/source_model/acceptance_receipt/sha256",
+      .size_pointer =
+          "/artifacts/source_model/acceptance_receipt/size_bytes",
   });
   artifacts.push_back(ArtifactRequest{
-      .kind = BundleArtifactKind::export_artifact,
+      .kind = BundleArtifactKind::export_receipt,
       .logical_name = manifest.artifacts.export_artifact.format,
-      .relative_path = manifest.artifacts.export_artifact.file.path,
-      .expected_sha256 = manifest.artifacts.export_artifact.file.sha256,
+      .relative_path =
+          manifest.artifacts.export_artifact.export_receipt.path,
+      .expected_sha256 =
+          manifest.artifacts.export_artifact.export_receipt.sha256,
       .expected_size_bytes =
-          manifest.artifacts.export_artifact.file.size_bytes,
-      .path_pointer = "/artifacts/export/file/path",
-      .hash_pointer = "/artifacts/export/file/sha256",
-      .size_pointer = "/artifacts/export/file/size_bytes",
+          manifest.artifacts.export_artifact.export_receipt.size_bytes,
+      .path_pointer = "/artifacts/export/export_receipt/path",
+      .hash_pointer = "/artifacts/export/export_receipt/sha256",
+      .size_pointer = "/artifacts/export/export_receipt/size_bytes",
   });
   artifacts.push_back(ArtifactRequest{
-      .kind = BundleArtifactKind::tokenizer,
+      .kind = BundleArtifactKind::tokenizer_identity_receipt,
       .logical_name = manifest.artifacts.tokenizer.kind,
-      .relative_path = manifest.artifacts.tokenizer.file.path,
-      .expected_sha256 = manifest.artifacts.tokenizer.file.sha256,
+      .relative_path =
+          manifest.artifacts.tokenizer.identity_receipt.path,
+      .expected_sha256 =
+          manifest.artifacts.tokenizer.identity_receipt.sha256,
       .expected_size_bytes =
-          manifest.artifacts.tokenizer.file.size_bytes,
-      .path_pointer = "/artifacts/tokenizer/file/path",
-      .hash_pointer = "/artifacts/tokenizer/file/sha256",
-      .size_pointer = "/artifacts/tokenizer/file/size_bytes",
+          manifest.artifacts.tokenizer.identity_receipt.size_bytes,
+      .path_pointer = "/artifacts/tokenizer/identity_receipt/path",
+      .hash_pointer = "/artifacts/tokenizer/identity_receipt/sha256",
+      .size_pointer =
+          "/artifacts/tokenizer/identity_receipt/size_bytes",
   });
   artifacts.push_back(ArtifactRequest{
       .kind = BundleArtifactKind::plugin,
@@ -663,6 +679,32 @@ struct ArtifactRequest {
       .hash_pointer = "/artifacts/plugin/file/sha256",
       .size_pointer = "/artifacts/plugin/file/size_bytes",
   });
+  artifacts.push_back(ArtifactRequest{
+      .kind = BundleArtifactKind::plugin_build_receipt,
+      .logical_name = manifest.artifacts.plugin.name,
+      .relative_path = manifest.artifacts.plugin.build_receipt.path,
+      .expected_sha256 = manifest.artifacts.plugin.build_receipt.sha256,
+      .expected_size_bytes =
+          manifest.artifacts.plugin.build_receipt.size_bytes,
+      .path_pointer = "/artifacts/plugin/build_receipt/path",
+      .hash_pointer = "/artifacts/plugin/build_receipt/sha256",
+      .size_pointer = "/artifacts/plugin/build_receipt/size_bytes",
+  });
+  for (std::size_t index = 0; index < manifest.licenses.size(); ++index) {
+    const LicenseArtifact& license = manifest.licenses.at(index);
+    const std::string base_pointer =
+        "/licenses/" + std::to_string(index) + "/file";
+    artifacts.push_back(ArtifactRequest{
+        .kind = BundleArtifactKind::license,
+        .logical_name = license.role,
+        .relative_path = license.file.path,
+        .expected_sha256 = license.file.sha256,
+        .expected_size_bytes = license.file.size_bytes,
+        .path_pointer = base_pointer + "/path",
+        .hash_pointer = base_pointer + "/sha256",
+        .size_pointer = base_pointer + "/size_bytes",
+    });
+  }
   for (std::size_t index = 0; index < manifest.engines.size(); ++index) {
     const EngineManifest& engine = manifest.engines.at(index);
     const std::string base_pointer =
@@ -679,6 +721,16 @@ struct ArtifactRequest {
     });
   }
   artifacts.push_back(ArtifactRequest{
+      .kind = BundleArtifactKind::golden_fixture,
+      .logical_name = "golden_fixture",
+      .relative_path = manifest.golden_fixture.path,
+      .expected_sha256 = manifest.golden_fixture.sha256,
+      .expected_size_bytes = manifest.golden_fixture.size_bytes,
+      .path_pointer = "/golden_fixture/path",
+      .hash_pointer = "/golden_fixture/sha256",
+      .size_pointer = "/golden_fixture/size_bytes",
+  });
+  artifacts.push_back(ArtifactRequest{
       .kind = BundleArtifactKind::golden_receipt,
       .logical_name = "golden_receipt",
       .relative_path = manifest.golden_receipt.path,
@@ -691,10 +743,214 @@ struct ArtifactRequest {
   return artifacts;
 }
 
+void add_parent_directories(
+    const std::filesystem::path& relative_path,
+    std::unordered_set<std::string>& expected_directories) {
+  std::filesystem::path parent = relative_path.parent_path();
+  while (!parent.empty()) {
+    expected_directories.insert(parent.generic_string());
+    parent = parent.parent_path();
+  }
+}
+
+[[nodiscard]] std::filesystem::path manifest_digest_transport_path(
+    const std::filesystem::path& manifest_relative_path) {
+  std::filesystem::path result = manifest_relative_path;
+  result += std::string(kRuntimeBundleManifestDigestSuffix);
+  return result;
+}
+
+[[nodiscard]] VerifiedBundleInventory verify_exact_bundle_inventory(
+    const std::filesystem::path& canonical_root,
+    const std::filesystem::path& manifest_relative_path,
+    const std::vector<ArtifactRequest>& requests) {
+  if (!is_strict_relative_path(manifest_relative_path)) {
+    fail(
+        BundleStage::manifest_file,
+        BundleErrorCode::invalid_relative_path,
+        manifest_relative_path,
+        "/",
+        "manifest path must be a strict relative path");
+  }
+
+  std::unordered_set<std::string> expected_files;
+  expected_files.reserve(requests.size() + 2U);
+  std::unordered_set<std::string> expected_directories;
+  expected_directories.reserve(requests.size() + 2U);
+  const auto add_expected_file =
+      [&expected_files, &expected_directories](
+          const std::filesystem::path& relative_path,
+          const std::string& manifest_pointer) {
+        const std::string key = relative_path.generic_string();
+        if (!expected_files.insert(key).second) {
+          fail(
+              BundleStage::artifact_path,
+              BundleErrorCode::duplicate_canonical_path,
+              relative_path,
+              manifest_pointer,
+              "bundle entry path is already assigned to another role");
+        }
+        add_parent_directories(relative_path, expected_directories);
+      };
+  add_expected_file(manifest_relative_path, "/");
+  for (const ArtifactRequest& request : requests) {
+    add_expected_file(request.relative_path, request.path_pointer);
+  }
+  const std::filesystem::path digest_relative_path =
+      manifest_digest_transport_path(manifest_relative_path);
+  const std::string digest_key = digest_relative_path.generic_string();
+  if (expected_files.contains(digest_key)) {
+    fail(
+        BundleStage::artifact_path,
+        BundleErrorCode::duplicate_canonical_path,
+        digest_relative_path,
+        "/",
+        "manifest digest transport path collides with an authenticated artifact");
+  }
+  add_parent_directories(digest_relative_path, expected_directories);
+
+  std::unordered_set<std::string> actual_files;
+  actual_files.reserve(expected_files.size() + 1U);
+  std::unordered_set<std::string> actual_directories;
+  actual_directories.reserve(expected_directories.size());
+  bool digest_present = false;
+  std::error_code iterator_error;
+  std::filesystem::recursive_directory_iterator iterator(
+      canonical_root,
+      std::filesystem::directory_options::none,
+      iterator_error);
+  const std::filesystem::recursive_directory_iterator end;
+  if (iterator_error) {
+    fail(
+        BundleStage::artifact_path,
+        BundleErrorCode::io_error,
+        canonical_root,
+        "/",
+        "unable to enumerate bundle root: " + iterator_error.message());
+  }
+  while (iterator != end) {
+    const std::filesystem::directory_entry entry = *iterator;
+    std::error_code status_error;
+    const std::filesystem::file_status status =
+        entry.symlink_status(status_error);
+    if (status_error) {
+      fail(
+          BundleStage::artifact_path,
+          BundleErrorCode::io_error,
+          entry.path(),
+          "/",
+          "unable to inspect bundle entry: " + status_error.message());
+    }
+    const std::filesystem::path relative_path =
+        entry.path().lexically_relative(canonical_root);
+    const std::string relative = relative_path.generic_string();
+    if (std::filesystem::is_symlink(status)) {
+      fail(
+          BundleStage::artifact_path,
+          BundleErrorCode::unexpected_entry,
+          entry.path(),
+          "/",
+          "bundle entry inventory forbids symbolic links: " + relative);
+    }
+    if (std::filesystem::is_directory(status)) {
+      if (!expected_directories.contains(relative)) {
+        fail(
+            BundleStage::artifact_path,
+            BundleErrorCode::unexpected_entry,
+            entry.path(),
+            "/",
+            "bundle contains an unlisted directory: " + relative);
+      }
+      actual_directories.insert(relative);
+    } else if (std::filesystem::is_regular_file(status)) {
+      if (relative == digest_key) {
+        digest_present = true;
+      } else if (!expected_files.contains(relative)) {
+        fail(
+            BundleStage::artifact_path,
+            BundleErrorCode::unexpected_entry,
+            entry.path(),
+            "/",
+            "bundle contains an unlisted regular file: " + relative);
+      }
+      actual_files.insert(relative);
+    } else {
+      fail(
+          BundleStage::artifact_path,
+          BundleErrorCode::unexpected_entry,
+          entry.path(),
+          "/",
+          "bundle contains an unlisted special entry: " + relative);
+    }
+    iterator.increment(iterator_error);
+    if (iterator_error) {
+      fail(
+          BundleStage::artifact_path,
+          BundleErrorCode::io_error,
+          canonical_root,
+          "/",
+          "bundle enumeration failed: " + iterator_error.message());
+    }
+  }
+
+  std::unordered_set<std::string> required_actual_files = actual_files;
+  required_actual_files.erase(digest_key);
+  if (required_actual_files != expected_files ||
+      actual_directories != expected_directories) {
+    fail(
+        BundleStage::artifact_path,
+        BundleErrorCode::unexpected_entry,
+        canonical_root,
+        "/",
+        "bundle entry inventory differs from the manifest-declared file and parent-directory set");
+  }
+  return VerifiedBundleInventory{
+      .manifest_digest_transport_present = digest_present,
+      .manifest_digest_transport_path = digest_relative_path,
+  };
+}
+
+void verify_manifest_digest_transport(
+    const std::filesystem::path& canonical_root,
+    const VerifiedBundleInventory& inventory,
+    const std::filesystem::path& manifest_relative_path,
+    const std::string_view manifest_sha256) {
+  if (!inventory.manifest_digest_transport_present) {
+    return;
+  }
+  OpenedRegularFile digest_file = open_regular_bundle_file(
+      canonical_root,
+      inventory.manifest_digest_transport_path,
+      BundleStage::manifest_file,
+      "/");
+  Sha256SnapshotResult digest_snapshot = snapshot_and_sha256_file(
+      digest_file,
+      "/",
+      BundleStage::manifest_file,
+      kMaximumManifestDigestTransportBytes);
+  const std::string expected =
+      std::string(manifest_sha256) + "  " +
+      manifest_relative_path.generic_string() + "\n";
+  const std::string actual = read_complete_file(
+      digest_snapshot.sealed_snapshot.get(),
+      digest_file.canonical_path,
+      "/");
+  if (actual != expected) {
+    fail(
+        BundleStage::sha256,
+        BundleErrorCode::digest_mismatch,
+        digest_file.canonical_path,
+        "/",
+        "manifest digest transport file does not contain the exact trusted manifest digest record");
+  }
+}
+
 [[nodiscard]] std::vector<VerifiedBundleArtifact>
 verify_runtime_bundle_files_at_canonical_root(
     const std::filesystem::path& canonical_root,
-    const RuntimeBundleManifest& manifest) {
+    const RuntimeBundleManifest& manifest,
+    const std::filesystem::path& manifest_relative_path,
+    const std::string_view manifest_sha256) {
   const std::vector<ArtifactRequest> requests = collect_artifacts(manifest);
   std::uint64_t declared_snapshot_bytes = 0;
   for (const ArtifactRequest& request : requests) {
@@ -821,6 +1077,13 @@ verify_runtime_bundle_files_at_canonical_root(
     static_cast<void>(actual.sealed_snapshot.release());
     verified.push_back(std::move(artifact));
   }
+  const VerifiedBundleInventory inventory = verify_exact_bundle_inventory(
+      canonical_root, manifest_relative_path, requests);
+  verify_manifest_digest_transport(
+      canonical_root,
+      inventory,
+      manifest_relative_path,
+      manifest_sha256);
   return verified;
 }
 
@@ -858,6 +1121,8 @@ std::string_view to_string(const BundleErrorCode code) noexcept {
       return "duplicate_canonical_path";
     case BundleErrorCode::duplicate_file_identity:
       return "duplicate_file_identity";
+    case BundleErrorCode::unexpected_entry:
+      return "unexpected_entry";
     case BundleErrorCode::io_error:
       return "io_error";
     case BundleErrorCode::size_limit_exceeded:
@@ -876,16 +1141,22 @@ std::string_view to_string(const BundleArtifactKind kind) noexcept {
   switch (kind) {
     case BundleArtifactKind::manifest:
       return "manifest";
-    case BundleArtifactKind::model:
-      return "model";
-    case BundleArtifactKind::export_artifact:
-      return "export";
-    case BundleArtifactKind::tokenizer:
-      return "tokenizer";
+    case BundleArtifactKind::source_model_receipt:
+      return "source_model_receipt";
+    case BundleArtifactKind::export_receipt:
+      return "export_receipt";
+    case BundleArtifactKind::tokenizer_identity_receipt:
+      return "tokenizer_identity_receipt";
+    case BundleArtifactKind::plugin_build_receipt:
+      return "plugin_build_receipt";
     case BundleArtifactKind::plugin:
       return "plugin";
+    case BundleArtifactKind::license:
+      return "license";
     case BundleArtifactKind::engine:
       return "engine";
+    case BundleArtifactKind::golden_fixture:
+      return "golden_fixture";
     case BundleArtifactKind::golden_receipt:
       return "golden_receipt";
   }
@@ -1000,8 +1271,25 @@ VerifiedRuntimeBundle::VerifiedRuntimeBundle(
 std::vector<VerifiedBundleArtifact> verify_runtime_bundle_files(
     const std::filesystem::path& bundle_root,
     const RuntimeBundleManifest& manifest) {
+  const std::filesystem::path canonical_root =
+      canonical_bundle_root(bundle_root);
+  const std::filesystem::path manifest_relative_path(
+      kDefaultRuntimeBundleManifestPath);
+  OpenedRegularFile manifest_file = open_regular_bundle_file(
+      canonical_root,
+      manifest_relative_path,
+      BundleStage::manifest_file,
+      "/");
+  Sha256SnapshotResult manifest_hash = snapshot_and_sha256_file(
+      manifest_file,
+      "/",
+      BundleStage::manifest_file,
+      kMaximumRuntimeBundleManifestBytes);
   return verify_runtime_bundle_files_at_canonical_root(
-      canonical_bundle_root(bundle_root), manifest);
+      canonical_root,
+      manifest,
+      manifest_relative_path,
+      manifest_hash.digest);
 }
 
 VerifiedRuntimeBundle load_and_verify_runtime_bundle(
@@ -1072,7 +1360,10 @@ VerifiedRuntimeBundle load_and_verify_runtime_bundle(
   static_cast<void>(manifest_hash.sealed_snapshot.release());
   std::vector<VerifiedBundleArtifact> artifacts =
       verify_runtime_bundle_files_at_canonical_root(
-          canonical_root, manifest);
+          canonical_root,
+          manifest,
+          manifest_relative_path,
+          manifest_hash.digest);
   return VerifiedRuntimeBundle(
       canonical_root,
       manifest_file.canonical_path,

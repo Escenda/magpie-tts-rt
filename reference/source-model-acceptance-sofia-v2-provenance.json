@@ -1,0 +1,192 @@
+{
+  "acceptance_contract": {
+    "first_codec_frames": 4,
+    "local_ar_seed": 20260729,
+    "sample_rate_hz": 22050,
+    "samples_per_codec_frame": 1024,
+    "speaker_index": 4,
+    "speaker_name": "Sofia",
+    "steady_codec_frames": 8,
+    "tail_codec_frames_max": 8,
+    "tail_codec_frames_min": 1
+  },
+  "artifact_role": "source_model_acceptance",
+  "created_at_utc": "2026-07-30T11:02:59.437580Z",
+  "evidence": {
+    "aggregate": {
+      "case_count": 4,
+      "gapless_start_ms": {
+        "maximum": 145.3852839767933,
+        "median": 134.15137550327927,
+        "minimum": 128.81451996508986,
+        "p95": 144.1362734301947
+      },
+      "generation_rtf": {
+        "maximum": 0.43615344215496066,
+        "median": 0.3489840634034772,
+        "minimum": 0.3175396291295375,
+        "p95": 0.4273428567574891
+      },
+      "max_positive_playback_lateness_ms": {
+        "maximum": 0.0,
+        "median": 0.0,
+        "minimum": 0.0,
+        "p95": 0.0
+      },
+      "maximum_peak_cuda_allocated_bytes": 1416798720,
+      "maximum_peak_cuda_reserved_bytes": 1723858944,
+      "raw_ttfa_ms": {
+        "maximum": 145.3852839767933,
+        "median": 134.15137550327927,
+        "minimum": 128.81451996508986,
+        "p95": 144.1362734301947
+      },
+      "total_rtf": {
+        "maximum": 0.43991754812950035,
+        "median": 0.3655493574637219,
+        "minimum": 0.3283615491095166,
+        "p95": 0.4319082538963935
+      }
+    },
+    "case_names": [
+      "short_conversation",
+      "punctuation",
+      "latin_and_numbers",
+      "long_multi_chunk"
+    ],
+    "determinism": [
+      {
+        "case_name": "short_conversation",
+        "codec_frame_count_exact": true,
+        "codes_exact": true,
+        "first_codec_frame_count": 67,
+        "first_codes_sha256": "c6c7c75ccc11627195e6dbfc7122761a2817d177d2bc054a7a6ad6194631401c",
+        "first_pcm_f32le_sha256": "c8e2fa649f0e554e0cffe10740a2ef1177504204dacc0c4c03c6c397ec270f96",
+        "local_ar_seed": 20260729,
+        "passed": true,
+        "pcm_exact": true,
+        "replay_codec_frame_count": 67,
+        "replay_codes_sha256": "c6c7c75ccc11627195e6dbfc7122761a2817d177d2bc054a7a6ad6194631401c",
+        "replay_pcm_f32le_sha256": "c8e2fa649f0e554e0cffe10740a2ef1177504204dacc0c4c03c6c397ec270f96"
+      },
+      {
+        "case_name": "punctuation",
+        "codec_frame_count_exact": true,
+        "codes_exact": true,
+        "first_codec_frame_count": 110,
+        "first_codes_sha256": "35814601a6c2be027b15fb5bce8ae92c7935b67a579431a1eb99f292680bf492",
+        "first_pcm_f32le_sha256": "88c2a571eef863b930ccb8c06f19303abeac38930e3a02df56fc23e943363ffd",
+        "local_ar_seed": 20260729,
+        "passed": true,
+        "pcm_exact": true,
+        "replay_codec_frame_count": 110,
+        "replay_codes_sha256": "35814601a6c2be027b15fb5bce8ae92c7935b67a579431a1eb99f292680bf492",
+        "replay_pcm_f32le_sha256": "88c2a571eef863b930ccb8c06f19303abeac38930e3a02df56fc23e943363ffd"
+      },
+      {
+        "case_name": "latin_and_numbers",
+        "codec_frame_count_exact": true,
+        "codes_exact": true,
+        "first_codec_frame_count": 113,
+        "first_codes_sha256": "afa0d225f34f7cee7b06bdc06e363d05d7614b6242e6ed89a5cd28d54e401719",
+        "first_pcm_f32le_sha256": "7c096063600fb54aca57a50feafd969575ab8f874971b6b1f748fc4b91917a23",
+        "local_ar_seed": 20260729,
+        "passed": true,
+        "pcm_exact": true,
+        "replay_codec_frame_count": 113,
+        "replay_codes_sha256": "afa0d225f34f7cee7b06bdc06e363d05d7614b6242e6ed89a5cd28d54e401719",
+        "replay_pcm_f32le_sha256": "7c096063600fb54aca57a50feafd969575ab8f874971b6b1f748fc4b91917a23"
+      },
+      {
+        "case_name": "long_multi_chunk",
+        "codec_frame_count_exact": true,
+        "codes_exact": true,
+        "first_codec_frame_count": 300,
+        "first_codes_sha256": "476171262ffa6611e3f6272fc6f8a0108f34e8712929e27d4c3757f17cfc86c8",
+        "first_pcm_f32le_sha256": "7e17f5844b0b651051e01ba1e7a04af6d9c50787489a70ad3002c88232900a91",
+        "local_ar_seed": 20260729,
+        "passed": true,
+        "pcm_exact": true,
+        "replay_codec_frame_count": 300,
+        "replay_codes_sha256": "476171262ffa6611e3f6272fc6f8a0108f34e8712929e27d4c3757f17cfc86c8",
+        "replay_pcm_f32le_sha256": "7e17f5844b0b651051e01ba1e7a04af6d9c50787489a70ad3002c88232900a91"
+      }
+    ],
+    "gates": {
+      "all_cases_exercised": true,
+      "callback_contracts_passed": true,
+      "codec_fp32": true,
+      "default_schedule_exact": true,
+      "eos_alignment_passed": true,
+      "explicit_outer_warmup_only": true,
+      "failures": [],
+      "finite_audio_artifacts_passed": true,
+      "general_followup_case_passed": true,
+      "generation_rtf_p95_below_one": true,
+      "local_ar_graph_passed": true,
+      "native_bf16_no_adapter": true,
+      "native_codec_graphs_passed": true,
+      "packed_first4_cases_passed": true,
+      "parakeet_gate_pending": true,
+      "runtime_acceptance_passed": true,
+      "same_seed_replay_passed": true,
+      "source_model_probe_unchanged": true,
+      "total_rtf_p95_below_one": true,
+      "zero_positive_playback_lateness": true
+    }
+  },
+  "oracle_source": {
+    "base_revision": "9ae3e66b7314b0358c96bce47fbac56d78728bcd",
+    "files": {
+      "nemo/collections/tts/models/easy_magpietts_inference.py": "f839df234fffd1dd4b580347179f0bab6a7ac8b413df6cd906711c32483c253e",
+      "nemo/collections/tts/models/magpietts.py": "afe3b366d54b5781537a47bc1d5f04e7103278deede71d78bd3477566b843b23",
+      "nemo/collections/tts/models/magpietts_preference_optimization.py": "8d6a2e18d524c8251dc66871bc45c21c7795c19efcf17f1b37db041995bf7b4a",
+      "nemo/collections/tts/modules/ffn_modules.py": "07b720b29fc5734e9e8a5719954633d9af2a63e72e16e479df1b1de478bb3cdd",
+      "nemo/collections/tts/modules/magpietts_fused_sampling.py": "37319d969757d09df7790eba125f3aa1cc23c655bba6f1fe5c955b93295a48b5",
+      "nemo/collections/tts/modules/magpietts_inference/inference.py": "f0fb1abbac7ae03f3ebf9c8cf782f1d1cb19611d15fbce037d970b3cc11d45c5",
+      "nemo/collections/tts/modules/magpietts_inference/utils.py": "1e5df09e621af24e49bd828c96c6f6f06e06c69d77ea1c98643202721f52f38b",
+      "nemo/collections/tts/modules/magpietts_modules.py": "97a42d01794ab67be1d39a33b01f805b0e493703f3c0962f96cb39e7f2522a88",
+      "nemo/collections/tts/modules/streaming_codec.py": "8d250cd451b10f0291c8507a8c5383d568bf34b7bc02a31f8c3e64d7b787a249",
+      "nemo/collections/tts/modules/streaming_synthesis.py": "d977f970bf1240511cb647f00cbfed1a6985f7ed341f475d3714337cf0323715",
+      "nemo/collections/tts/modules/transformer_2501.py": "6597935c779aaf89ed0b0dac136f86a0fdb3a08640de25303818da234de070dc"
+    },
+    "optimized_source_bundle_sha256": "5b3764e89637e04da5eade67bcf5b58e58b8a7cf476004a85744a8be7c2e050e",
+    "repository": "https://github.com/NVIDIA/NeMo.git"
+  },
+  "probe": {
+    "case_definition_sha256": "079ba5e19b787bb30b753317e746c1755d0a53ceb5aec887a6ee34ce86851165",
+    "helper_sha256": "2c28e08ef1a818bb76ed2c3c55332879f306b339295ec2d38ddeb7abffa5c7dc",
+    "probe_sha256": "9243a6b9ace5950d6cf165185091be43d962ab4baf05f58d167baba5f5c1bf81",
+    "raw_receipt_sha256": "abf4261c9f74dcfd11a0de17db5d0353db707cb0e191de67b7322c8d4fee157a",
+    "raw_receipt_size_bytes": 80665
+  },
+  "runtime_environment": {
+    "cuda_driver_version": "595.78",
+    "cudnn_version": 92000,
+    "gpu_compute_capability": [
+      11,
+      0
+    ],
+    "gpu_name": "NVIDIA Thor",
+    "torch_cuda_build": "13.0",
+    "torch_version": "2.11.0"
+  },
+  "schema_version": 2,
+  "source_model": {
+    "file_name": "magpie_tts_multilingual_357m.nemo",
+    "license": {
+      "document_file_name": "NVIDIA-Open-Model-License-Agreement-2025-10-24.pdf",
+      "document_sha256": "4d2fb590aa9b30c47f2058bff17291df7fa2aa0c1bd775a20703da9bb267cfab",
+      "name": "NVIDIA Open Model License Agreement",
+      "required_notice_file_name": "NOTICE",
+      "required_notice_sha256": "5fc60716a9ba57f3792e71ed776b4065671c64d0c2db716698f4d646ad833eb1",
+      "version": "2025-10-24"
+    },
+    "model_id": "nvidia/magpie_tts_multilingual_357m",
+    "revision": "5023df68bd3f5b5ce6d666a50979bc501af145cc",
+    "sha256": "ec675fa8c02b9c1d5382c5c2b5a6acec6492c1e8344866c07cf3892185d18953",
+    "size_bytes": 1470208000,
+    "version": "v2607"
+  },
+  "status": "accepted"
+}

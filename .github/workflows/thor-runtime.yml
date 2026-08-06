@@ -12,9 +12,26 @@ permissions:
 jobs:
   runtime:
     runs-on: [self-hosted, linux, ARM64, agx-thor]
-    timeout-minutes: 45
+    timeout-minutes: 180
     env:
       RUSTUP_TOOLCHAIN: 1.88.0
+      MTT_EXPORT_PYTHON: ${{ vars.MTT_EXPORT_PYTHON }}
+      MTT_EXPORT_LD_LIBRARY_PATH: ${{ vars.MTT_EXPORT_LD_LIBRARY_PATH }}
+      MTT_SOURCE_MODEL_RECEIPT: ${{ vars.MTT_SOURCE_MODEL_RECEIPT }}
+      MTT_CONSOLIDATED_EXPORT_RECEIPT: ${{ vars.MTT_CONSOLIDATED_EXPORT_RECEIPT }}
+      MTT_TOKENIZER_IDENTITY_RECEIPT: ${{ vars.MTT_TOKENIZER_IDENTITY_RECEIPT }}
+      MTT_TEXT_ENCODER_PLAN: ${{ vars.MTT_TEXT_ENCODER_PLAN }}
+      MTT_MAIN_PREFILL_PLAN: ${{ vars.MTT_MAIN_PREFILL_PLAN }}
+      MTT_MAIN_STEP_PLAN: ${{ vars.MTT_MAIN_STEP_PLAN }}
+      MTT_LOCAL_AR_PLAN: ${{ vars.MTT_LOCAL_AR_PLAN }}
+      MTT_NANOCODEC_INITIAL_PLAN: ${{ vars.MTT_NANOCODEC_INITIAL_PLAN }}
+      MTT_NANOCODEC_STEADY_PLAN: ${{ vars.MTT_NANOCODEC_STEADY_PLAN }}
+      MTT_NANOCODEC_TAIL_PLAN: ${{ vars.MTT_NANOCODEC_TAIL_PLAN }}
+      MTT_GOLDEN_FIXTURE: ${{ vars.MTT_GOLDEN_FIXTURE }}
+      MTT_GOLDEN_RECEIPT: ${{ vars.MTT_GOLDEN_RECEIPT }}
+      MTT_ACCEPTANCE_CORPUS: ${{ vars.MTT_ACCEPTANCE_CORPUS }}
+      MTT_CUDART_LIBRARY: ${{ vars.MTT_CUDART_LIBRARY }}
+      MTT_NVML_LIBRARY: ${{ vars.MTT_NVML_LIBRARY }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -42,6 +59,70 @@ jobs:
           nvidia-smi --query-gpu=name,driver_version,compute_cap --format=csv
           /usr/local/cuda/bin/nvcc --version
           dpkg-query -W libnvinfer10
+          command -v nsys
+          command -v tegrastats
+          nsys --version
+
+      - name: Require immutable acceptance inputs
+        run: |
+          required_files=(
+            MTT_SOURCE_MODEL_RECEIPT
+            MTT_CONSOLIDATED_EXPORT_RECEIPT
+            MTT_TOKENIZER_IDENTITY_RECEIPT
+            MTT_TEXT_ENCODER_PLAN
+            MTT_MAIN_PREFILL_PLAN
+            MTT_MAIN_STEP_PLAN
+            MTT_LOCAL_AR_PLAN
+            MTT_NANOCODEC_INITIAL_PLAN
+            MTT_NANOCODEC_STEADY_PLAN
+            MTT_NANOCODEC_TAIL_PLAN
+            MTT_GOLDEN_FIXTURE
+            MTT_GOLDEN_RECEIPT
+            MTT_ACCEPTANCE_CORPUS
+            MTT_CUDART_LIBRARY
+            MTT_NVML_LIBRARY
+          )
+          for variable in "${required_files[@]}"; do
+            path="${!variable:-}"
+            test -n "$path"
+            test "${path#/}" != "$path"
+            test -f "$path"
+            test ! -L "$path"
+          done
+          test -n "$MTT_EXPORT_PYTHON"
+          test "${MTT_EXPORT_PYTHON#/}" != "$MTT_EXPORT_PYTHON"
+          export_python_real="$(realpath -e "$MTT_EXPORT_PYTHON")"
+          test -f "$export_python_real"
+          test -x "$export_python_real"
+          echo "MTT_EXPORT_PYTHON_REAL=$export_python_real" >> "$GITHUB_ENV"
+          "$export_python_real" - <<'PY'
+          import json
+          import os
+
+          with open(os.environ["MTT_ACCEPTANCE_CORPUS"], encoding="utf-8") as stream:
+              header = json.loads(stream.readline())
+          if header != {
+              **header,
+              "record_type": "header",
+              "schema_version": "magpie-tts-rt.benchmark-corpus.v1",
+              "normal_case_count": 108,
+          }:
+              raise SystemExit("acceptance corpus must be the pinned 108-case corpus")
+          PY
+
+      - name: Run the complete pinned export contract suite
+        env:
+          LD_LIBRARY_PATH: ${{ env.MTT_EXPORT_LD_LIBRARY_PATH }}
+        run: |
+          "$MTT_EXPORT_PYTHON_REAL" -m py_compile \
+            tools/export/*.py \
+            tools/oracle/*.py \
+            tests/oracle/*.py
+          "$MTT_EXPORT_PYTHON_REAL" -m unittest discover \
+            -s tests/oracle -p 'test_*.py' -v
+          "$MTT_EXPORT_PYTHON_REAL" tools/oracle/verify_source_overlay.py \
+            --lock reference/oracle-lock.json \
+            --overlay-root reference/nemo-oracle-overlay
 
       - name: Configure the complete runtime
         run: >-
@@ -65,11 +146,27 @@ jobs:
 
           with open("schemas/runtime-bundle-manifest.schema.json", encoding="utf-8") as stream:
               schema = json.load(stream)
+          with open("schemas/golden-fixture.schema.json", encoding="utf-8") as stream:
+              golden_schema = json.load(stream)
+          with open("schemas/plugin-build-receipt.schema.json", encoding="utf-8") as stream:
+              plugin_build_schema = json.load(stream)
+          with open("schemas/runtime-benchmark-receipt.schema.json", encoding="utf-8") as stream:
+              benchmark_schema = json.load(stream)
+          with open("schemas/source-model-acceptance-receipt.schema.json", encoding="utf-8") as stream:
+              source_acceptance_schema = json.load(stream)
+          with open("schemas/thor-profile-evidence.schema.json", encoding="utf-8") as stream:
+              profile_evidence_schema = json.load(stream)
           with open("tests/manifest/fixtures/minimal-valid.json", encoding="utf-8") as stream:
               fixture = json.load(stream)
           Draft202012Validator.check_schema(schema)
+          Draft202012Validator.check_schema(golden_schema)
+          Draft202012Validator.check_schema(plugin_build_schema)
+          Draft202012Validator.check_schema(benchmark_schema)
+          Draft202012Validator.check_schema(source_acceptance_schema)
+          Draft202012Validator.check_schema(profile_evidence_schema)
           Draft202012Validator(schema).validate(fixture)
           PY
+          python3 -m unittest tests.runtime.test_public_receipt_schemas -v
           cargo install bindgen-cli --version 0.72.1 --locked
           tools/check_rust_bindings.sh
           tools/check_abi_constants.py
@@ -78,9 +175,14 @@ jobs:
         run: |
           for sanitizer in address,undefined thread; do
             build_dir="$RUNNER_TEMP/mtt-sanitizer-${sanitizer//,/}-build"
-            flags="-fsanitize=$sanitizer -fno-omit-frame-pointer"
+            flags="-O1 -fsanitize=$sanitizer -fno-omit-frame-pointer"
+            if [[ "$sanitizer" == "address,undefined" ]]; then
+              flags="$flags -fno-sanitize-recover=all"
+            fi
+            # Debug supplies symbols; explicit -O1 keeps sanitizer
+            # instrumentation and stack traces practical on AGX Thor.
             cmake -S . -B "$build_dir" -G Ninja \
-              -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+              -DCMAKE_BUILD_TYPE=Debug \
               -DCMAKE_C_FLAGS="$flags" \
               -DCMAKE_CXX_FLAGS="$flags" \
               -DCMAKE_EXE_LINKER_FLAGS="$flags" \
@@ -88,13 +190,45 @@ jobs:
               -DMAGPIE_TTS_RT_BUILD_TESTS=ON \
               -DMAGPIE_TTS_RT_WARNINGS_AS_ERRORS=OFF
             cmake --build "$build_dir"
-            ctest --test-dir "$build_dir" --output-on-failure
+            if [[ "$sanitizer" == "address,undefined" ]]; then
+              ASAN_OPTIONS=detect_stack_use_after_return=0 \
+                UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+                ctest --test-dir "$build_dir" --output-on-failure \
+                  -E '^runtime_benchmark_tool$'
+              ASAN_OPTIONS=detect_stack_use_after_return=1 \
+                UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+                ctest --test-dir "$build_dir" --output-on-failure \
+                  -R '^(request_state|async_pipeline_contract|startup_golden)$'
+            else
+              ctest --test-dir "$build_dir" --output-on-failure \
+                -E '^runtime_benchmark_tool$'
+            fi
           done
 
       - name: Install and test the CMake package
         run: |
           cmake --install "$RUNNER_TEMP/mtt-build" \
             --prefix "$RUNNER_TEMP/mtt-install"
+          test -f \
+            "$RUNNER_TEMP/mtt-install/share/magpie-tts-rt/schemas/golden-fixture.schema.json"
+          test -f \
+            "$RUNNER_TEMP/mtt-install/share/doc/magpie-tts-rt/third_party/cutlass/LICENSE.txt"
+          test -f \
+            "$RUNNER_TEMP/mtt-install/share/doc/magpie-tts-rt/LICENSE"
+          test -f \
+            "$RUNNER_TEMP/mtt-install/share/doc/magpie-tts-rt/NOTICE"
+          test -f \
+            "$RUNNER_TEMP/mtt-install/share/doc/magpie-tts-rt/third_party/pytorch/LICENSE"
+          test -f \
+            "$RUNNER_TEMP/mtt-install/share/doc/magpie-tts-rt/third_party/nlohmann-json/LICENSE.MIT"
+          test -f \
+            "$RUNNER_TEMP/mtt-install/share/doc/magpie-tts-rt/third_party/cuda/EULA.txt"
+          test -f \
+            "$RUNNER_TEMP/mtt-install/share/doc/magpie-tts-rt/third_party/cuda/NOTICE"
+          test -f \
+            "$RUNNER_TEMP/mtt-install/share/doc/magpie-tts-rt/third_party/nvidia-open-model-license/NVIDIA-Open-Model-License-Agreement-2025-10-24.pdf"
+          test -f \
+            "$RUNNER_TEMP/mtt-install/share/doc/magpie-tts-rt/third_party/nvidia-open-model-license/NOTICE"
           cmake -S tests/packaging/cmake-consumer \
             -B "$RUNNER_TEMP/mtt-cmake-consumer" -G Ninja \
             -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/mtt-install" \
@@ -126,10 +260,87 @@ jobs:
           grep -Fq "Library soname: [libmagpie_tts_rt.so.0]" <<< "$dynamic"
           grep -Fq "Shared library: [libcudart.so.13]" <<< "$dynamic"
           grep -Fq "Shared library: [libnvinfer.so.10]" <<< "$dynamic"
+          grep -Fq "Shared library: [libnvidia-ml.so.1]" <<< "$dynamic"
+          grep -Fq "Shared library: [libcrypto.so.3]" <<< "$dynamic"
           if grep -Eq "\\((RPATH|RUNPATH)\\)" <<< "$dynamic"; then
             echo "installed runtime must not contain RPATH or RUNPATH" >&2
             exit 1
           fi
+          runtime_expected_needed="$(
+            printf '%s\n' \
+              ld-linux-aarch64.so.1 \
+              libc.so.6 \
+              libcrypto.so.3 \
+              libcudart.so.13 \
+              libgcc_s.so.1 \
+              libnvidia-ml.so.1 \
+              libnvinfer.so.10 \
+              libstdc++.so.6
+          )"
+          runtime_actual_needed="$(
+            sed -n 's/.*(NEEDED).*\\[\\([^]]*\\)\\].*/\\1/p' \
+              <<< "$dynamic" | sort
+          )"
+          test "$runtime_actual_needed" = "$runtime_expected_needed"
+          plugin="$RUNNER_TEMP/mtt-install/lib/libmagpie_tts_rt_plugins.so.0"
+          test "$(
+            nm -D --defined-only "$plugin" | awk '{print $3}'
+          )" = "mtt_plugin_get_api_v1"
+          plugin_dynamic="$(readelf -dW "$plugin")"
+          grep -Fq \
+            "Library soname: [libmagpie_tts_rt_plugins.so.0]" \
+            <<< "$plugin_dynamic"
+          if grep -Eq \
+            "\\((RPATH|RUNPATH|AUDIT|DEPAUDIT|FILTER|AUXILIARY)\\)" \
+            <<< "$plugin_dynamic"; then
+            echo "installed plugin contains a forbidden dynamic tag" >&2
+            exit 1
+          fi
+          expected_needed="$(
+            printf '%s\n' \
+              ld-linux-aarch64.so.1 \
+              libc.so.6 \
+              libcublas.so.13 \
+              libcudart.so.13 \
+              libgcc_s.so.1 \
+              libnvinfer.so.10 \
+              libstdc++.so.6
+          )"
+          actual_needed="$(
+            sed -n 's/.*(NEEDED).*\\[\\([^]]*\\)\\].*/\\1/p' \
+              <<< "$plugin_dynamic" | sort
+          )"
+          test "$actual_needed" = "$expected_needed"
+
+      - name: Record immutable plugin build provenance
+        run: |
+          plugin="$RUNNER_TEMP/mtt-install/lib/libmagpie_tts_rt_plugins.so.0.1.0"
+          receipt="$RUNNER_TEMP/plugin-build-receipt.json"
+          python3 tools/plugins/create_plugin_build_receipt.py \
+            --plugin "$plugin" \
+            --source-root "$GITHUB_WORKSPACE" \
+            --build-directory "$RUNNER_TEMP/mtt-build" \
+            --readelf /usr/bin/readelf \
+            --output "$receipt"
+          python3 - <<'PY'
+          import copy
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          from jsonschema import Draft202012Validator, ValidationError
+
+          root = Path(os.environ["RUNNER_TEMP"])
+          receipt = json.loads((root / "plugin-build-receipt.json").read_text())
+          schema = json.loads(
+              Path("schemas/plugin-build-receipt.schema.json").read_text()
+          )
+          validator = Draft202012Validator(schema)
+          validator.validate(receipt)
+          plugin = root / "mtt-install/lib/libmagpie_tts_rt_plugins.so.0.1.0"
+          if receipt["artifact"]["sha256"] != hashlib.sha256(plugin.read_bytes()).hexdigest():
+              raise SystemExit("plugin build receipt artifact hash mismatch")
+          PY
 
       - name: Test the Rust ownership wrapper against the runtime
         working-directory: rust
@@ -145,6 +356,273 @@ jobs:
           RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
           cargo package -p magpie-tts-rt-sys --locked
           cargo package -p magpie-tts-rt --list
+
+      - name: Package the authenticated seven-engine bundle
+        env:
+          LD_LIBRARY_PATH: ${{ env.MTT_EXPORT_LD_LIBRARY_PATH }}
+        run: |
+          bundle="$RUNNER_TEMP/mtt-accepted-bundle"
+          plugin="$RUNNER_TEMP/mtt-install/lib/libmagpie_tts_rt_plugins.so.0.1.0"
+          "$MTT_EXPORT_PYTHON_REAL" tools/bundle/package_runtime_bundle.py \
+            --spec reference/runtime-bundle-package-spec-v1.json \
+            --source-model-acceptance-receipt "$MTT_SOURCE_MODEL_RECEIPT" \
+            --export-receipt "$MTT_CONSOLIDATED_EXPORT_RECEIPT" \
+            --tokenizer-identity-receipt "$MTT_TOKENIZER_IDENTITY_RECEIPT" \
+            --plugin-build-receipt "$RUNNER_TEMP/plugin-build-receipt.json" \
+            --plugin "$plugin" \
+            --text-encoder-plan "$MTT_TEXT_ENCODER_PLAN" \
+            --main-decoder-prefill-plan "$MTT_MAIN_PREFILL_PLAN" \
+            --main-decoder-step-plan "$MTT_MAIN_STEP_PLAN" \
+            --local-ar-plan "$MTT_LOCAL_AR_PLAN" \
+            --nanocodec-initial-4-plan "$MTT_NANOCODEC_INITIAL_PLAN" \
+            --nanocodec-steady-8-plan "$MTT_NANOCODEC_STEADY_PLAN" \
+            --nanocodec-tail-1-8-plan "$MTT_NANOCODEC_TAIL_PLAN" \
+            --golden-fixture "$MTT_GOLDEN_FIXTURE" \
+            --golden-receipt "$MTT_GOLDEN_RECEIPT" \
+            --project-license LICENSE \
+            --project-notice NOTICE \
+            --pytorch-license third_party/pytorch/LICENSE \
+            --cutlass-license third_party/cutlass/LICENSE.txt \
+            --cuda-eula third_party/cuda/EULA.txt \
+            --cuda-notice third_party/cuda/NOTICE \
+            --nvidia-open-model-license third_party/nvidia-open-model-license/NVIDIA-Open-Model-License-Agreement-2025-10-24.pdf \
+            --nvidia-model-notice third_party/nvidia-open-model-license/NOTICE \
+            --manifest-validator "$RUNNER_TEMP/mtt-install/bin/mtt-validate-manifest" \
+            --bundle-validator "$RUNNER_TEMP/mtt-install/bin/mtt-validate-bundle" \
+            --output "$bundle"
+          test -f "$bundle/runtime-bundle-manifest.json"
+          test -f "$bundle/runtime-bundle-manifest.json.sha256"
+
+      - name: Run installed real-synthesis smoke and Thor benchmark
+        run: |
+          bundle="$RUNNER_TEMP/mtt-accepted-bundle"
+          library="$RUNNER_TEMP/mtt-install/lib/libmagpie_tts_rt.so.0.1.0"
+          manifest_sha="$(
+            awk 'NR == 1 { print $1 }' \
+              "$bundle/runtime-bundle-manifest.json.sha256"
+          )"
+          [[ "$manifest_sha" =~ ^[0-9a-f]{64}$ ]]
+          export LD_LIBRARY_PATH="$RUNNER_TEMP/mtt-install/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          timeout 300s "$RUNNER_TEMP/mtt-build/mtt_plugin_owner_gpu_tests" \
+            "$bundle" "$manifest_sha" 0
+          timeout 300s "$RUNNER_TEMP/mtt-build/mtt_multi_runtime_plugin_gpu_tests" \
+            "$bundle" "$manifest_sha" 0
+          timeout 300s "$RUNNER_TEMP/mtt-install/bin/mtt-runtime-smoke" \
+            --library "$library" \
+            --bundle "$bundle" \
+            --manifest-sha256 "$manifest_sha" \
+            --cuda-device 0 \
+            --receipt-json "$RUNNER_TEMP/runtime-smoke-receipt.json"
+          nsys_prefix="$RUNNER_TEMP/thor-benchmark"
+          nsys_report="${nsys_prefix}.nsys-rep"
+          tegrastats_log="$RUNNER_TEMP/thor-benchmark.tegrastats.log"
+          tegrastats --interval 100 --logfile "$tegrastats_log" &
+          tegrastats_pid=$!
+          stop_tegrastats() {
+            if kill -0 "$tegrastats_pid" 2>/dev/null; then
+              kill -INT "$tegrastats_pid"
+              wait "$tegrastats_pid" || true
+            fi
+          }
+          trap stop_tegrastats EXIT
+          set +e
+          timeout 2h nsys profile \
+            --trace=cuda,nvtx,osrt \
+            --sample=process-tree \
+            --force-overwrite=false \
+            --output "$nsys_prefix" \
+            "$RUNNER_TEMP/mtt-install/bin/mtt-runtime-benchmark" \
+            --library "$library" \
+            --bundle "$bundle" \
+            --manifest-sha256 "$manifest_sha" \
+            --corpus "$MTT_ACCEPTANCE_CORPUS" \
+            --cuda-device 0 \
+            --cuda-runtime-library "$MTT_CUDART_LIBRARY" \
+            --nvml-library "$MTT_NVML_LIBRARY" \
+            --nvml-device 0 \
+            --long-run-iterations 1000 \
+            --request-timeout-ms 120000 \
+            --receipt-json "$RUNNER_TEMP/thor-benchmark-receipt.json"
+          benchmark_status=$?
+          set -e
+          stop_tegrastats
+          trap - EXIT
+          test "$benchmark_status" -eq 0
+          test -s "$nsys_report"
+          test -s "$tegrastats_log"
+          python3 - <<'PY'
+          import copy
+          import hashlib
+          import json
+          import os
+          import time
+          from pathlib import Path
+          from jsonschema import Draft202012Validator, ValidationError
+
+          root = Path(os.environ["RUNNER_TEMP"])
+          schema = json.loads(
+              Path("schemas/runtime-benchmark-receipt.schema.json").read_text()
+          )
+          receipt = json.loads(
+              (root / "thor-benchmark-receipt.json").read_text()
+          )
+          validator = Draft202012Validator(schema)
+          validator.validate(receipt)
+          if receipt["status"] != "accepted":
+              raise SystemExit("benchmark receipt is not accepted")
+          if receipt["warm"]["case_count"] != 108:
+              raise SystemExit("benchmark receipt does not contain 108 warm cases")
+          long_run = receipt["long_run"]
+          if (
+              long_run["requested_iterations"] != 1000
+              or long_run["completed_iterations"] != 1000
+              or long_run["failure"] is not None
+          ):
+              raise SystemExit("benchmark receipt does not prove 1000 clean iterations")
+          if not all(
+              threshold["passed"] for threshold in receipt["thresholds"].values()
+          ):
+              raise SystemExit("one or more benchmark thresholds failed")
+          if set(receipt["verification"].values()) != {"passed"}:
+              raise SystemExit("one or more benchmark verifications failed")
+
+          fixed_long_run_maxima = {
+              "long_run_ttfa_p95_regression_ceiling_ms": 152.39,
+              "long_run_generation_rtf_p95_regression_ceiling": 0.401,
+              "long_run_maximum_positive_playback_lateness_regression_ceiling_ms": 0,
+              "long_run_process_rss_growth_from_warm_maximum_bytes": 67_108_864,
+              "long_run_process_rss_linear_slope_maximum_bytes_per_iteration": 65_536,
+          }
+          for name, maximum in fixed_long_run_maxima.items():
+              threshold = receipt["thresholds"][name]
+              if threshold["maximum"] != maximum or not threshold["passed"]:
+                  raise SystemExit(f"long-run threshold failed or drifted: {name}")
+
+              changed_result = copy.deepcopy(receipt)
+              changed_result["thresholds"][name]["passed"] = False
+              try:
+                  validator.validate(changed_result)
+              except ValidationError:
+                  pass
+              else:
+                  raise SystemExit(
+                      f"accepted schema did not fail closed for {name}=failed"
+                  )
+
+              changed_limit = copy.deepcopy(receipt)
+              changed_limit["thresholds"][name]["maximum"] = maximum + 1
+              try:
+                  validator.validate(changed_limit)
+              except ValidationError:
+                  pass
+              else:
+                  raise SystemExit(
+                      f"schema accepted a modified fixed limit for {name}"
+                  )
+
+          expected_cancel_points = [
+              "immediately_after_request_start",
+              "after_first_audio_chunk",
+              "after_second_audio_chunk",
+          ]
+          cancellation = receipt["cancellation"]
+          if cancellation["required_injection_points"] != expected_cancel_points:
+              raise SystemExit("cancel injection-point contract changed")
+          if [
+              result["injection_point"] for result in cancellation["results"]
+          ] != expected_cancel_points:
+              raise SystemExit("one or more cancel injection points are absent")
+
+          evidence_root = root.resolve(strict=True)
+
+          def artifact(path: Path) -> dict[str, str | int]:
+              if path.is_symlink():
+                  raise SystemExit(f"profile artifact is a symlink: {path}")
+              resolved = path.resolve(strict=True)
+              if (
+                  not resolved.is_file()
+                  or resolved.is_symlink()
+                  or resolved.parent != evidence_root
+              ):
+                  raise SystemExit(f"invalid profile artifact: {resolved}")
+              content = resolved.read_bytes()
+              if not content:
+                  raise SystemExit(f"empty profile artifact: {resolved}")
+              return {
+                  "file_name": resolved.name,
+                  "sha256": hashlib.sha256(content).hexdigest(),
+                  "size_bytes": len(content),
+              }
+
+          evidence = {
+              "schema_version": "magpie-tts-rt.thor-profile-evidence.v1",
+              "created_at_unix_ms": time.time_ns() // 1_000_000,
+              "artifacts": {
+                  "benchmark_receipt": artifact(
+                      root / "thor-benchmark-receipt.json"
+                  ),
+                  "nsys_report": artifact(
+                      root / "thor-benchmark.nsys-rep"
+                  ),
+                  "tegrastats_log": artifact(
+                      root / "thor-benchmark.tegrastats.log"
+                  ),
+              },
+              "measurement_scope": {
+                  "nsys_report": "benchmark target process tree",
+                  "tegrastats_log": "device-wide AGX Thor telemetry",
+                  "physical_audio": "not measured",
+              },
+          }
+          evidence_schema = json.loads(
+              Path("schemas/thor-profile-evidence.schema.json").read_text()
+          )
+          Draft202012Validator(evidence_schema).validate(evidence)
+          evidence_path = root / "thor-profile-evidence.json"
+          with evidence_path.open("x", encoding="utf-8") as stream:
+              json.dump(
+                  evidence,
+                  stream,
+                  ensure_ascii=False,
+                  sort_keys=True,
+                  separators=(",", ":"),
+              )
+              stream.write("\n")
+              stream.flush()
+              os.fsync(stream.fileno())
+
+          published = json.loads(evidence_path.read_text())
+          Draft202012Validator(evidence_schema).validate(published)
+          for name, recorded in published["artifacts"].items():
+              path = root / recorded["file_name"]
+              if path.is_symlink():
+                  raise SystemExit(f"{name} became a symlink")
+              resolved = path.resolve(strict=True)
+              if (
+                  not resolved.is_file()
+                  or resolved.is_symlink()
+                  or resolved.parent != evidence_root
+              ):
+                  raise SystemExit(f"{name} escaped the evidence directory")
+              content = resolved.read_bytes()
+              if len(content) != recorded["size_bytes"]:
+                  raise SystemExit(
+                      f"{name} size changed after evidence publication"
+                  )
+              if hashlib.sha256(content).hexdigest() != recorded["sha256"]:
+                  raise SystemExit(f"{name} changed after evidence publication")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: thor-runtime-evidence-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/runtime-smoke-receipt.json
+            ${{ runner.temp }}/thor-benchmark-receipt.json
+            ${{ runner.temp }}/thor-benchmark.nsys-rep
+            ${{ runner.temp }}/thor-benchmark.tegrastats.log
+            ${{ runner.temp }}/thor-profile-evidence.json
+          if-no-files-found: error
 
       - name: Create a checksummed install artifact
         if: startsWith(github.ref, 'refs/tags/v')

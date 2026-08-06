@@ -20,7 +20,7 @@ function(
     set("${result_variable}" FALSE PARENT_SCOPE)
     set(
       MagpieTTSRT_NOT_FOUND_MESSAGE
-      "readelf is required to verify CUDA and TensorRT ABI majors"
+      "readelf is required to verify OpenSSL, CUDA, TensorRT, and NVML ABI majors"
       PARENT_SCOPE
     )
     return()
@@ -61,6 +61,71 @@ function(
     )
   endif()
 endfunction()
+
+if(TARGET MagpieTTSRT_openssl_crypto)
+  get_target_property(
+    _mtt_existing_openssl_crypto
+    MagpieTTSRT_openssl_crypto
+    IMPORTED_LOCATION
+  )
+  if(NOT _mtt_existing_openssl_crypto)
+    set(MagpieTTSRT_FOUND FALSE)
+    set(
+      MagpieTTSRT_NOT_FOUND_MESSAGE
+      "Existing MagpieTTSRT_openssl_crypto target has no imported location"
+    )
+    return()
+  endif()
+  _magpie_tts_rt_require_elf_soname(
+    "${_mtt_existing_openssl_crypto}"
+    "libcrypto.so.3"
+    _mtt_openssl_crypto_soname_ok
+  )
+  if(NOT _mtt_openssl_crypto_soname_ok)
+    set(MagpieTTSRT_FOUND FALSE)
+    return()
+  endif()
+else()
+  find_library(
+    MagpieTTSRT_OPENSSL_CRYPTO_LIBRARY
+    NAMES crypto libcrypto.so.3
+    NAMES_PER_DIR
+    HINTS
+      "${MagpieTTSRT_OPENSSL_ROOT}"
+      "$ENV{OPENSSL_ROOT_DIR}"
+      "/usr"
+    PATH_SUFFIXES
+      lib
+      lib64
+      lib/aarch64-linux-gnu
+      lib/x86_64-linux-gnu
+      aarch64-linux-gnu
+      x86_64-linux-gnu
+  )
+  if(NOT MagpieTTSRT_OPENSSL_CRYPTO_LIBRARY)
+    set(MagpieTTSRT_FOUND FALSE)
+    set(
+      MagpieTTSRT_NOT_FOUND_MESSAGE
+      "OpenSSL libcrypto was not found; set MagpieTTSRT_OPENSSL_ROOT"
+    )
+    return()
+  endif()
+  _magpie_tts_rt_require_elf_soname(
+    "${MagpieTTSRT_OPENSSL_CRYPTO_LIBRARY}"
+    "libcrypto.so.3"
+    _mtt_openssl_crypto_soname_ok
+  )
+  if(NOT _mtt_openssl_crypto_soname_ok)
+    set(MagpieTTSRT_FOUND FALSE)
+    return()
+  endif()
+  add_library(MagpieTTSRT_openssl_crypto SHARED IMPORTED)
+  set_target_properties(
+    MagpieTTSRT_openssl_crypto
+    PROPERTIES
+      IMPORTED_LOCATION "${MagpieTTSRT_OPENSSL_CRYPTO_LIBRARY}"
+  )
+endif()
 
 # The exported runtime has a DT_NEEDED dependency on TensorRT. Recreate the
 # imported target named by MagpieTTSRTTargets.cmake without embedding the build
@@ -166,6 +231,7 @@ else()
     PATH_SUFFIXES
       lib
       lib64
+      targets/sbsa-linux/lib
       targets/aarch64-linux/lib
       targets/x86_64-linux/lib
   )
@@ -191,6 +257,136 @@ else()
     MagpieTTSRT_cuda_cudart
     PROPERTIES
       IMPORTED_LOCATION "${MagpieTTSRT_CUDA_CUDART_LIBRARY}"
+  )
+endif()
+
+if(TARGET MagpieTTSRT_cuda_cublas)
+  get_target_property(
+    _mtt_existing_cublas
+    MagpieTTSRT_cuda_cublas
+    IMPORTED_LOCATION
+  )
+  if(NOT _mtt_existing_cublas)
+    set(MagpieTTSRT_FOUND FALSE)
+    set(
+      MagpieTTSRT_NOT_FOUND_MESSAGE
+      "Existing MagpieTTSRT_cuda_cublas target has no imported location"
+    )
+    return()
+  endif()
+  _magpie_tts_rt_require_elf_soname(
+    "${_mtt_existing_cublas}"
+    "libcublas.so.13"
+    _mtt_cublas_soname_ok
+  )
+  if(NOT _mtt_cublas_soname_ok)
+    set(MagpieTTSRT_FOUND FALSE)
+    return()
+  endif()
+else()
+  find_library(
+    MagpieTTSRT_CUDA_CUBLAS_LIBRARY
+    NAMES cublas libcublas.so.13
+    NAMES_PER_DIR
+    HINTS
+      "${MagpieTTSRT_CUDA_ROOT}"
+      "$ENV{CUDAToolkit_ROOT}"
+      "$ENV{CUDA_PATH}"
+      "/usr/local/cuda"
+    PATH_SUFFIXES
+      lib
+      lib64
+      targets/sbsa-linux/lib
+      targets/aarch64-linux/lib
+      targets/x86_64-linux/lib
+  )
+  if(NOT MagpieTTSRT_CUDA_CUBLAS_LIBRARY)
+    set(MagpieTTSRT_FOUND FALSE)
+    set(
+      MagpieTTSRT_NOT_FOUND_MESSAGE
+      "CUDA cuBLAS was not found; set MagpieTTSRT_CUDA_ROOT"
+    )
+    return()
+  endif()
+  _magpie_tts_rt_require_elf_soname(
+    "${MagpieTTSRT_CUDA_CUBLAS_LIBRARY}"
+    "libcublas.so.13"
+    _mtt_cublas_soname_ok
+  )
+  if(NOT _mtt_cublas_soname_ok)
+    set(MagpieTTSRT_FOUND FALSE)
+    return()
+  endif()
+  add_library(MagpieTTSRT_cuda_cublas SHARED IMPORTED)
+  set_target_properties(
+    MagpieTTSRT_cuda_cublas
+    PROPERTIES
+      IMPORTED_LOCATION "${MagpieTTSRT_CUDA_CUBLAS_LIBRARY}"
+  )
+endif()
+
+if(TARGET MagpieTTSRT_nvidia_nvml)
+  get_target_property(
+    _mtt_existing_nvml
+    MagpieTTSRT_nvidia_nvml
+    IMPORTED_LOCATION
+  )
+  if(NOT _mtt_existing_nvml)
+    set(MagpieTTSRT_FOUND FALSE)
+    set(
+      MagpieTTSRT_NOT_FOUND_MESSAGE
+      "Existing MagpieTTSRT_nvidia_nvml target has no imported location"
+    )
+    return()
+  endif()
+  _magpie_tts_rt_require_elf_soname(
+    "${_mtt_existing_nvml}"
+    "libnvidia-ml.so.1"
+    _mtt_nvml_soname_ok
+  )
+  if(NOT _mtt_nvml_soname_ok)
+    set(MagpieTTSRT_FOUND FALSE)
+    return()
+  endif()
+else()
+  find_library(
+    MagpieTTSRT_NVML_LIBRARY
+    NAMES nvidia-ml libnvidia-ml.so.1
+    NAMES_PER_DIR
+    HINTS
+      "${MagpieTTSRT_NVML_ROOT}"
+      "$ENV{NVML_ROOT}"
+      "/usr"
+    PATH_SUFFIXES
+      lib
+      lib64
+      lib/aarch64-linux-gnu/nvidia
+      lib/x86_64-linux-gnu/nvidia
+      aarch64-linux-gnu/nvidia
+      x86_64-linux-gnu/nvidia
+  )
+  if(NOT MagpieTTSRT_NVML_LIBRARY)
+    set(MagpieTTSRT_FOUND FALSE)
+    set(
+      MagpieTTSRT_NOT_FOUND_MESSAGE
+      "NVML was not found; set MagpieTTSRT_NVML_ROOT"
+    )
+    return()
+  endif()
+  _magpie_tts_rt_require_elf_soname(
+    "${MagpieTTSRT_NVML_LIBRARY}"
+    "libnvidia-ml.so.1"
+    _mtt_nvml_soname_ok
+  )
+  if(NOT _mtt_nvml_soname_ok)
+    set(MagpieTTSRT_FOUND FALSE)
+    return()
+  endif()
+  add_library(MagpieTTSRT_nvidia_nvml SHARED IMPORTED)
+  set_target_properties(
+    MagpieTTSRT_nvidia_nvml
+    PROPERTIES
+      IMPORTED_LOCATION "${MagpieTTSRT_NVML_LIBRARY}"
   )
 endif()
 

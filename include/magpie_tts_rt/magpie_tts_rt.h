@@ -114,6 +114,40 @@ typedef struct mtt_model_desc_v1 {
   uint64_t reserved[4];
 } mtt_model_desc_v1_t;
 
+/*
+ * Authenticated model properties needed by a text frontend and streaming
+ * consumer. The caller initializes struct_size and abi_version; model_get_info
+ * overwrites every other field on success.
+ */
+typedef struct mtt_model_info_v1 {
+  uint32_t struct_size;
+  uint32_t abi_version;
+  /*
+   * Normal tokenizer rows are [0, tokenizer_vocabulary_size). BOS and EOS
+   * occupy separately authenticated special rows below text_embedding_rows.
+   * A prepared request must end in exactly one eos_token_id; every preceding
+   * token must be a normal tokenizer row. BOS is not a request token.
+   */
+  uint32_t tokenizer_vocabulary_size;
+  uint32_t text_embedding_rows;
+  uint32_t bos_token_id;
+  uint32_t eos_token_id;
+  uint32_t japanese_global_pad_token_id;
+  uint32_t maximum_text_tokens;
+  uint32_t maximum_audio_frames;
+  uint32_t sample_rate_hz;
+  uint32_t channels;
+  mtt_pcm_format_t pcm_format;
+  uint32_t codec_frame_samples;
+  uint32_t initial_frames;
+  uint32_t steady_frames;
+  uint32_t tail_min_frames;
+  uint32_t tail_max_frames;
+  uint8_t tokenizer_identity_sha256[MTT_SHA256_BYTES];
+  uint32_t reserved_0;
+  uint64_t reserved[4];
+} mtt_model_info_v1_t;
+
 typedef struct mtt_session_desc_v1 {
   uint32_t struct_size;
   uint32_t abi_version;
@@ -127,10 +161,12 @@ typedef struct mtt_request_desc_v1 {
   uint32_t abi_version;
   /*
    * Copied into request-owned storage before request_start returns. The
-   * runtime never retains this caller-owned pointer.
+   * runtime never retains this caller-owned pointer. Every identifier must be
+   * non-negative, fit INT32, and belong to the verified bundle vocabulary.
    */
   const int64_t* text_token_ids;
   uint64_t text_token_count;
+  /* Accepted range is [0, 2^32); no truncation or modulo conversion. */
   uint64_t random_seed;
   uint32_t flags;
   uint32_t reserved_0;
@@ -164,6 +200,23 @@ typedef struct mtt_request_snapshot_v1 {
   uint64_t reserved[4];
 } mtt_request_snapshot_v1_t;
 
+/*
+ * One monotonic text-alignment observation for generated audio. sample_index
+ * is an utterance-global, end-exclusive played-sample boundary: text progress
+ * becomes valid only after playback has drained every sample before this
+ * index. It normally follows a two-frame Main Decoder step. When EOS
+ * terminates the first frame of a step, the final event follows that one
+ * emitted frame. committed_text_tokens is an end-exclusive position in the
+ * request's prepared token sequence.
+ */
+typedef struct mtt_alignment_event_v1 {
+  uint32_t struct_size;
+  uint32_t abi_version;
+  uint64_t sample_index;
+  uint64_t committed_text_tokens;
+  uint64_t reserved[2];
+} mtt_alignment_event_v1_t;
+
 typedef struct mtt_audio_lease_v1 {
   uint32_t struct_size;
   uint32_t abi_version;
@@ -174,8 +227,14 @@ typedef struct mtt_audio_lease_v1 {
    * exhaustion fails closed with POISONED before returning another lease.
    * Callers must not assume adjacent values because sessions may run
    * concurrently.
-   */
+  */
   uint64_t lease_id;
+  /*
+   * Non-null PCM storage when sample_count is nonzero. A zero sample_count
+   * requires a null pointer and represents only a non-FIRST FINAL control
+   * marker after prior PCM. That marker closes a stream when Local AR emits
+   * EOS at frame zero; EOS itself is never passed to NanoCodec.
+   */
   const float* samples;
   uint64_t sample_count;
   uint64_t first_sample_index;
@@ -185,7 +244,16 @@ typedef struct mtt_audio_lease_v1 {
   mtt_pcm_format_t format;
   uint32_t flags;
   uint64_t committed_text_tokens;
-  uint64_t reserved[4];
+  /*
+   * Owned by the lease and valid through the successful audio_release call.
+   * Events are ordered, lie after the lease start and at or before its
+   * end-exclusive sample boundary, and include only strict advances in
+   * committed_text_tokens. A zero count requires a null pointer. A zero-sample
+   * FINAL control marker has no events and cannot advance text progress.
+   */
+  const mtt_alignment_event_v1_t* alignment_events;
+  uint64_t alignment_event_count;
+  uint64_t reserved[2];
 } mtt_audio_lease_v1_t;
 
 typedef struct mtt_api_v1 {
@@ -196,6 +264,11 @@ typedef struct mtt_api_v1 {
       const mtt_runtime_desc_v1_t* desc,
       mtt_runtime_t** runtime,
       mtt_error_v1_t* error);
+  /*
+   * On success, destroy operations that own CUDA resources leave the
+   * runtime's CUDA device selected on the calling thread. A non-OK return
+   * retains ownership and does not consume the handle.
+   */
   mtt_status_t (*runtime_destroy)(
       mtt_runtime_t* runtime,
       mtt_error_v1_t* error);
@@ -205,8 +278,13 @@ typedef struct mtt_api_v1 {
       const mtt_model_desc_v1_t* desc,
       mtt_model_t** model,
       mtt_error_v1_t* error);
+  /* Successful destruction leaves the owning runtime's CUDA device selected. */
   mtt_status_t (*model_destroy)(
       mtt_model_t* model,
+      mtt_error_v1_t* error);
+  mtt_status_t (*model_get_info)(
+      mtt_model_t* model,
+      mtt_model_info_v1_t* info,
       mtt_error_v1_t* error);
 
   mtt_status_t (*session_create)(
@@ -214,6 +292,7 @@ typedef struct mtt_api_v1 {
       const mtt_session_desc_v1_t* desc,
       mtt_session_t** session,
       mtt_error_v1_t* error);
+  /* Successful destruction leaves the owning runtime's CUDA device selected. */
   mtt_status_t (*session_destroy)(
       mtt_session_t* session,
       mtt_error_v1_t* error);

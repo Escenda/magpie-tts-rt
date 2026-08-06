@@ -24,9 +24,13 @@ is not accepted.
 | sampling | temperature `0.6`, top-k `80` |
 | codec output | mono FP32, 22,050 Hz |
 | samples per codec frame | `1,024` |
+| active attention look-ahead | `6` text tokens |
+| active attention-sink threshold | `4` decoder steps |
 
 Text Encoder, Main Decoder, and Local AR execute in BF16. NanoCodec remains
-FP32. Token/code tensors are INT64 and masks are BOOL.
+FP32. Text token IDs are INT32, codec/code and RNG tensors are INT64, and masks
+are BOOL. The public C ABI accepts INT64 text IDs and the runtime range-checks
+every value before converting it to the Text Encoder's INT32 input.
 
 ## Optimization profiles
 
@@ -52,7 +56,7 @@ The Text Encoder runs once per input text chunk.
 
 Inputs:
 
-- `text_token_ids`: `[1, T] INT64`
+- `text_token_ids`: `[1, T] INT32`
 - `text_mask`: `[1, T] BOOL`
 
 Output:
@@ -71,9 +75,11 @@ verified model bundle; it does not expose a speaker index.
 
 Classifier-free guidance has exactly two rows. Row 0 is conditional and copies
 the Text Encoder output and `text_mask`. Row 1 is unconditional: its condition
-is all zero and its mask is all false. The manifest records this order and
-source policy; reversing rows or inventing another unconditional input is an
-error.
+is all zero, while its mask keeps only text position zero true and sets every
+later position false. This is the exact NeMo `prepare_dummy_cond_for_cfg`
+contract; an all-false mask is not equivalent. The manifest records this order
+and source policy. Reversing rows or inventing another unconditional input is
+an error.
 
 Inputs:
 
@@ -101,6 +107,7 @@ Inputs:
 
 - previous codec tokens: `[1, 8, 2] INT64`
 - `position`: scalar INT64 containing the absolute self-cache write index;
+- `condition_mask`: `[2, T] BOOL`, retained unchanged from prefill;
 - current self K/V caches and key masks;
 - prefilled cross K/V tensors;
 - dynamic attention prior: `[2, 1, T] BF16`.
@@ -143,46 +150,94 @@ Outputs:
 - invalid-row status: `[1] INT32`
 - first EOS frame index: `[1] INT32`.
 
-`invalid_rows` is a bitmask over the fixed CFG row order. Bit 0 represents
-the conditional row and bit 1 the unconditional row. `0` means both rows
-produced valid sampling distributions; any nonzero value fails the request
-before codec tokens or embeddings are consumed.
+`invalid_rows[0]` is zero only when the guided distribution is finite and has
+at least one eligible token. Any nonzero value fails the request before codec
+tokens or embeddings are consumed. CFG is combined before sampling, so it does
+not consume a separate random number for the unconditional row.
 
 `end_frame_index` is `0` or `1` when EOS occurs in the corresponding generated
 frame. `-1` is the only no-EOS sentinel. When `forbid_eos` is true, the output
 must be `-1`.
+
+An EOS position is a control position, not a codec-audio frame. Therefore
+`end_frame_index=0` contributes zero new audio frames, and
+`end_frame_index=1` contributes only frame zero. The runtime must never pass
+the EOS position to NanoCodec.
 
 Each position runs the two-layer Local Transformer and its position-specific
 `768 → 2024` projection. A TensorRT `IPluginV3` operation performs CFG
 combination, forbidden-token handling, top-k selection, temperature scaling,
 Gumbel sampling, RNG-counter advancement, and the next embedding gather.
 
+The Text Encoder, Main Decoder, and Local Transformer use authenticated
+`IPluginV3` operations at BF16 boundaries where TensorRT's native lowering
+does not preserve the accepted PyTorch 2.11 reduction and rounding order.
+`MagpieLayerNorm`, `MagpieGeluTanh`, and mode 0 of `MagpieSoftmax` cover their
+declared Text, Main, and Local tensor shapes. The same `MagpieSoftmax` creator
+also has five Main-Decoder-only modes: mode 1 computes masked cross-attention
+probabilities, mode 2 computes the prefill or one-step self-attention
+probability/value product, mode 3 computes the prefill or one-step cross-attention
+probability/value product, and mode 4 performs the one-step dynamic-prior
+renormalization division. Mode 5 computes the one-step self-attention
+`[2,12,1,64] × [2,12,64,467]` QK product with BF16 inputs and FP32
+accumulation. Mode 4 accepts a `[2,1,1,T]` BF16 numerator and
+`[2,1,1,1]` BF16 denominator and rounds each quotient directly to BF16; a
+TensorRT elementwise division is not equivalent at this boundary. Text length
+`T` is always in `[1,512]`. Small BF16 differences are not accepted because
+they can alter alignment, later decoder state, and sampled codec tokens. The
+plugin ABI v1 therefore authenticates exactly five creators, in order:
+`MagpieLocalARSampling`, `MagpieLocalAREos`, `MagpieLayerNorm`,
+`MagpieGeluTanh`, and `MagpieSoftmax`, all at version `1` in namespace
+`magpie_tts_rt`.
+
+Before the two Local Transformer layers, position `p` adds learned absolute
+position-embedding row `p`, for every `p` in `[0, 16)`. The accepted model does
+not use a zero, sinusoidal, or relative-position substitute here. The engine
+must contain the 16 BF16 rows selected from the model's `[18, 768]` local
+position-embedding table, and the export receipt records the complete source
+table digest. Omitting this addition changes the locked codec-token output.
+
 Local K/V scratch has shape `[2, 17, 12, 64] BF16` per layer. It is reset for
 every Main Decoder step and is not session history.
 
-### Unresolved deterministic-sampling gate
+### Deterministic sampling
 
-The engine partition and tensor shapes above are fixed. The bit-exact
-sampling algorithm is not yet fixed well enough to implement. Before the
-Local AR engine or sampling plugin is accepted, the pinned PyTorch oracle must
-provide fixtures that define:
+The accepted oracle fixes the sampling algorithm:
 
-- conversion of the public `uint64_t` seed to the signed INT64 engine
-  representation;
-- Philox key and counter lane layout;
-- counter consumption for every Local AR position and both CFG rows;
-- integer-to-uniform conversion, endpoint handling, and the exact Gumbel
-  transform;
-- tie-breaking for equal logits at the top-k boundary;
-- EOS reduction and counter behavior on forbidden, sampled, and invalid
-  distributions; and
-- every persistent NanoCodec state tensor, including update order at
-  initial, steady, and terminal boundaries.
+1. Public seeds are accepted only in `[0, 2^32)`. No truncation or modulo
+   conversion is allowed.
+2. One signed INT64 counter exists per application batch row. The counter
+   starts at zero and advances exactly once at each of the 16 Local AR
+   positions, including a position that later causes EOS.
+3. The random offset for vocabulary element `v` is
+   `counter * 2048 + v`.
+4. The Philox seed for row `r` is the low 32 bits of
+   `seed + r * 0x9E3779B9`.
+5. Uniform values are clamped to `[0.00000006, 0.99999994]`; the Gumbel value
+   is `-log(-log(u))`.
+6. The top-k boundary is the 80th greatest guided logit. Every value greater
+   than or equal to that boundary is eligible. This inclusive rule is
+   intentional when logits tie.
+7. The chosen token is the left-most argmax of
+   `guided_logit / 0.6 + gumbel` over eligible tokens.
 
-The exporter source snapshot, patch set, and sanitized golden boundary
-fixtures are release inputs, not optional documentation. Until they are
-committed or published in an authenticated release, model loading and
-synthesis remain unavailable.
+The conditional BF16 logits are multiplied by `2.5` and rounded to BF16. The
+unconditional logits are then added with scale `-1.5` and rounded to BF16
+again before conversion to FP32 for sampling. Replacing those two roundings
+with one FP32 expression is not parity.
+
+Codec tokens are exactly `0..2015`. `AUDIO_EOS=2017` is the only eligible
+special token; the static forbidden set is exactly
+`[2016,2018,2019,2020,2021,2022,2023]`. EOS is additionally forbidden while
+the first four codec frames are generated or while alignment marks the text
+unfinished. A finished row forces EOS. NaN, infinity, or an all-forbidden
+distribution fails the request. The manifest records this exact partition
+and rejects any alternate IDs.
+
+The locked boundary fixture records the initial seed, counter zero, the first
+16-position output, and counter 16. Plugin tests must additionally cover
+top-k ties, the two clamp endpoints, invalid distributions, forced EOS, and
+counter overflow.
 
 ## EOS
 
@@ -217,6 +272,15 @@ The controller must not invent source-character positions. An application may
 map committed token positions to source spans only when it has an exact
 frontend span map.
 
+For the active Sofia configuration, the controller starts at text position 1,
+searches `[last + sink_advance, min(start + 6, text_length - 3))`, and chooses
+the left-most maximum alignment score. A position advances by one before the
+search when its counter has reached 4. The next conditional prior starts at
+`0.1`, writes `1.0` at one history position, the attended position, and six
+look-ahead positions, then suppresses every position through the greatest
+attention sink back to `0.1`. Texts of five tokens or fewer receive an all-one
+conditional prior. The unconditional CFG row remains `0.1`.
+
 ## Stateful NanoCodec
 
 Input:
@@ -234,10 +298,46 @@ The initial routes are:
 - steady: fixed `F = 8`;
 - terminal tail: `F = 1..8`.
 
+The tail engine has no zero-frame profile. When EOS leaves zero undecoded audio
+frames, the runtime does not enqueue any NanoCodec engine. It emits a
+zero-frame `FINAL` control marker after all preceding PCM has been published.
+This marker carries no PCM and does not advance codec state. The downstream
+playback layer, not the synthesis runtime, waits for physical audio drain.
+Calling
+the tail engine with a fabricated frame, treating EOS as audio, or padding the
+request to one frame is a contract violation.
+
 The session owns every causal Conv1d input history, ConvTranspose1d pending
 overlap, residual-branch history, and FP32 work buffer. Standard TensorRT
 Conv/ConvTranspose operations perform the main computation; plugins may update
 explicit causal histories and overlap state.
+
+The accepted PyTorch implementation exposes 189 FP32 state and work tensors,
+approximately 57.30 MiB per active decoder. Only about 0.713 MiB is persistent
+causal session state: exactly 92 convolution input histories and five
+pending-overlap tensors. These 97 tensors are individually named in the
+canonical registry in `tools/export/nanocodec_contract.py`. The remaining 92
+concatenation/work buffers belong to the execution-context workspace and are
+not state bindings. Concurrent execution contexts must not share that mutable
+workspace.
+
+The binding names are deterministic. Persistent inputs are
+`state_in.<logical_name>` and replacement outputs are
+`state_out.<logical_name>`. The initial-4 engine therefore has one input and
+99 outputs; steady-8 and tail-1-through-8 each have 98 inputs and 99 outputs.
+An opaque aggregate, a reordered registry, or a runtime-inferred state is not
+accepted.
+
+The decoder stages are
+`32 → 864 → 432 → 216 → 108 → 54 → 27` with upsampling rates
+`8, 8, 4, 2, 2`. Each of the five residual stages has three kernel branches
+(`3, 7, 11`), three dilations (`1, 3, 5`), and two causal convolutions per
+residual block. The exporter must enumerate these states by name; the C++
+runtime must not infer or omit them.
+
+Each transposed-convolution overlap is added to the beginning of the next PCM
+chunk. The stored overlap has that layer's bias subtracted so the next call
+does not count the bias twice. This update order is part of codec parity.
 
 The initial 4-frame plan has no causal-state input. It creates the deterministic
 initial state inside the verified plan and returns every declared state output.

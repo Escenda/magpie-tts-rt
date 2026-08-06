@@ -1,0 +1,613 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Escenda/magpie-tts-rt/schemas/source-model-acceptance-receipt.schema.json",
+  "title": "MagpieTTS-RT portable source-model acceptance receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "artifact_role",
+    "status",
+    "created_at_utc",
+    "source_model",
+    "oracle_source",
+    "acceptance_contract",
+    "probe",
+    "runtime_environment",
+    "evidence"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "artifact_role": {
+      "const": "source_model_acceptance"
+    },
+    "status": {
+      "const": "accepted"
+    },
+    "created_at_utc": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$"
+    },
+    "source_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model_id",
+        "version",
+        "revision",
+        "file_name",
+        "sha256",
+        "size_bytes",
+        "license"
+      ],
+      "properties": {
+        "model_id": {
+          "const": "nvidia/magpie_tts_multilingual_357m"
+        },
+        "version": {
+          "const": "v2607"
+        },
+        "revision": {
+          "const": "5023df68bd3f5b5ce6d666a50979bc501af145cc"
+        },
+        "file_name": {
+          "const": "magpie_tts_multilingual_357m.nemo"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "license": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "version",
+            "document_file_name",
+            "document_sha256",
+            "required_notice_file_name",
+            "required_notice_sha256"
+          ],
+          "properties": {
+            "name": {
+              "const": "NVIDIA Open Model License Agreement"
+            },
+            "version": {
+              "const": "2025-10-24"
+            },
+            "document_file_name": {
+              "const": "NVIDIA-Open-Model-License-Agreement-2025-10-24.pdf"
+            },
+            "document_sha256": {
+              "const": "4d2fb590aa9b30c47f2058bff17291df7fa2aa0c1bd775a20703da9bb267cfab"
+            },
+            "required_notice_file_name": {
+              "const": "NOTICE"
+            },
+            "required_notice_sha256": {
+              "const": "5fc60716a9ba57f3792e71ed776b4065671c64d0c2db716698f4d646ad833eb1"
+            }
+          }
+        }
+      }
+    },
+    "oracle_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "base_revision",
+        "optimized_source_bundle_sha256",
+        "files"
+      ],
+      "properties": {
+        "repository": {
+          "const": "https://github.com/NVIDIA/NeMo.git"
+        },
+        "base_revision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "optimized_source_bundle_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "files": {
+          "$ref": "#/$defs/oracleFiles"
+        }
+      }
+    },
+    "acceptance_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "speaker_name",
+        "speaker_index",
+        "local_ar_seed",
+        "sample_rate_hz",
+        "samples_per_codec_frame",
+        "first_codec_frames",
+        "steady_codec_frames",
+        "tail_codec_frames_min",
+        "tail_codec_frames_max"
+      ],
+      "properties": {
+        "speaker_name": {
+          "const": "Sofia"
+        },
+        "speaker_index": {
+          "const": 4
+        },
+        "local_ar_seed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sample_rate_hz": {
+          "const": 22050
+        },
+        "samples_per_codec_frame": {
+          "const": 1024
+        },
+        "first_codec_frames": {
+          "const": 4
+        },
+        "steady_codec_frames": {
+          "const": 8
+        },
+        "tail_codec_frames_min": {
+          "const": 1
+        },
+        "tail_codec_frames_max": {
+          "const": 8
+        }
+      }
+    },
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "raw_receipt_sha256",
+        "raw_receipt_size_bytes",
+        "probe_sha256",
+        "helper_sha256",
+        "case_definition_sha256"
+      ],
+      "properties": {
+        "raw_receipt_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "raw_receipt_size_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "probe_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "helper_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "case_definition_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "runtime_environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "torch_version",
+        "torch_cuda_build",
+        "cudnn_version",
+        "cuda_driver_version",
+        "gpu_name",
+        "gpu_compute_capability"
+      ],
+      "properties": {
+        "torch_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "torch_cuda_build": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cudnn_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cuda_driver_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "gpu_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "gpu_compute_capability": {
+          "const": [
+            11,
+            0
+          ]
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case_names",
+        "determinism",
+        "aggregate",
+        "gates"
+      ],
+      "properties": {
+        "case_names": {
+          "const": [
+            "short_conversation",
+            "punctuation",
+            "latin_and_numbers",
+            "long_multi_chunk"
+          ]
+        },
+        "determinism": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/determinismShort"
+            },
+            {
+              "$ref": "#/$defs/determinismPunctuation"
+            },
+            {
+              "$ref": "#/$defs/determinismLatinNumbers"
+            },
+            {
+              "$ref": "#/$defs/determinismLong"
+            }
+          ],
+          "items": false
+        },
+        "aggregate": {
+          "$ref": "#/$defs/aggregate"
+        },
+        "gates": {
+          "$ref": "#/$defs/gates"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "oracleFiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "nemo/collections/tts/models/easy_magpietts_inference.py",
+        "nemo/collections/tts/models/magpietts.py",
+        "nemo/collections/tts/models/magpietts_preference_optimization.py",
+        "nemo/collections/tts/modules/ffn_modules.py",
+        "nemo/collections/tts/modules/magpietts_fused_sampling.py",
+        "nemo/collections/tts/modules/magpietts_inference/inference.py",
+        "nemo/collections/tts/modules/magpietts_inference/utils.py",
+        "nemo/collections/tts/modules/magpietts_modules.py",
+        "nemo/collections/tts/modules/streaming_codec.py",
+        "nemo/collections/tts/modules/streaming_synthesis.py",
+        "nemo/collections/tts/modules/transformer_2501.py"
+      ],
+      "properties": {
+        "nemo/collections/tts/models/easy_magpietts_inference.py": {
+          "$ref": "#/$defs/sha256"
+        },
+        "nemo/collections/tts/models/magpietts.py": {
+          "$ref": "#/$defs/sha256"
+        },
+        "nemo/collections/tts/models/magpietts_preference_optimization.py": {
+          "$ref": "#/$defs/sha256"
+        },
+        "nemo/collections/tts/modules/ffn_modules.py": {
+          "$ref": "#/$defs/sha256"
+        },
+        "nemo/collections/tts/modules/magpietts_fused_sampling.py": {
+          "$ref": "#/$defs/sha256"
+        },
+        "nemo/collections/tts/modules/magpietts_inference/inference.py": {
+          "$ref": "#/$defs/sha256"
+        },
+        "nemo/collections/tts/modules/magpietts_inference/utils.py": {
+          "$ref": "#/$defs/sha256"
+        },
+        "nemo/collections/tts/modules/magpietts_modules.py": {
+          "$ref": "#/$defs/sha256"
+        },
+        "nemo/collections/tts/modules/streaming_codec.py": {
+          "$ref": "#/$defs/sha256"
+        },
+        "nemo/collections/tts/modules/streaming_synthesis.py": {
+          "$ref": "#/$defs/sha256"
+        },
+        "nemo/collections/tts/modules/transformer_2501.py": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "metricSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "median",
+        "p95",
+        "minimum",
+        "maximum"
+      ],
+      "properties": {
+        "median": {
+          "type": "number"
+        },
+        "p95": {
+          "type": "number"
+        },
+        "minimum": {
+          "type": "number"
+        },
+        "maximum": {
+          "type": "number"
+        }
+      }
+    },
+    "aggregate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case_count",
+        "raw_ttfa_ms",
+        "gapless_start_ms",
+        "max_positive_playback_lateness_ms",
+        "generation_rtf",
+        "total_rtf",
+        "maximum_peak_cuda_allocated_bytes",
+        "maximum_peak_cuda_reserved_bytes"
+      ],
+      "properties": {
+        "case_count": {
+          "const": 4
+        },
+        "raw_ttfa_ms": {
+          "$ref": "#/$defs/metricSummary"
+        },
+        "gapless_start_ms": {
+          "$ref": "#/$defs/metricSummary"
+        },
+        "max_positive_playback_lateness_ms": {
+          "$ref": "#/$defs/metricSummary"
+        },
+        "generation_rtf": {
+          "$ref": "#/$defs/metricSummary"
+        },
+        "total_rtf": {
+          "$ref": "#/$defs/metricSummary"
+        },
+        "maximum_peak_cuda_allocated_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maximum_peak_cuda_reserved_bytes": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "determinismBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case_name",
+        "local_ar_seed",
+        "first_codes_sha256",
+        "replay_codes_sha256",
+        "codes_exact",
+        "first_pcm_f32le_sha256",
+        "replay_pcm_f32le_sha256",
+        "pcm_exact",
+        "first_codec_frame_count",
+        "replay_codec_frame_count",
+        "codec_frame_count_exact",
+        "passed"
+      ],
+      "properties": {
+        "case_name": {
+          "type": "string"
+        },
+        "local_ar_seed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "first_codes_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "replay_codes_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "codes_exact": {
+          "const": true
+        },
+        "first_pcm_f32le_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "replay_pcm_f32le_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "pcm_exact": {
+          "const": true
+        },
+        "first_codec_frame_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "replay_codec_frame_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "codec_frame_count_exact": {
+          "const": true
+        },
+        "passed": {
+          "const": true
+        }
+      }
+    },
+    "determinismShort": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/determinismBase"
+        },
+        {
+          "properties": {
+            "case_name": {
+              "const": "short_conversation"
+            }
+          }
+        }
+      ]
+    },
+    "determinismPunctuation": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/determinismBase"
+        },
+        {
+          "properties": {
+            "case_name": {
+              "const": "punctuation"
+            }
+          }
+        }
+      ]
+    },
+    "determinismLatinNumbers": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/determinismBase"
+        },
+        {
+          "properties": {
+            "case_name": {
+              "const": "latin_and_numbers"
+            }
+          }
+        }
+      ]
+    },
+    "determinismLong": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/determinismBase"
+        },
+        {
+          "properties": {
+            "case_name": {
+              "const": "long_multi_chunk"
+            }
+          }
+        }
+      ]
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "all_cases_exercised",
+        "native_bf16_no_adapter",
+        "codec_fp32",
+        "default_schedule_exact",
+        "packed_first4_cases_passed",
+        "general_followup_case_passed",
+        "explicit_outer_warmup_only",
+        "local_ar_graph_passed",
+        "native_codec_graphs_passed",
+        "callback_contracts_passed",
+        "eos_alignment_passed",
+        "finite_audio_artifacts_passed",
+        "zero_positive_playback_lateness",
+        "generation_rtf_p95_below_one",
+        "total_rtf_p95_below_one",
+        "source_model_probe_unchanged",
+        "parakeet_gate_pending",
+        "runtime_acceptance_passed",
+        "same_seed_replay_passed",
+        "failures"
+      ],
+      "properties": {
+        "all_cases_exercised": {
+          "const": true
+        },
+        "native_bf16_no_adapter": {
+          "const": true
+        },
+        "codec_fp32": {
+          "const": true
+        },
+        "default_schedule_exact": {
+          "const": true
+        },
+        "packed_first4_cases_passed": {
+          "const": true
+        },
+        "general_followup_case_passed": {
+          "const": true
+        },
+        "explicit_outer_warmup_only": {
+          "const": true
+        },
+        "local_ar_graph_passed": {
+          "const": true
+        },
+        "native_codec_graphs_passed": {
+          "const": true
+        },
+        "callback_contracts_passed": {
+          "const": true
+        },
+        "eos_alignment_passed": {
+          "const": true
+        },
+        "finite_audio_artifacts_passed": {
+          "const": true
+        },
+        "zero_positive_playback_lateness": {
+          "const": true
+        },
+        "generation_rtf_p95_below_one": {
+          "const": true
+        },
+        "total_rtf_p95_below_one": {
+          "const": true
+        },
+        "source_model_probe_unchanged": {
+          "const": true
+        },
+        "parakeet_gate_pending": {
+          "const": true
+        },
+        "runtime_acceptance_passed": {
+          "const": true
+        },
+        "same_seed_replay_passed": {
+          "const": true
+        },
+        "failures": {
+          "const": []
+        }
+      }
+    }
+  }
+}

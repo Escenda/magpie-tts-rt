@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Escenda/magpie-tts-rt/schemas/golden-fixture.schema.json",
+  "title": "MagpieTTS-RT startup golden fixture",
+  "description": "Self-contained prepared-token input and expected complete-generation digests for the mandatory session startup gate.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "fixture_id",
+    "prepared_token_ids",
+    "seed",
+    "tokenizer_identity_sha256",
+    "oracle_lock_sha256",
+    "normalized_text_sha256",
+    "token_ids_sha256",
+    "baked_context_sha256",
+    "expected"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "fixture_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "prepared_token_ids": {
+      "description": "One Text Encoder row. token_ids_sha256 is SHA-256 of these values encoded in row order as contiguous little-endian signed INT32 bytes.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 512,
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 2147483647
+      }
+    },
+    "seed": {
+      "$ref": "#/$defs/uint32"
+    },
+    "tokenizer_identity_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "oracle_lock_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "normalized_text_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "token_ids_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "baked_context_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "expected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decoder_tokens_sha256",
+        "codec_codes_sha256",
+        "codec_frame_count",
+        "pcm_f32le_sha256",
+        "pcm_sample_count"
+      ],
+      "properties": {
+        "decoder_tokens_sha256": {
+          "description": "SHA-256 of the complete generated [1,8,F] tensor as contiguous little-endian signed INT64 bytes.",
+          "$ref": "#/$defs/sha256"
+        },
+        "codec_codes_sha256": {
+          "description": "SHA-256 of each scheduled NanoCodec input [1,8,chunk_frames], encoded as contiguous little-endian signed INT64 bytes and concatenated in execution order.",
+          "$ref": "#/$defs/sha256"
+        },
+        "codec_frame_count": {
+          "$ref": "#/$defs/positiveUint64"
+        },
+        "pcm_f32le_sha256": {
+          "description": "SHA-256 of concatenated valid TensorRT PCM samples as little-endian FP32 with no padding.",
+          "$ref": "#/$defs/sha256"
+        },
+        "pcm_sample_count": {
+          "$ref": "#/$defs/positiveUint64"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "uint32": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "positiveUint64": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 18446744073709551615
+    }
+  }
+}

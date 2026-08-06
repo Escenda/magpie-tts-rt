@@ -17,6 +17,8 @@ class BundleVerifierAccess;
 
 inline constexpr std::string_view kDefaultRuntimeBundleManifestPath =
     "runtime-bundle-manifest.json";
+inline constexpr std::string_view kRuntimeBundleManifestDigestSuffix =
+    ".sha256";
 
 enum class BundleStage {
   bundle_root,
@@ -34,6 +36,7 @@ enum class BundleErrorCode {
   path_escape,
   duplicate_canonical_path,
   duplicate_file_identity,
+  unexpected_entry,
   io_error,
   size_limit_exceeded,
   size_mismatch,
@@ -43,11 +46,14 @@ enum class BundleErrorCode {
 
 enum class BundleArtifactKind {
   manifest,
-  model,
-  export_artifact,
-  tokenizer,
+  source_model_receipt,
+  export_receipt,
+  tokenizer_identity_receipt,
+  plugin_build_receipt,
   plugin,
+  license,
   engine,
+  golden_fixture,
   golden_receipt,
 };
 
@@ -140,13 +146,17 @@ struct VerifiedRuntimeBundle {
 };
 
 // Verifies the complete artifact set described by an already parsed manifest.
-// All returned paths are canonical and confined to canonical_bundle_root.
+// The bundle may contain only the default manifest, its declared artifacts,
+// their required parent directories, and an optional exact
+// "<manifest>.sha256" transport record. All returned paths are canonical and
+// confined to canonical_bundle_root.
 [[nodiscard]] std::vector<VerifiedBundleArtifact> verify_runtime_bundle_files(
     const std::filesystem::path& bundle_root,
     const RuntimeBundleManifest& manifest);
 
-// Loads the fixed default manifest, requires its exact trusted SHA-256, and
-// verifies every referenced artifact from immutable snapshots.
+// Loads the fixed default manifest, requires its exact trusted SHA-256,
+// verifies every referenced artifact from immutable snapshots, and rejects
+// every filesystem entry outside the exact bundle inventory.
 [[nodiscard]] VerifiedRuntimeBundle load_and_verify_runtime_bundle(
     const std::filesystem::path& bundle_root,
     std::string_view expected_manifest_sha256);

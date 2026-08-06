@@ -2,9 +2,13 @@ use std::mem::size_of;
 use std::process::Command;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
+use std::thread;
+use std::time::{Duration, Instant};
 
-use magpie_tts_rt::{Api, Error, ErrorStage, RequestState, Runtime, RuntimeConfig, Status, sys};
+use magpie_tts_rt::{
+    AlignmentEvent, Api, Error, ErrorStage, InferenceWorker, RequestState, Runtime, RuntimeConfig,
+    Status, SynthesisEvent, WorkerConfig, sys,
+};
 
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 static EVENTS: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
@@ -14,7 +18,49 @@ static AUDIO_ACQUIRE_MODE: AtomicUsize = AtomicUsize::new(0);
 static AUDIO_ACQUIRE_CALLS: AtomicUsize = AtomicUsize::new(0);
 static SNAPSHOT_MODE: AtomicUsize = AtomicUsize::new(0);
 static SNAPSHOT_CALLS: AtomicUsize = AtomicUsize::new(0);
+static CANCEL_MODE: AtomicUsize = AtomicUsize::new(0);
+static REQUEST_START_MODE: AtomicUsize = AtomicUsize::new(0);
 static AUDIO: [f32; 4_096] = [0.25; 4_096];
+static ALIGNMENT_COMMITTED_ONE: [sys::mtt_alignment_event_v1_t; 1] =
+    [sys::mtt_alignment_event_v1_t {
+        struct_size: size_of::<sys::mtt_alignment_event_v1_t>() as u32,
+        abi_version: sys::MTT_ABI_VERSION_1,
+        sample_index: 2_048,
+        committed_text_tokens: 1,
+        reserved: [0; 2],
+    }];
+static ALIGNMENT_COMMITTED_TWO: [sys::mtt_alignment_event_v1_t; 1] =
+    [sys::mtt_alignment_event_v1_t {
+        struct_size: size_of::<sys::mtt_alignment_event_v1_t>() as u32,
+        abi_version: sys::MTT_ABI_VERSION_1,
+        sample_index: 2_048,
+        committed_text_tokens: 2,
+        reserved: [0; 2],
+    }];
+static ALIGNMENT_REGRESSED_ONE: [sys::mtt_alignment_event_v1_t; 1] =
+    [sys::mtt_alignment_event_v1_t {
+        struct_size: size_of::<sys::mtt_alignment_event_v1_t>() as u32,
+        abi_version: sys::MTT_ABI_VERSION_1,
+        sample_index: AUDIO.len() as u64 + 2_048,
+        committed_text_tokens: 1,
+        reserved: [0; 2],
+    }];
+static ALIGNMENT_TERMINAL_ONE_FRAME: [sys::mtt_alignment_event_v1_t; 1] =
+    [sys::mtt_alignment_event_v1_t {
+        struct_size: size_of::<sys::mtt_alignment_event_v1_t>() as u32,
+        abi_version: sys::MTT_ABI_VERSION_1,
+        sample_index: 1_024,
+        committed_text_tokens: 1,
+        reserved: [0; 2],
+    }];
+static ALIGNMENT_AT_LEASE_START: [sys::mtt_alignment_event_v1_t; 1] =
+    [sys::mtt_alignment_event_v1_t {
+        struct_size: size_of::<sys::mtt_alignment_event_v1_t>() as u32,
+        abi_version: sys::MTT_ABI_VERSION_1,
+        sample_index: 0,
+        committed_text_tokens: 1,
+        reserved: [0; 2],
+    }];
 
 fn record(event: &'static str) {
     EVENTS.lock().expect("event lock poisoned").push(event);
@@ -89,6 +135,39 @@ unsafe extern "C" fn model_destroy(
     sys::MTT_STATUS_OK
 }
 
+unsafe extern "C" fn model_get_info(
+    _model: *mut sys::mtt_model_t,
+    info: *mut sys::mtt_model_info_v1_t,
+    _error: *mut sys::mtt_error_v1_t,
+) -> sys::mtt_status_t {
+    record("model_get_info");
+    // SAFETY: info is the writable ABI v1 value supplied by Model::info.
+    let info = unsafe { &mut *info };
+    *info = sys::mtt_model_info_v1_t {
+        struct_size: size_of::<sys::mtt_model_info_v1_t>() as u32,
+        abi_version: sys::MTT_ABI_VERSION_1,
+        tokenizer_vocabulary_size: 3_357,
+        text_embedding_rows: 3_359,
+        bos_token_id: 3_357,
+        eos_token_id: 3_358,
+        japanese_global_pad_token_id: 1_015,
+        maximum_text_tokens: 512,
+        maximum_audio_frames: 1_024,
+        sample_rate_hz: 22_050,
+        channels: 1,
+        pcm_format: sys::MTT_PCM_FORMAT_F32_MONO,
+        codec_frame_samples: 1_024,
+        initial_frames: 4,
+        steady_frames: 8,
+        tail_min_frames: 1,
+        tail_max_frames: 8,
+        tokenizer_identity_sha256: [1; sys::MTT_SHA256_BYTES as usize],
+        reserved_0: 0,
+        reserved: [0; 4],
+    };
+    sys::MTT_STATUS_OK
+}
+
 unsafe extern "C" fn session_create(
     _model: *mut sys::mtt_model_t,
     _desc: *const sys::mtt_session_desc_v1_t,
@@ -115,9 +194,14 @@ unsafe extern "C" fn request_start(
     _session: *mut sys::mtt_session_t,
     _desc: *const sys::mtt_request_desc_v1_t,
     request: *mut *mut sys::mtt_request_t,
-    _error: *mut sys::mtt_error_v1_t,
+    error: *mut sys::mtt_error_v1_t,
 ) -> sys::mtt_status_t {
     record("request_start");
+    if REQUEST_START_MODE.load(Ordering::SeqCst) == 1 {
+        // SAFETY: error is the valid buffer supplied by the wrapper.
+        unsafe { write_error(error, sys::MTT_STATUS_CUDA_ERROR, sys::MTT_ERROR_STAGE_CUDA) };
+        return sys::MTT_STATUS_CUDA_ERROR;
+    }
     // SAFETY: request is the valid output pointer supplied by start_request.
     unsafe { allocate_handle(request) };
     sys::MTT_STATUS_OK
@@ -154,7 +238,7 @@ fn write_terminal_message(snapshot: &mut sys::mtt_request_snapshot_v1_t, message
 unsafe extern "C" fn request_poll(
     _request: *mut sys::mtt_request_t,
     snapshot: *mut sys::mtt_request_snapshot_v1_t,
-    _error: *mut sys::mtt_error_v1_t,
+    error: *mut sys::mtt_error_v1_t,
 ) -> sys::mtt_status_t {
     record("request_poll");
     let call_index = SNAPSHOT_CALLS.fetch_add(1, Ordering::SeqCst);
@@ -221,6 +305,18 @@ unsafe extern "C" fn request_poll(
             snapshot.terminal_error_message =
                 [b'x' as core::ffi::c_char; sys::MTT_ERROR_MESSAGE_CAPACITY as usize];
         }
+        14 => snapshot.state = sys::MTT_REQUEST_STATE_COMPLETED,
+        15 => {
+            // SAFETY: error is the valid buffer supplied by the wrapper.
+            unsafe { write_error(error, sys::MTT_STATUS_CUDA_ERROR, sys::MTT_ERROR_STAGE_CUDA) };
+            return sys::MTT_STATUS_CUDA_ERROR;
+        }
+        16 => {
+            snapshot.state = sys::MTT_REQUEST_STATE_CANCELLED;
+            snapshot.available_audio_leases = 0;
+            snapshot.terminal_status = sys::MTT_STATUS_CANCELLED;
+            snapshot.terminal_error_stage = sys::MTT_ERROR_STAGE_REQUEST;
+        }
         _ => {}
     }
     sys::MTT_STATUS_OK
@@ -247,10 +343,33 @@ unsafe extern "C" fn request_wait(
 
 unsafe extern "C" fn request_cancel(
     _request: *mut sys::mtt_request_t,
-    _error: *mut sys::mtt_error_v1_t,
+    error: *mut sys::mtt_error_v1_t,
 ) -> sys::mtt_status_t {
     record("request_cancel");
-    sys::MTT_STATUS_OK
+    match CANCEL_MODE.load(Ordering::SeqCst) {
+        0 => sys::MTT_STATUS_OK,
+        1 => {
+            // SAFETY: error is the valid buffer supplied by the wrapper.
+            unsafe {
+                write_error(
+                    error,
+                    sys::MTT_STATUS_INVALID_ARGUMENT,
+                    sys::MTT_ERROR_STAGE_REQUEST,
+                )
+            };
+            sys::MTT_STATUS_INVALID_ARGUMENT
+        }
+        2 => {
+            // SAFETY: error is the valid buffer supplied by the wrapper.
+            unsafe { write_error(error, sys::MTT_STATUS_CUDA_ERROR, sys::MTT_ERROR_STAGE_CUDA) };
+            sys::MTT_STATUS_CUDA_ERROR
+        }
+        3 => {
+            SNAPSHOT_MODE.store(16, Ordering::SeqCst);
+            sys::MTT_STATUS_OK
+        }
+        unexpected => panic!("unknown request cancel mode {unexpected}"),
+    }
 }
 
 unsafe extern "C" fn request_destroy(
@@ -276,9 +395,18 @@ unsafe extern "C" fn request_destroy(
 unsafe extern "C" fn audio_acquire(
     _request: *mut sys::mtt_request_t,
     lease: *mut sys::mtt_audio_lease_v1_t,
-    _error: *mut sys::mtt_error_v1_t,
+    error: *mut sys::mtt_error_v1_t,
 ) -> sys::mtt_status_t {
     record("audio_acquire");
+    if AUDIO_ACQUIRE_MODE.load(Ordering::SeqCst) == 8 {
+        // SAFETY: error is the writable initialized buffer supplied by the
+        // wrapper. WOULD_BLOCK carries a request-stage empty diagnostic.
+        let error = unsafe { &mut *error };
+        error.code = sys::MTT_STATUS_WOULD_BLOCK;
+        error.stage = sys::MTT_ERROR_STAGE_REQUEST;
+        error.message = [0; sys::MTT_ERROR_MESSAGE_CAPACITY as usize];
+        return sys::MTT_STATUS_WOULD_BLOCK;
+    }
     // SAFETY: lease is the writable pointer supplied by Request::acquire_audio.
     let lease = unsafe { &mut *lease };
     let call_index = AUDIO_ACQUIRE_CALLS.fetch_add(1, Ordering::SeqCst);
@@ -297,7 +425,9 @@ unsafe extern "C" fn audio_acquire(
     lease.flags =
         sys::MTT_AUDIO_FLAG_FIRST | sys::MTT_AUDIO_FLAG_FINAL | sys::MTT_AUDIO_FLAG_ALIGNMENT_VALID;
     lease.committed_text_tokens = 1;
-    lease.reserved = [0; 4];
+    lease.alignment_events = ALIGNMENT_COMMITTED_ONE.as_ptr();
+    lease.alignment_event_count = ALIGNMENT_COMMITTED_ONE.len() as u64;
+    lease.reserved = [0; 2];
     match AUDIO_ACQUIRE_MODE.load(Ordering::SeqCst) {
         0 => {}
         1 => lease.lease_id = 0,
@@ -306,23 +436,53 @@ unsafe extern "C" fn audio_acquire(
             if call_index == 0 {
                 lease.flags = sys::MTT_AUDIO_FLAG_FIRST | sys::MTT_AUDIO_FLAG_ALIGNMENT_VALID;
                 lease.committed_text_tokens = 2;
+                lease.alignment_events = ALIGNMENT_COMMITTED_TWO.as_ptr();
+                lease.alignment_event_count = ALIGNMENT_COMMITTED_TWO.len() as u64;
             } else {
                 lease.sequence = 1;
                 lease.first_sample_index = AUDIO.len() as u64;
                 lease.flags = sys::MTT_AUDIO_FLAG_FINAL | sys::MTT_AUDIO_FLAG_ALIGNMENT_VALID;
                 lease.committed_text_tokens = 1;
+                lease.alignment_events = ALIGNMENT_REGRESSED_ONE.as_ptr();
+                lease.alignment_event_count = ALIGNMENT_REGRESSED_ONE.len() as u64;
             }
         }
         4 => {
             if call_index == 0 {
                 lease.flags = sys::MTT_AUDIO_FLAG_FIRST;
                 lease.committed_text_tokens = 0;
+                lease.alignment_events = std::ptr::null();
+                lease.alignment_event_count = 0;
             } else {
                 lease.lease_id = 17;
                 lease.sequence = 1;
                 lease.first_sample_index = AUDIO.len() as u64;
                 lease.flags = sys::MTT_AUDIO_FLAG_FINAL;
                 lease.committed_text_tokens = 0;
+                lease.alignment_events = std::ptr::null();
+                lease.alignment_event_count = 0;
+            }
+        }
+        5 => {
+            lease.sample_count = 1_024;
+            lease.alignment_events = ALIGNMENT_TERMINAL_ONE_FRAME.as_ptr();
+            lease.alignment_event_count = ALIGNMENT_TERMINAL_ONE_FRAME.len() as u64;
+        }
+        6 => {
+            lease.alignment_events = ALIGNMENT_AT_LEASE_START.as_ptr();
+            lease.alignment_event_count = ALIGNMENT_AT_LEASE_START.len() as u64;
+        }
+        7 => {
+            if call_index == 0 {
+                lease.flags = sys::MTT_AUDIO_FLAG_FIRST | sys::MTT_AUDIO_FLAG_ALIGNMENT_VALID;
+            } else {
+                lease.samples = std::ptr::null();
+                lease.sample_count = 0;
+                lease.first_sample_index = AUDIO.len() as u64;
+                lease.sequence = 1;
+                lease.flags = sys::MTT_AUDIO_FLAG_FINAL | sys::MTT_AUDIO_FLAG_ALIGNMENT_VALID;
+                lease.alignment_events = std::ptr::null();
+                lease.alignment_event_count = 0;
             }
         }
         unexpected => panic!("unknown audio acquire mode {unexpected}"),
@@ -374,6 +534,7 @@ fn mock_table() -> sys::mtt_api_v1_t {
         runtime_destroy: Some(runtime_destroy),
         model_load: Some(model_load),
         model_destroy: Some(model_destroy),
+        model_get_info: Some(model_get_info),
         session_create: Some(session_create),
         session_destroy: Some(session_destroy),
         request_start: Some(request_start),
@@ -384,6 +545,19 @@ fn mock_table() -> sys::mtt_api_v1_t {
         audio_acquire: Some(audio_acquire),
         audio_release: Some(audio_release),
     }
+}
+
+unsafe extern "C" fn mock_get_api(
+    requested_abi_version: u32,
+    table: *mut sys::mtt_api_v1_t,
+) -> sys::mtt_status_t {
+    if requested_abi_version != sys::MTT_ABI_VERSION_1 || table.is_null() {
+        return sys::MTT_STATUS_ABI_MISMATCH;
+    }
+    // SAFETY: Api::negotiate supplies writable storage for one complete v1
+    // table and keeps every mock function alive for the test process.
+    unsafe { table.write(mock_table()) };
+    sys::MTT_STATUS_OK
 }
 
 fn api() -> Api {
@@ -400,10 +574,52 @@ fn clear_events() {
     AUDIO_ACQUIRE_CALLS.store(0, Ordering::SeqCst);
     SNAPSHOT_MODE.store(0, Ordering::SeqCst);
     SNAPSHOT_CALLS.store(0, Ordering::SeqCst);
+    CANCEL_MODE.store(0, Ordering::SeqCst);
+    REQUEST_START_MODE.store(0, Ordering::SeqCst);
 }
 
 fn recorded_events() -> Vec<&'static str> {
     EVENTS.lock().expect("event lock poisoned").clone()
+}
+
+fn event_count(event: &str) -> usize {
+    EVENTS
+        .lock()
+        .expect("event lock poisoned")
+        .iter()
+        .filter(|recorded| **recorded == event)
+        .count()
+}
+
+fn wait_for_event_count(event: &str, expected: usize) {
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while event_count(event) < expected {
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for {expected} recorded {event} events"
+        );
+        thread::sleep(Duration::from_millis(1));
+    }
+}
+
+fn worker_config() -> WorkerConfig {
+    WorkerConfig::new(
+        RuntimeConfig::new(0).expect("valid device"),
+        "/verified/bundle",
+        [1; 32],
+    )
+    .expect("valid worker configuration")
+}
+
+fn receive_completed_stream(stream: &magpie_tts_rt::SynthesisStream) {
+    assert!(matches!(
+        stream.recv().expect("audio event"),
+        SynthesisEvent::Audio(_)
+    ));
+    assert_eq!(
+        stream.recv().expect("completion event"),
+        SynthesisEvent::Completed
+    );
 }
 
 fn with_request(mode: usize, operation: impl FnOnce(&mut magpie_tts_rt::Request)) {
@@ -415,10 +631,525 @@ fn with_request(mode: usize, operation: impl FnOnce(&mut magpie_tts_rt::Request)
         .load_model("/verified/bundle", [1; 32])
         .expect("model load");
     let session = model.create_session().expect("session create");
-    let mut request = session.start_request(&[7], 1).expect("request start");
+    let mut request = session
+        .start_request(&[7, 3_358], 1)
+        .expect("request start");
     SNAPSHOT_MODE.store(mode, Ordering::SeqCst);
     operation(&mut request);
     request.close().expect("request destroy");
+}
+
+#[test]
+fn inference_worker_owns_and_joins_the_complete_native_hierarchy() {
+    let _test = TEST_LOCK.lock().expect("test lock poisoned");
+    clear_events();
+    SNAPSHOT_MODE.store(14, Ordering::SeqCst);
+    let config = WorkerConfig::new(
+        RuntimeConfig::new(0).expect("valid device"),
+        "/verified/bundle",
+        [1; 32],
+    )
+    .expect("valid worker configuration");
+    // SAFETY: mock_get_api returns the complete static mock ABI table above,
+    // whose functions and backing audio remain live for the test process.
+    let worker = unsafe { InferenceWorker::spawn_with_get_api(mock_get_api, config) }
+        .expect("inference worker");
+    assert_eq!(worker.model_info().tokenizer_vocabulary_size, 3_357);
+    assert_eq!(worker.model_info().text_embedding_rows, 3_359);
+    assert_eq!(worker.model_info().eos_token_id, 3_358);
+    assert_eq!(worker.model_info().maximum_text_tokens, 512);
+    assert_eq!(worker.model_info().tokenizer_identity_sha256, [1; 32]);
+    let stream = worker
+        .synthesize(vec![7, 3_358], 1)
+        .expect("start synthesis");
+    match stream.recv().expect("audio event") {
+        SynthesisEvent::Audio(chunk) => {
+            assert_eq!(chunk.sequence, 0);
+            assert_eq!(chunk.first_sample_index, 0);
+            assert!(chunk.first);
+            assert!(chunk.final_chunk);
+            assert_eq!(chunk.samples, AUDIO);
+        }
+        unexpected => panic!("unexpected first event: {unexpected:?}"),
+    }
+    assert_eq!(
+        stream.recv().expect("completion event"),
+        SynthesisEvent::Completed
+    );
+    worker.shutdown().expect("joined worker shutdown");
+    assert_eq!(
+        recorded_events(),
+        vec![
+            "runtime_create",
+            "model_load",
+            "model_get_info",
+            "session_create",
+            "request_start",
+            "audio_acquire",
+            "audio_release",
+            "request_poll",
+            "request_destroy",
+            "session_destroy",
+            "model_destroy",
+            "runtime_destroy",
+        ]
+    );
+}
+
+#[test]
+fn inference_worker_validates_the_model_request_boundary_before_native_start() {
+    let _test = TEST_LOCK.lock().expect("test lock poisoned");
+    clear_events();
+    // SAFETY: mock_get_api and its backing storage remain live for the test.
+    let worker = unsafe { InferenceWorker::spawn_with_get_api(mock_get_api, worker_config()) }
+        .expect("inference worker");
+
+    for (tokens, seed, field) in [
+        (Vec::new(), 0, "text_token_ids"),
+        (vec![1; 513], 0, "text_token_ids"),
+        (vec![-1], 0, "text_token_ids"),
+        (vec![3_357], 0, "text_token_ids"),
+        (vec![1], 0, "text_token_ids"),
+        (vec![1, 3_358, 3_358], 0, "text_token_ids"),
+        (vec![1, 3_357, 3_358], 0, "text_token_ids"),
+        (vec![1, 3_359, 3_358], 0, "text_token_ids"),
+        (vec![1, 3_358], u64::from(u32::MAX) + 1, "random_seed"),
+    ] {
+        match worker.synthesize(tokens, seed) {
+            Err(magpie_tts_rt::WorkerError::InvalidRequest { field: actual, .. }) => {
+                assert_eq!(actual, field)
+            }
+            Err(unexpected) => {
+                panic!("expected typed request validation error: {unexpected:?}")
+            }
+            Ok(_) => panic!("invalid request unexpectedly started"),
+        }
+    }
+    assert_eq!(event_count("request_start"), 0);
+
+    SNAPSHOT_MODE.store(14, Ordering::SeqCst);
+    let stream = worker
+        .synthesize(vec![1, 3_358], u64::from(u32::MAX))
+        .expect("boundary-valid request");
+    receive_completed_stream(&stream);
+    worker.shutdown().expect("worker remains usable");
+}
+
+#[test]
+fn inference_worker_fails_closed_after_native_request_start_failure() {
+    let _test = TEST_LOCK.lock().expect("test lock poisoned");
+    clear_events();
+    REQUEST_START_MODE.store(1, Ordering::SeqCst);
+    // SAFETY: mock_get_api and its backing storage remain live for the test.
+    let worker = unsafe { InferenceWorker::spawn_with_get_api(mock_get_api, worker_config()) }
+        .expect("inference worker");
+
+    match worker.synthesize(vec![7, 3_358], 1) {
+        Err(magpie_tts_rt::WorkerError::Runtime(Error::Native(native))) => {
+            assert_eq!(native.status(), Status::CUDA_ERROR);
+            assert_eq!(native.stage(), ErrorStage::CUDA);
+        }
+        Err(unexpected) => panic!("expected native start CUDA error: {unexpected:?}"),
+        Ok(_) => panic!("native start failure unexpectedly returned a stream"),
+    }
+    match worker.shutdown() {
+        Err(magpie_tts_rt::WorkerError::Runtime(Error::Native(native))) => {
+            assert_eq!(native.status(), Status::CUDA_ERROR);
+            assert_eq!(native.stage(), ErrorStage::CUDA);
+        }
+        unexpected => panic!("worker must retain native start failure: {unexpected:?}"),
+    }
+    assert_eq!(event_count("request_destroy"), 0);
+    assert_eq!(event_count("request_cancel"), 0);
+}
+
+#[test]
+fn inference_worker_forwards_zero_sample_final_before_completed() {
+    let _test = TEST_LOCK.lock().expect("test lock poisoned");
+    clear_events();
+    SNAPSHOT_MODE.store(14, Ordering::SeqCst);
+    AUDIO_ACQUIRE_MODE.store(7, Ordering::SeqCst);
+    let config = WorkerConfig::new(
+        RuntimeConfig::new(0).expect("valid device"),
+        "/verified/bundle",
+        [1; 32],
+    )
+    .expect("valid worker configuration");
+    // SAFETY: mock_get_api and its backing storage remain live for the test.
+    let worker = unsafe { InferenceWorker::spawn_with_get_api(mock_get_api, config) }
+        .expect("inference worker");
+    let stream = worker
+        .synthesize(vec![7, 3_358], 1)
+        .expect("start synthesis");
+    match stream.recv().expect("first audio event") {
+        SynthesisEvent::Audio(chunk) => {
+            assert!(chunk.first);
+            assert!(!chunk.final_chunk);
+            assert_eq!(chunk.samples, AUDIO);
+        }
+        unexpected => panic!("unexpected first event: {unexpected:?}"),
+    }
+    match stream.recv().expect("FINAL marker event") {
+        SynthesisEvent::Audio(chunk) => {
+            assert!(!chunk.first);
+            assert!(chunk.final_chunk);
+            assert_eq!(chunk.sequence, 1);
+            assert_eq!(chunk.first_sample_index, AUDIO.len() as u64);
+            assert!(chunk.samples.is_empty());
+        }
+        unexpected => panic!("unexpected FINAL marker event: {unexpected:?}"),
+    }
+    assert_eq!(
+        stream.recv().expect("completion event"),
+        SynthesisEvent::Completed
+    );
+    worker.shutdown().expect("joined worker shutdown");
+}
+
+#[test]
+fn inference_worker_reports_one_typed_runtime_error_before_failing_closed() {
+    let _test = TEST_LOCK.lock().expect("test lock poisoned");
+    clear_events();
+    SNAPSHOT_MODE.store(15, Ordering::SeqCst);
+    // SAFETY: mock_get_api and its backing storage remain live for the test.
+    let worker = unsafe { InferenceWorker::spawn_with_get_api(mock_get_api, worker_config()) }
+        .expect("inference worker");
+    let stream = worker
+        .synthesize(vec![7, 3_358], 1)
+        .expect("start synthesis");
+    assert!(matches!(
+        stream.recv().expect("audio event"),
+        SynthesisEvent::Audio(_)
+    ));
+    match stream.recv().expect("typed runtime failure") {
+        SynthesisEvent::RuntimeError(Error::Native(native)) => {
+            assert_eq!(native.status(), Status::CUDA_ERROR);
+            assert_eq!(native.stage(), ErrorStage::CUDA);
+        }
+        unexpected => panic!("unexpected runtime failure event: {unexpected:?}"),
+    }
+    assert_eq!(
+        stream.recv(),
+        Err(magpie_tts_rt::WorkerError::EventChannelClosed)
+    );
+    match worker.shutdown() {
+        Err(magpie_tts_rt::WorkerError::Runtime(Error::Native(native))) => {
+            assert_eq!(native.status(), Status::CUDA_ERROR);
+            assert_eq!(native.stage(), ErrorStage::CUDA);
+        }
+        unexpected => panic!("worker must retain its original failure: {unexpected:?}"),
+    }
+}
+
+#[test]
+fn disconnected_event_receiver_does_not_erase_the_worker_runtime_error() {
+    let _test = TEST_LOCK.lock().expect("test lock poisoned");
+    clear_events();
+    SNAPSHOT_MODE.store(15, Ordering::SeqCst);
+    // SAFETY: mock_get_api and its backing storage remain live for the test.
+    let worker = unsafe { InferenceWorker::spawn_with_get_api(mock_get_api, worker_config()) }
+        .expect("inference worker");
+    let stream = worker
+        .synthesize(vec![7, 3_358], 1)
+        .expect("start synthesis");
+    drop(stream);
+    wait_for_event_count("request_poll", 1);
+    match worker.shutdown() {
+        Err(magpie_tts_rt::WorkerError::Runtime(Error::Native(native))) => {
+            assert_eq!(native.status(), Status::CUDA_ERROR);
+            assert_eq!(native.stage(), ErrorStage::CUDA);
+        }
+        unexpected => panic!("worker must retain its original failure: {unexpected:?}"),
+    }
+}
+
+#[test]
+fn unread_audio_does_not_block_shutdown_after_an_injected_runtime_failure() {
+    let _test = TEST_LOCK.lock().expect("test lock poisoned");
+    clear_events();
+    SNAPSHOT_MODE.store(15, Ordering::SeqCst);
+    // SAFETY: mock_get_api and its backing storage remain live for the test.
+    let worker = unsafe { InferenceWorker::spawn_with_get_api(mock_get_api, worker_config()) }
+        .expect("inference worker");
+    let _unread_stream = worker
+        .synthesize(vec![7, 3_358], 1)
+        .expect("start synthesis");
+    wait_for_event_count("request_poll", 1);
+
+    let (result_sender, result_receiver) = std::sync::mpsc::sync_channel(1);
+    let shutdown_thread = thread::spawn(move || {
+        let result = worker.shutdown();
+        result_sender
+            .send(result)
+            .expect("shutdown result receiver remains live");
+    });
+    match result_receiver
+        .recv_timeout(Duration::from_secs(1))
+        .expect("fatal worker shutdown must remain bounded")
+    {
+        Err(magpie_tts_rt::WorkerError::Runtime(Error::Native(native))) => {
+            assert_eq!(native.status(), Status::CUDA_ERROR);
+            assert_eq!(native.stage(), ErrorStage::CUDA);
+        }
+        unexpected => panic!("worker must return the injected CUDA error: {unexpected:?}"),
+    }
+    shutdown_thread.join().expect("shutdown thread");
+    assert_eq!(event_count("request_cancel"), 0);
+}
+
+#[test]
+fn inference_worker_sender_disconnect_cancels_and_destroys_active_request() {
+    let _test = TEST_LOCK.lock().expect("test lock poisoned");
+    clear_events();
+    SNAPSHOT_MODE.store(0, Ordering::SeqCst);
+    AUDIO_ACQUIRE_MODE.store(8, Ordering::SeqCst);
+    CANCEL_MODE.store(3, Ordering::SeqCst);
+    // SAFETY: mock_get_api and its backing storage remain live for the test.
+    let worker = unsafe { InferenceWorker::spawn_with_get_api(mock_get_api, worker_config()) }
+        .expect("inference worker");
+    let stream = worker
+        .synthesize(vec![7, 3_358], 1)
+        .expect("start synthesis");
+
+    let started = Instant::now();
+    drop(worker);
+    assert!(
+        started.elapsed() < Duration::from_millis(50),
+        "Drop must detach instead of joining the inference thread"
+    );
+    assert_eq!(event_count("request_cancel"), 0);
+
+    drop(stream);
+    wait_for_event_count("runtime_destroy", 1);
+    assert_eq!(event_count("request_cancel"), 1);
+    let events = recorded_events();
+    let cancel = events
+        .iter()
+        .position(|event| *event == "request_cancel")
+        .expect("disconnect must cancel the active request");
+    let request_destroy = events
+        .iter()
+        .position(|event| *event == "request_destroy")
+        .expect("cancelled request must be destroyed");
+    let session_destroy = events
+        .iter()
+        .position(|event| *event == "session_destroy")
+        .expect("session must be destroyed");
+    assert!(cancel < request_destroy);
+    assert!(request_destroy < session_destroy);
+}
+
+#[test]
+fn inference_worker_shutdown_does_not_block_behind_a_full_event_channel() {
+    let _test = TEST_LOCK.lock().expect("test lock poisoned");
+    clear_events();
+    SNAPSHOT_MODE.store(14, Ordering::SeqCst);
+    let config = WorkerConfig::new(
+        RuntimeConfig::new(0).expect("valid device"),
+        "/verified/bundle",
+        [1; 32],
+    )
+    .expect("valid worker configuration");
+    // SAFETY: mock_get_api returns the complete static mock ABI table above,
+    // whose functions and backing audio remain live for the test process.
+    let worker = unsafe { InferenceWorker::spawn_with_get_api(mock_get_api, config) }
+        .expect("inference worker");
+    let _unread_stream = worker
+        .synthesize(vec![7, 3_358], 1)
+        .expect("start synthesis");
+
+    // Keep the capacity-one event queue full by deliberately not receiving its
+    // audio chunk. Shutdown must detach that queue, finish the native request,
+    // and join instead of waiting for the consumer.
+    let (result_sender, result_receiver) = std::sync::mpsc::sync_channel(1);
+    let shutdown_thread = thread::spawn(move || {
+        let result = worker.shutdown();
+        result_sender
+            .send(result)
+            .expect("shutdown result receiver remains live");
+    });
+    assert_eq!(
+        result_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("shutdown must not block behind backpressure"),
+        Ok(())
+    );
+    shutdown_thread.join().expect("shutdown thread");
+    assert_eq!(
+        recorded_events(),
+        vec![
+            "runtime_create",
+            "model_load",
+            "model_get_info",
+            "session_create",
+            "request_start",
+            "audio_acquire",
+            "audio_release",
+            "request_poll",
+            "request_destroy",
+            "session_destroy",
+            "model_destroy",
+            "runtime_destroy",
+        ]
+    );
+}
+
+#[test]
+fn inference_worker_cancel_is_idempotent_across_a_queued_native_terminal() {
+    let _test = TEST_LOCK.lock().expect("test lock poisoned");
+    clear_events();
+    SNAPSHOT_MODE.store(14, Ordering::SeqCst);
+    CANCEL_MODE.store(1, Ordering::SeqCst);
+    // SAFETY: mock_get_api returns the complete static mock ABI table above,
+    // whose functions and backing audio remain live for the test process.
+    let worker = unsafe { InferenceWorker::spawn_with_get_api(mock_get_api, worker_config()) }
+        .expect("inference worker");
+    let stream = worker
+        .synthesize(vec![7, 3_358], 1)
+        .expect("start synthesis");
+
+    // Leave the first AUDIO event in the capacity-one channel. The worker then
+    // handles Cancel before it can enqueue Completed. Native cancellation
+    // reports INVALID_ARGUMENT because the request has just completed; the
+    // typed terminal poll must make this cancellation idempotent.
+    stream
+        .cancel()
+        .expect("cancel racing native completion is idempotent");
+    assert_eq!(event_count("request_cancel"), 1);
+    assert_eq!(event_count("request_poll"), 1);
+
+    // Completed still cannot enter the full event channel, so this second
+    // Cancel exercises the terminal_snapshot path and must not call native
+    // cancellation again.
+    stream
+        .cancel()
+        .expect("cancel after terminal snapshot is idempotent");
+    assert_eq!(event_count("request_cancel"), 1);
+
+    receive_completed_stream(&stream);
+    wait_for_event_count("request_destroy", 1);
+
+    // Once the terminal has been queued and the native request closed, only
+    // that exact most-recent terminal identifier remains idempotent.
+    stream
+        .cancel()
+        .expect("cancel after queued terminal is idempotent");
+    assert_eq!(event_count("request_cancel"), 1);
+    worker.shutdown().expect("joined worker shutdown");
+}
+
+#[test]
+fn inference_worker_preserves_invalid_cancel_when_poll_proves_request_is_running() {
+    let _test = TEST_LOCK.lock().expect("test lock poisoned");
+    clear_events();
+    SNAPSHOT_MODE.store(0, Ordering::SeqCst);
+    CANCEL_MODE.store(1, Ordering::SeqCst);
+    // SAFETY: mock_get_api returns the complete static mock ABI table above,
+    // whose functions and backing audio remain live for the test process.
+    let worker = unsafe { InferenceWorker::spawn_with_get_api(mock_get_api, worker_config()) }
+        .expect("inference worker");
+    let stream = worker
+        .synthesize(vec![7, 3_358], 1)
+        .expect("start synthesis");
+
+    match stream.cancel() {
+        Err(magpie_tts_rt::WorkerError::Runtime(Error::Native(native))) => {
+            assert_eq!(native.status(), Status::INVALID_ARGUMENT);
+            assert_eq!(native.stage(), ErrorStage::REQUEST);
+        }
+        unexpected => panic!("expected the original typed cancel error, got {unexpected:?}"),
+    }
+
+    CANCEL_MODE.store(0, Ordering::SeqCst);
+    SNAPSHOT_MODE.store(14, Ordering::SeqCst);
+    stream.cancel().expect("cleanup cancellation");
+    receive_completed_stream(&stream);
+    worker.shutdown().expect("joined worker shutdown");
+}
+
+#[test]
+fn inference_worker_treats_a_cuda_cancel_failure_as_fatal() {
+    let _test = TEST_LOCK.lock().expect("test lock poisoned");
+    clear_events();
+    SNAPSHOT_MODE.store(0, Ordering::SeqCst);
+    CANCEL_MODE.store(2, Ordering::SeqCst);
+    // SAFETY: mock_get_api returns the complete static mock ABI table above,
+    // whose functions and backing audio remain live for the test process.
+    let worker = unsafe { InferenceWorker::spawn_with_get_api(mock_get_api, worker_config()) }
+        .expect("inference worker");
+    let stream = worker
+        .synthesize(vec![7, 3_358], 1)
+        .expect("start synthesis");
+
+    match stream.cancel() {
+        Err(magpie_tts_rt::WorkerError::Runtime(Error::Native(native))) => {
+            assert_eq!(native.status(), Status::CUDA_ERROR);
+            assert_eq!(native.stage(), ErrorStage::CUDA);
+        }
+        unexpected => panic!("expected the original CUDA cancel error, got {unexpected:?}"),
+    }
+
+    // Start acknowledgement and the first worker advance are intentionally
+    // independent. An immediate Cancel may therefore fail before any audio is
+    // queued, or after one already-produced chunk. In both schedules the
+    // invariant is the same: the stream reports the typed fatal error and
+    // closes without a successful terminal event.
+    let fatal_event = match stream.recv().expect("audio or fatal stream error") {
+        SynthesisEvent::Audio(_) => stream.recv().expect("fatal stream error"),
+        event => event,
+    };
+    match fatal_event {
+        SynthesisEvent::RuntimeError(Error::Native(native)) => {
+            assert_eq!(native.status(), Status::CUDA_ERROR);
+            assert_eq!(native.stage(), ErrorStage::CUDA);
+        }
+        unexpected => panic!("expected fatal CUDA stream error, got {unexpected:?}"),
+    }
+    assert_eq!(
+        stream.recv(),
+        Err(magpie_tts_rt::WorkerError::EventChannelClosed)
+    );
+    match worker.shutdown() {
+        Err(magpie_tts_rt::WorkerError::Runtime(Error::Native(native))) => {
+            assert_eq!(native.status(), Status::CUDA_ERROR);
+            assert_eq!(native.stage(), ErrorStage::CUDA);
+        }
+        unexpected => panic!("worker must retain the CUDA cancel error: {unexpected:?}"),
+    }
+}
+
+#[test]
+fn inference_worker_does_not_accept_an_arbitrary_old_request_identifier() {
+    let _test = TEST_LOCK.lock().expect("test lock poisoned");
+    clear_events();
+    SNAPSHOT_MODE.store(14, Ordering::SeqCst);
+    // SAFETY: mock_get_api returns the complete static mock ABI table above,
+    // whose functions and backing audio remain live for the test process.
+    let worker = unsafe { InferenceWorker::spawn_with_get_api(mock_get_api, worker_config()) }
+        .expect("inference worker");
+
+    let first = worker
+        .synthesize(vec![7, 3_358], 1)
+        .expect("first synthesis");
+    receive_completed_stream(&first);
+    wait_for_event_count("request_destroy", 1);
+
+    let second = worker
+        .synthesize(vec![8, 3_358], 2)
+        .expect("second synthesis");
+    receive_completed_stream(&second);
+    wait_for_event_count("request_destroy", 2);
+
+    assert_eq!(
+        first.cancel(),
+        Err(magpie_tts_rt::WorkerError::UnknownRequest(
+            first.request_id()
+        ))
+    );
+    second
+        .cancel()
+        .expect("most recent terminal identifier remains idempotent");
+    worker.shutdown().expect("joined worker shutdown");
 }
 
 #[test]
@@ -433,7 +1164,9 @@ fn owns_the_full_hierarchy_and_releases_an_audio_lease() {
         .load_model("/verified/bundle", [1; 32])
         .expect("model load");
     let mut session = model.create_session().expect("session create");
-    let mut request = session.start_request(&[11, 12], 99).expect("request start");
+    let mut request = session
+        .start_request(&[11, 12, 3_358], 99)
+        .expect("request start");
 
     let snapshot = request.poll().expect("request poll");
     assert_eq!(snapshot.state, RequestState::Running);
@@ -446,6 +1179,13 @@ fn owns_the_full_hierarchy_and_releases_an_audio_lease() {
         .expect("audio available");
     assert_eq!(lease.samples().expect("live lease samples"), &AUDIO);
     assert_eq!(lease.committed_text_tokens(), Some(1));
+    assert_eq!(
+        lease.alignment_events(),
+        [AlignmentEvent {
+            sample_index: 2_048,
+            committed_text_tokens: 1,
+        }]
+    );
     lease.release().expect("audio release");
     assert_eq!(
         lease
@@ -505,7 +1245,9 @@ fn request_drop_destroys_but_never_cancels_or_waits() {
         .load_model("/verified/bundle", [1; 32])
         .expect("model load");
     let session = model.create_session().expect("session create");
-    let request = session.start_request(&[7], 1).expect("request start");
+    let request = session
+        .start_request(&[7, 3_358], 1)
+        .expect("request start");
 
     drop(request);
     drop(session);
@@ -516,6 +1258,41 @@ fn request_drop_destroys_but_never_cancels_or_waits() {
     assert!(events.contains(&"request_destroy"));
     assert!(!events.contains(&"request_cancel"));
     assert!(!events.contains(&"request_wait"));
+}
+
+#[test]
+fn rejects_tokens_and_seeds_that_cannot_reach_the_int32_engine_contract() {
+    let _test = TEST_LOCK.lock().expect("test lock poisoned");
+    clear_events();
+
+    let api = api();
+    let runtime = Runtime::create(&api, RuntimeConfig::new(0).expect("valid device"))
+        .expect("runtime create");
+    let model = runtime
+        .load_model("/verified/bundle", [1; 32])
+        .expect("model load");
+    let session = model.create_session().expect("session create");
+
+    for tokens in [&[-1_i64][..], &[i64::from(i32::MAX) + 1][..]] {
+        assert!(matches!(
+            session.start_request(tokens, 0),
+            Err(Error::InvalidInput {
+                field: "text_token_ids",
+                ..
+            })
+        ));
+    }
+    assert!(matches!(
+        session.start_request(&[1, 3_358], u64::from(u32::MAX) + 1),
+        Err(Error::InvalidInput {
+            field: "random_seed",
+            ..
+        })
+    ));
+    assert!(
+        !recorded_events().contains(&"request_start"),
+        "invalid descriptors must be rejected before FFI"
+    );
 }
 
 #[test]
@@ -530,7 +1307,9 @@ fn audio_lease_drop_releases_exactly_once() {
         .load_model("/verified/bundle", [1; 32])
         .expect("model load");
     let session = model.create_session().expect("session create");
-    let mut request = session.start_request(&[7], 1).expect("request start");
+    let mut request = session
+        .start_request(&[7, 3_358], 1)
+        .expect("request start");
 
     let lease = request
         .acquire_audio()
@@ -576,7 +1355,9 @@ fn post_acquire_overflow_releases_lease_before_returning_error() {
         .load_model("/verified/bundle", [1; 32])
         .expect("model load");
     let session = model.create_session().expect("session create");
-    let mut request = session.start_request(&[7], 1).expect("request start");
+    let mut request = session
+        .start_request(&[7, 3_358], 1)
+        .expect("request start");
 
     AUDIO_ACQUIRE_MODE.store(2, Ordering::SeqCst);
     let error = request
@@ -710,7 +1491,9 @@ fn rejects_regressing_audio_alignment_after_releasing_native_lease() {
         .load_model("/verified/bundle", [1; 32])
         .expect("model load");
     let session = model.create_session().expect("session create");
-    let mut request = session.start_request(&[7, 8], 1).expect("request start");
+    let mut request = session
+        .start_request(&[7, 8, 3_358], 1)
+        .expect("request start");
 
     AUDIO_ACQUIRE_MODE.store(3, Ordering::SeqCst);
     let mut first = request
@@ -739,6 +1522,114 @@ fn rejects_regressing_audio_alignment_after_releasing_native_lease() {
 }
 
 #[test]
+fn accepts_alignment_after_a_single_frame_eos_tail() {
+    let _test = TEST_LOCK.lock().expect("test lock poisoned");
+    clear_events();
+    let api = api();
+    let runtime = Runtime::create(&api, RuntimeConfig::new(0).expect("valid device"))
+        .expect("runtime create");
+    let model = runtime
+        .load_model("/verified/bundle", [1; 32])
+        .expect("model load");
+    let session = model.create_session().expect("session create");
+    let mut request = session
+        .start_request(&[7, 3_358], 1)
+        .expect("request start");
+
+    AUDIO_ACQUIRE_MODE.store(5, Ordering::SeqCst);
+    let mut lease = request
+        .acquire_audio()
+        .expect("single-frame final acquire")
+        .expect("single-frame final lease");
+    assert_eq!(lease.samples().expect("live PCM").len(), 1_024);
+    assert_eq!(
+        lease.alignment_events(),
+        [AlignmentEvent {
+            sample_index: 1_024,
+            committed_text_tokens: 1,
+        }]
+    );
+    lease.release().expect("release final lease");
+    drop(lease);
+    request.close().expect("request destroy");
+}
+
+#[test]
+fn accepts_a_zero_sample_final_control_marker_after_pcm() {
+    let _test = TEST_LOCK.lock().expect("test lock poisoned");
+    clear_events();
+    let api = api();
+    let runtime = Runtime::create(&api, RuntimeConfig::new(0).expect("valid device"))
+        .expect("runtime create");
+    let model = runtime
+        .load_model("/verified/bundle", [1; 32])
+        .expect("model load");
+    let session = model.create_session().expect("session create");
+    let mut request = session
+        .start_request(&[7, 3_358], 1)
+        .expect("request start");
+
+    AUDIO_ACQUIRE_MODE.store(7, Ordering::SeqCst);
+    let mut first = request
+        .acquire_audio()
+        .expect("first PCM acquire")
+        .expect("first PCM lease");
+    assert_eq!(first.samples().expect("first PCM"), &AUDIO);
+    assert!(first.is_first());
+    assert!(!first.is_final());
+    first.release().expect("release first PCM");
+    drop(first);
+
+    let mut marker = request
+        .acquire_audio()
+        .expect("FINAL marker acquire")
+        .expect("FINAL marker lease");
+    assert_eq!(marker.samples().expect("empty FINAL marker"), &[]);
+    assert_eq!(marker.first_sample_index(), AUDIO.len() as u64);
+    assert!(!marker.is_first());
+    assert!(marker.is_final());
+    assert_eq!(marker.committed_text_tokens(), Some(1));
+    assert!(marker.alignment_events().is_empty());
+    marker.release().expect("release FINAL marker");
+    drop(marker);
+    assert!(request.acquire_audio().expect("after FINAL").is_none());
+    request.close().expect("request destroy");
+}
+
+#[test]
+fn rejects_alignment_at_the_start_of_its_audio_lease() {
+    let _test = TEST_LOCK.lock().expect("test lock poisoned");
+    clear_events();
+    let api = api();
+    let runtime = Runtime::create(&api, RuntimeConfig::new(0).expect("valid device"))
+        .expect("runtime create");
+    let model = runtime
+        .load_model("/verified/bundle", [1; 32])
+        .expect("model load");
+    let session = model.create_session().expect("session create");
+    let mut request = session
+        .start_request(&[7, 3_358], 1)
+        .expect("request start");
+
+    AUDIO_ACQUIRE_MODE.store(6, Ordering::SeqCst);
+    assert!(matches!(
+        request.acquire_audio(),
+        Err(Error::InvalidNativeData {
+            field: "alignment event sample_index",
+            ..
+        })
+    ));
+    assert_eq!(
+        recorded_events()
+            .iter()
+            .filter(|event| **event == "audio_release")
+            .count(),
+        1
+    );
+    request.close().expect("request destroy");
+}
+
+#[test]
 fn rejects_a_reused_audio_lease_identifier() {
     let _test = TEST_LOCK.lock().expect("test lock poisoned");
     clear_events();
@@ -749,7 +1640,9 @@ fn rejects_a_reused_audio_lease_identifier() {
         .load_model("/verified/bundle", [1; 32])
         .expect("model load");
     let session = model.create_session().expect("session create");
-    let mut request = session.start_request(&[7], 1).expect("request start");
+    let mut request = session
+        .start_request(&[7, 3_358], 1)
+        .expect("request start");
 
     AUDIO_ACQUIRE_MODE.store(4, Ordering::SeqCst);
     let mut first = request
@@ -802,7 +1695,9 @@ fn explicit_request_close_retains_ownership_after_busy() {
         .load_model("/verified/bundle", [1; 32])
         .expect("model load");
     let session = model.create_session().expect("session create");
-    let mut request = session.start_request(&[7], 1).expect("request start");
+    let mut request = session
+        .start_request(&[7, 3_358], 1)
+        .expect("request start");
 
     REQUEST_DESTROY_FAILURES.store(1, Ordering::SeqCst);
     let error = request.close().expect_err("first close must report BUSY");
@@ -836,7 +1731,9 @@ fn explicit_audio_release_retains_lease_after_failure() {
         .load_model("/verified/bundle", [1; 32])
         .expect("model load");
     let session = model.create_session().expect("session create");
-    let mut request = session.start_request(&[7], 1).expect("request start");
+    let mut request = session
+        .start_request(&[7, 3_358], 1)
+        .expect("request start");
     let mut lease = request
         .acquire_audio()
         .expect("audio acquire")
@@ -906,7 +1803,9 @@ fn drop_failure_child() {
         .load_model("/verified/bundle", [1; 32])
         .expect("model load");
     let session = model.create_session().expect("session create");
-    let mut request = session.start_request(&[7], 1).expect("request start");
+    let mut request = session
+        .start_request(&[7, 3_358], 1)
+        .expect("request start");
 
     match failure.as_str() {
         "request" => {
@@ -993,7 +1892,7 @@ fn linked_contract_shim_converts_the_runtime_error() {
 
 #[cfg(feature = "native-link")]
 #[test]
-fn linked_thor_runtime_converts_the_contract_only_model_error() {
+fn linked_thor_runtime_rejects_a_missing_bundle_without_fallback() {
     let _test = TEST_LOCK.lock().expect("test lock poisoned");
     if std::env::var_os("MAGPIE_TTS_RT_RUN_THOR_TEST").is_none() {
         return;
@@ -1003,12 +1902,12 @@ fn linked_thor_runtime_converts_the_contract_only_model_error() {
         .expect("Thor TensorRT runtime creation");
 
     let error = runtime
-        .load_model("/not-used-by-contract-only-runtime", [1; 32])
+        .load_model("/magpie-tts-rt-test/nonexistent-bundle", [1; 32])
         .err()
-        .expect("initial runtime must report unimplemented model loading");
+        .expect("missing bundle must fail closed");
     match error {
         Error::Native(native) => {
-            assert_eq!(native.status(), Status::UNAVAILABLE);
+            assert_eq!(native.status(), Status::IO_ERROR);
             assert_eq!(native.stage(), ErrorStage::MODEL);
         }
         unexpected => panic!("unexpected model_load error: {unexpected}"),

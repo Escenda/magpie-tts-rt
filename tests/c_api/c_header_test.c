@@ -10,6 +10,19 @@ _Static_assert(
     sizeof(((mtt_model_desc_v1_t*)0)->expected_manifest_sha256) ==
         MTT_SHA256_BYTES,
     "model trust anchor must be an exact SHA-256 digest");
+_Static_assert(
+    sizeof(((mtt_model_info_v1_t*)0)->tokenizer_identity_sha256) ==
+        MTT_SHA256_BYTES,
+    "model tokenizer identity must be an exact SHA-256 digest");
+_Static_assert(
+    sizeof(mtt_model_info_v1_t) == 136,
+    "model info ABI v1 layout changed");
+_Static_assert(
+    offsetof(mtt_alignment_event_v1_t, struct_size) == 0,
+    "alignment event must begin with an ABI header");
+_Static_assert(
+    offsetof(mtt_audio_lease_v1_t, alignment_events) == 72,
+    "audio lease alignment event pointer layout changed");
 _Static_assert(offsetof(mtt_api_v1_t, struct_size) == 0, "API must begin at offset zero");
 
 int main(void) {
@@ -19,5 +32,6 @@ int main(void) {
   if (mtt_get_api(MTT_ABI_VERSION_1, &api) != MTT_STATUS_OK) {
     return 1;
   }
-  return api.runtime_create == NULL || api.audio_release == NULL;
+  return api.runtime_create == NULL || api.model_get_info == NULL ||
+         api.audio_release == NULL;
 }
