@@ -29,6 +29,7 @@ import tensorrt
 import torch
 from nemo.collections.tts.models import MagpieTTSModel
 
+from locked_magpie_restore import LockedCodec, load_locked_magpie_model
 from local_ar_wrapper import (
     ACTUAL_BATCH,
     CFG_BATCH,
@@ -76,11 +77,14 @@ EXPECTED_PLUGIN_CREATORS = (
 PLUGIN_STATUS_OK = 0
 PLUGIN_STATUS_ALREADY_REGISTERED = 1
 POSITION_TABLE_SHAPE = (18, MODEL_WIDTH)
+CANONICAL_FIXTURE_MANIFEST_SHA256 = (
+    "c420b68de08a3e62629472a65771a706802fc95a5a3321a6098a1e0586a5652f"
+)
 EXPECTED_FIXTURE_MANIFEST_SHA256 = frozenset(
     {
-        "0ca05d9b613aa4b3923ded357a812260da91cb2f1d60f04de6e57ba3f6b8004c",
-        "c0ae5528df93eb93335a49f3487dc69725a75e6372712db062a4d33a181c9996",
-        "2259a6bb48e0098ea3cbfde126417c8727cdecbf5ce6d357b302510413ef8119",
+        CANONICAL_FIXTURE_MANIFEST_SHA256,
+        "d52c2d1774d3025bdfd05ec566439038d44c2590646d7f3c436f745fc2a23c7a",
+        "ab4a2125d0099c77b60d0b5864d2c9c0ee15f3f3fd31ae4f3d3506268b96531d",
     }
 )
 
@@ -194,6 +198,7 @@ def verify_locked_inputs(args: argparse.Namespace) -> tuple[dict, str]:
         args.speech_root,
         lock["oracle_source"]["base_revision"],
         lock["oracle_source"]["files"],
+        lock["oracle_source"]["optimized_source_bundle_sha256"],
     )
     return lock, sha256_file(lock_path)
 
@@ -269,7 +274,11 @@ def tensor_from_fixture(tensor: FixtureTensor) -> torch.Tensor:
     return value.view(torch.bfloat16) if tensor.dtype == "bf16" else value
 
 
-def load_wrapper(model_path: Path, speech_root: Path) -> LocalARWrapper:
+def load_wrapper(
+    model_path: Path,
+    codec: LockedCodec,
+    speech_root: Path,
+) -> LocalARWrapper:
     module = sys.modules.get(MagpieTTSModel.__module__)
     module_path = getattr(module, "__file__", None)
     expected_path = (
@@ -284,10 +293,7 @@ def load_wrapper(model_path: Path, speech_root: Path) -> LocalARWrapper:
         raise RuntimeError(
             f"MagpieTTS imported from the wrong source: {module_path!r}"
         )
-    model = MagpieTTSModel.restore_from(
-        str(model_path.resolve(strict=True)),
-        map_location="cpu",
-    )
+    model = load_locked_magpie_model(model_path, codec)
     model.eval()
     wrapper = LocalARWrapper(model).eval()
     wrapper.to(device="cuda", dtype=torch.bfloat16)
@@ -774,7 +780,18 @@ def main() -> int:
     output.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{output.name}.", dir=output.parent))
     try:
-        wrapper = load_wrapper(args.model, args.speech_root)
+        codec_lock = lock["codec"]
+        locked_codec = LockedCodec(
+            path=args.codec_model,
+            model_id=codec_lock["model_id"],
+            sha256=codec_lock["sha256"],
+            size_bytes=codec_lock["size_bytes"],
+        )
+        wrapper = load_wrapper(
+            args.model,
+            locked_codec,
+            args.speech_root,
+        )
         pytorch_cases: list[
             tuple[
                 str,
@@ -796,9 +813,7 @@ def main() -> int:
                     expected_outputs,
                 )
             )
-        canonical_manifest = (
-            "0ca05d9b613aa4b3923ded357a812260da91cb2f1d60f04de6e57ba3f6b8004c"
-        )
+        canonical_manifest = CANONICAL_FIXTURE_MANIFEST_SHA256
         canonical_case = next(
             case for case in pytorch_cases if case[0] == canonical_manifest
         )
@@ -839,6 +854,12 @@ def main() -> int:
                         strict=True
                     )
                 ),
+                "locked_magpie_restore_sha256": sha256_file(
+                    (Path(__file__).parent / "locked_magpie_restore.py").resolve(
+                        strict=True
+                    )
+                ),
+                "codec_restore": locked_codec.restore_receipt().to_json(),
                 "oracle_lock_sha256": lock_sha256,
                 "oracle_source_revision": lock["oracle_source"]["base_revision"],
                 "model_sha256": lock["model"]["sha256"],

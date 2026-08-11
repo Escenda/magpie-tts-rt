@@ -1,6 +1,7 @@
 {
   global:
     mtt_plugin_get_api_v1;
+    mtt_plugin_get_main_device_position_class_table_v1;
   local:
     *;
 };

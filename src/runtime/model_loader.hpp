@@ -23,6 +23,9 @@ enum class PluginLoadErrorCode {
   abi_mismatch,
   invalid_creator_contract,
   registration_failed,
+  class_table_not_ready,
+  invalid_class_table_contract,
+  class_table_digest_mismatch,
 };
 
 [[nodiscard]] std::string_view to_string(
@@ -97,6 +100,12 @@ class RuntimePluginState final {
   void authenticate_and_register(
       const VerifiedRuntimeBundle& bundle,
       std::int32_t cuda_device_index);
+
+  // Called only after startup golden synthesis has built and exercised every
+  // mode-8 bank. Session readiness is denied unless the live C ABI table
+  // exactly matches the authenticated manifest digest.
+  void require_main_device_position_class_table_identity(
+      const RuntimeBundleManifest& manifest);
 
   [[nodiscard]] std::uint32_t abi_version() const;
   [[nodiscard]] std::string sha256() const;

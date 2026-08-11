@@ -18,12 +18,16 @@
 
 #include "magpie_tts_rt/magpie_tts_rt_plugin.h"
 #include "runtime/fingerprint.hpp"
+#include "runtime/main_device_position_class_table.hpp"
 
 namespace magpie_tts_rt {
 namespace {
 
 using GetPluginApiFunction =
     mtt_plugin_status_t (*)(mtt_plugin_api_v1_t*);
+using GetMainDevicePositionClassTableFunction =
+    mtt_plugin_status_t (*)(
+        mtt_main_device_position_class_table_v1_t*);
 
 inline constexpr std::array<std::string_view, MTT_PLUGIN_CREATOR_COUNT_V1>
     kRequiredPluginCreators{
@@ -39,6 +43,7 @@ struct ProcessPluginOwner {
   void* handle{nullptr};
   std::string sha256;
   std::uint32_t abi_version{0};
+  RuntimeFingerprint::CublasIdentity cublas_identity;
   struct CreatorIdentity {
     std::string name;
     std::string version;
@@ -246,6 +251,26 @@ void require_manifest_plugin_contract(
   return function;
 }
 
+[[nodiscard]] GetMainDevicePositionClassTableFunction
+load_main_device_position_class_table_getter(void* handle) {
+  static_cast<void>(::dlerror());
+  void* symbol = ::dlsym(
+      handle,
+      "mtt_plugin_get_main_device_position_class_table_v1");
+  const char* error = ::dlerror();
+  if (error != nullptr || symbol == nullptr) {
+    fail_plugin(
+        PluginLoadErrorCode::missing_api_symbol,
+        error == nullptr
+            ? "mtt_plugin_get_main_device_position_class_table_v1 is null"
+            : std::string(error));
+  }
+  GetMainDevicePositionClassTableFunction function = nullptr;
+  static_assert(sizeof(function) == sizeof(symbol));
+  std::memcpy(&function, &symbol, sizeof(function));
+  return function;
+}
+
 [[nodiscard]] mtt_plugin_api_v1_t load_plugin_api(void* handle) {
   const GetPluginApiFunction get_api = load_get_api(handle);
   mtt_plugin_api_v1_t api{};
@@ -310,7 +335,9 @@ void require_matching_process_owner(
   require_exact_runtime_fingerprint(
       bundle.manifest.runtime,
       collect_runtime_fingerprint(
-          cuda_device_index, owner.abi_version));
+          cuda_device_index,
+          owner.abi_version,
+          owner.cublas_identity));
 }
 
 [[nodiscard]] nvinfer1::DataType expected_data_type(
@@ -761,6 +788,12 @@ std::string_view to_string(const PluginLoadErrorCode code) noexcept {
       return "invalid_creator_contract";
     case PluginLoadErrorCode::registration_failed:
       return "registration_failed";
+    case PluginLoadErrorCode::class_table_not_ready:
+      return "class_table_not_ready";
+    case PluginLoadErrorCode::invalid_class_table_contract:
+      return "invalid_class_table_contract";
+    case PluginLoadErrorCode::class_table_digest_mismatch:
+      return "class_table_digest_mismatch";
   }
   return "unknown";
 }
@@ -904,11 +937,18 @@ void RuntimePluginState::authenticate_and_register(
     auto prepared_creators = authenticate_creators(api);
     static_assert(noexcept(
         owner.creators = std::move(prepared_creators)));
+    auto prepared_cublas_identity =
+        collect_cublas_runtime_identity(candidate);
+    static_assert(noexcept(
+        owner.cublas_identity =
+            std::move(prepared_cublas_identity)));
 
     require_exact_runtime_fingerprint(
         bundle.manifest.runtime,
         collect_runtime_fingerprint(
-            cuda_device_index, api.abi_version));
+            cuda_device_index,
+            api.abi_version,
+            prepared_cublas_identity));
 
 #if defined(MAGPIE_TTS_RT_PLUGIN_OWNER_TESTING)
     inject_plugin_owner_test_fault();
@@ -925,6 +965,7 @@ void RuntimePluginState::authenticate_and_register(
     owner.sha256 = std::move(prepared_process_sha256);
     owner.abi_version = api.abi_version;
     owner.creators = std::move(prepared_creators);
+    owner.cublas_identity = std::move(prepared_cublas_identity);
     owner.handle = candidate;
     sha256_ = std::move(prepared_runtime_sha256);
     abi_version_ = api.abi_version;
@@ -937,6 +978,58 @@ void RuntimePluginState::authenticate_and_register(
       static_cast<void>(::dlclose(candidate));
     }
     throw;
+  }
+}
+
+void RuntimePluginState::require_main_device_position_class_table_identity(
+    const RuntimeBundleManifest& manifest) {
+  std::scoped_lock runtime_lock(mutex_);
+  if (!authenticated_) {
+    fail_plugin(
+        PluginLoadErrorCode::class_table_not_ready,
+        "runtime plugin is not authenticated");
+  }
+  ProcessPluginOwner& owner = process_plugin_owner();
+  std::scoped_lock process_lock(owner.mutex);
+  if (owner.handle == nullptr || owner.sha256 != sha256_ ||
+      owner.abi_version != abi_version_) {
+    fail_plugin(
+        PluginLoadErrorCode::invalid_class_table_contract,
+        "authenticated process-global plugin owner is inconsistent");
+  }
+  const GetMainDevicePositionClassTableFunction getter =
+      load_main_device_position_class_table_getter(owner.handle);
+  mtt_main_device_position_class_table_v1_t table{};
+  table.struct_size = sizeof(table);
+  table.abi_version = MTT_PLUGIN_ABI_VERSION_1;
+  const mtt_plugin_status_t status = getter(&table);
+  if (status == MTT_PLUGIN_STATUS_NOT_READY) {
+    fail_plugin(
+        PluginLoadErrorCode::class_table_not_ready,
+        "startup golden synthesis did not publish a mode-8 class table");
+  }
+  if (status != MTT_PLUGIN_STATUS_OK) {
+    fail_plugin(
+        PluginLoadErrorCode::invalid_class_table_contract,
+        "mode-8 class-table C ABI returned status " +
+            std::to_string(status));
+  }
+
+  MainDevicePositionClassTableIdentity identity;
+  try {
+    identity = collect_main_device_position_class_table_identity(table);
+  } catch (const MainDevicePositionClassTableError& error) {
+    fail_plugin(
+        PluginLoadErrorCode::invalid_class_table_contract,
+        error.what());
+  }
+  const auto& expected =
+      manifest.artifacts.plugin.main_device_position_class_table;
+  if (identity.sha256 != expected.sha256) {
+    fail_plugin(
+        PluginLoadErrorCode::class_table_digest_mismatch,
+        "manifest expected " + expected.sha256 + ", live table is " +
+            identity.sha256);
   }
 }
 

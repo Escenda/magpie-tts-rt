@@ -5,12 +5,10 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
-#include <vector>
 
 namespace {
 
 using magpie_tts_rt::AsyncPipelineContract;
-using magpie_tts_rt::EventPollStatus;
 using magpie_tts_rt::HostWaitBoundary;
 using magpie_tts_rt::PipelineSynchronizationMetrics;
 
@@ -30,55 +28,20 @@ void require_logic_error(Function&& function) {
   throw std::runtime_error("expected ownership contract failure");
 }
 
-void test_event_polling_counts_without_host_synchronize() {
-  const std::vector<EventPollStatus> statuses{
-      EventPollStatus::pending,
-      EventPollStatus::pending,
-      EventPollStatus::complete,
-  };
-  std::size_t query_index = 0;
-  std::uint64_t backoffs = 0;
-  PipelineSynchronizationMetrics metrics;
-  const bool completed =
-      magpie_tts_rt::await_event_completion(
-          [&]() {
-            return statuses.at(query_index++);
-          },
-          [&]() {
-            ++backoffs;
-          },
-          HostWaitBoundary::pcm_publication,
-          metrics);
-  require(completed, "mock CUDA event did not complete");
-  require(query_index == 3, "event query count mismatch");
-  require(backoffs == 2, "event backoff count mismatch");
+void test_blocking_host_synchronization_counts() {
+  AsyncPipelineContract contract;
+  contract.record_host_event_synchronization(
+      HostWaitBoundary::pcm_publication);
+  contract.record_host_event_synchronization(
+      HostWaitBoundary::terminal_diagnostics);
+  const PipelineSynchronizationMetrics& metrics = contract.metrics();
   require(metrics.host_pcm_waits == 1, "PCM wait count mismatch");
   require(
-      metrics.host_terminal_waits == 0,
-      "PCM wait was counted as terminal wait");
-  require(
-      metrics.host_event_queries == 3 &&
-          metrics.host_event_pending_observations == 2,
-      "event polling metrics mismatch");
-  require(
-      metrics.host_cuda_event_synchronizations == 0,
-      "event polling introduced cudaEventSynchronize");
-
-  const bool failed =
-      magpie_tts_rt::await_event_completion(
-          []() {
-            return EventPollStatus::failed;
-          },
-          []() {},
-          HostWaitBoundary::terminal_diagnostics,
-          metrics);
-  require(!failed, "mock CUDA event failure was accepted");
-  require(
       metrics.host_terminal_waits == 1,
-      "terminal failure boundary was not counted");
+      "terminal wait count mismatch");
   require(
-      metrics.host_cuda_event_synchronizations == 0,
-      "failure path introduced cudaEventSynchronize");
+      metrics.host_cuda_event_synchronizations == 2,
+      "blocking CUDA event synchronization count mismatch");
 }
 
 void test_double_buffer_ownership_and_overlap_counts() {
@@ -108,8 +71,8 @@ void test_double_buffer_ownership_and_overlap_counts() {
   require(metrics.generation_batches == 3, "generation batch count");
   require(metrics.codec_batches == 2, "codec batch count");
   require(
-      metrics.generation_to_codec_stream_waits == 2,
-      "generation-to-codec wait count");
+      metrics.generation_to_codec_dependencies == 2,
+      "generation-to-codec dependency count");
   require(
       metrics.codec_to_generation_reuse_waits == 1,
       "codec-to-generation reuse wait count");
@@ -210,13 +173,13 @@ void test_unknown_inflight_and_allocation_failures_poison_session() {
 
 int main() {
   try {
-    test_event_polling_counts_without_host_synchronize();
+    test_blocking_host_synchronization_counts();
     test_double_buffer_ownership_and_overlap_counts();
     test_output_capacity_release_before_snapshot_does_not_wait();
     test_output_capacity_release_after_snapshot_wakes_revision_wait();
     test_unknown_inflight_and_allocation_failures_poison_session();
     std::cout
-        << "host_cuda_event_synchronizations=0 "
+        << "host_cuda_event_synchronizations=blocking-boundaries "
         << "generation_slots=2 "
         << "first_pcm_overlap_opportunities=0 "
         << "steady_overlap_opportunities=1\n";

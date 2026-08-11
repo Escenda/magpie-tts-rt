@@ -17,6 +17,7 @@ namespace magpie_tts_rt {
 enum class SynthesisPipelineErrorCode {
   cuda_failure,
   engine_failure,
+  main_decoder_failure,
   alignment_failure,
   local_ar_failure,
   codec_failure,

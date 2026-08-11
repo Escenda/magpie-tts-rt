@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import importlib.util
+import os
 import stat
 import subprocess
 import tempfile
@@ -48,9 +49,69 @@ class PluginBuildReceiptTests(unittest.TestCase):
                 source.write_text(f"source:{relative}\n", encoding="utf-8")
             plugin_source = source_root / "plugins/local_ar_plugins.cu"
             plugin_source.write_text(
-                "#include <stdio.h>\n"
-                'int plugin_test(void) { return puts("plugin"); }\n',
+                "extern int cublasCreate_v2(void **handle);\n"
+                "int plugin_test(void) {\n"
+                "  void *handle = 0;\n"
+                "  return cublasCreate_v2(&handle);\n"
+                "}\n",
                 encoding="utf-8",
+            )
+            runtime_libraries = temporary / "runtime-libraries"
+            runtime_libraries.mkdir()
+            cublas_lt_source = runtime_libraries / "cublas_lt.c"
+            cublas_lt_source.write_text(
+                "#include <stddef.h>\n"
+                "size_t cublasLtGetVersion(void) { return 130400u; }\n",
+                encoding="utf-8",
+            )
+            cublas_source = runtime_libraries / "cublas.c"
+            cublas_source.write_text(
+                "#include <stddef.h>\n"
+                "extern size_t cublasLtGetVersion(void);\n"
+                "int cublasCreate_v2(void **handle) {\n"
+                "  if (handle == 0) return 1;\n"
+                "  *handle = (void *)1;\n"
+                "  return cublasLtGetVersion() == 130400u ? 0 : 1;\n"
+                "}\n"
+                "int cublasDestroy_v2(void *handle) {\n"
+                "  return handle == (void *)1 ? 0 : 1;\n"
+                "}\n"
+                "int cublasGetVersion_v2(void *handle, int *version) {\n"
+                "  if (handle != (void *)1 || version == 0) return 1;\n"
+                "  *version = 130400;\n"
+                "  return 0;\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            cublas_lt = runtime_libraries / "libcublasLt.so.13"
+            subprocess.run(
+                [
+                    "/usr/bin/cc",
+                    "-shared",
+                    "-fPIC",
+                    "-Wl,-soname,libcublasLt.so.13",
+                    str(cublas_lt_source),
+                    "-o",
+                    str(cublas_lt),
+                ],
+                check=True,
+            )
+            cublas = runtime_libraries / "libcublas.so.13"
+            subprocess.run(
+                [
+                    "/usr/bin/cc",
+                    "-shared",
+                    "-fPIC",
+                    "-Wl,-soname,libcublas.so.13",
+                    str(cublas_source),
+                    "-L",
+                    str(runtime_libraries),
+                    "-Wl,--no-as-needed",
+                    "-l:libcublasLt.so.13",
+                    "-o",
+                    str(cublas),
+                ],
+                check=True,
             )
             plugin = build_root / MODULE.PLUGIN_FILENAME
             subprocess.run(
@@ -61,6 +122,10 @@ class PluginBuildReceiptTests(unittest.TestCase):
                     "-shared",
                     "-Wl,-soname,libmagpie_tts_rt_plugins.so.0",
                     str(plugin_source),
+                    "-L",
+                    str(runtime_libraries),
+                    "-Wl,--no-as-needed",
+                    "-l:libcublas.so.13",
                     "-o",
                     str(plugin),
                 ],
@@ -114,6 +179,10 @@ class PluginBuildReceiptTests(unittest.TestCase):
                 encoding="utf-8",
             )
             output = temporary / "receipt.json"
+            runtime_environment = os.environ.copy()
+            runtime_environment["LD_LIBRARY_PATH"] = str(
+                runtime_libraries
+            )
             subprocess.run(
                 [
                     "/usr/bin/python3",
@@ -130,6 +199,7 @@ class PluginBuildReceiptTests(unittest.TestCase):
                     str(output),
                 ],
                 check=True,
+                env=runtime_environment,
             )
             receipt = json.loads(output.read_text(encoding="utf-8"))
             schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
@@ -154,6 +224,27 @@ class PluginBuildReceiptTests(unittest.TestCase):
             self.assertEqual(
                 receipt["artifact"]["soname"],
                 MODULE.PLUGIN_SONAME,
+            )
+            runtime_cublas = receipt["runtime_dependencies"]["cublas"]
+            self.assertEqual(
+                runtime_cublas["api_version_integer"],
+                130400,
+            )
+            self.assertEqual(
+                runtime_cublas["library"]["soname"],
+                "libcublas.so.13",
+            )
+            self.assertEqual(
+                runtime_cublas["lt_library"]["soname"],
+                "libcublasLt.so.13",
+            )
+            self.assertEqual(
+                runtime_cublas["library"]["sha256"],
+                MODULE.sha256_file(cublas),
+            )
+            self.assertEqual(
+                runtime_cublas["lt_library"]["sha256"],
+                MODULE.sha256_file(cublas_lt),
             )
             self.assertIn(
                 "${SOURCE_ROOT}/plugins/local_ar_plugins.cu",
@@ -186,8 +277,44 @@ class PluginBuildReceiptTests(unittest.TestCase):
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                env=runtime_environment,
             )
             self.assertNotEqual(repeated.returncode, 0)
+
+            subprocess.run(
+                [
+                    "/usr/bin/cc",
+                    "-shared",
+                    "-fPIC",
+                    "-Wl,-soname,libwrong-cublasLt.so.13",
+                    str(cublas_lt_source),
+                    "-o",
+                    str(cublas_lt),
+                ],
+                check=True,
+            )
+            wrong_soname = subprocess.run(
+                [
+                    "/usr/bin/python3",
+                    str(TOOL),
+                    "--plugin",
+                    str(plugin),
+                    "--source-root",
+                    str(source_root),
+                    "--build-directory",
+                    str(build_root),
+                    "--readelf",
+                    "/usr/bin/readelf",
+                    "--output",
+                    str(temporary / "wrong-soname-receipt.json"),
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=runtime_environment,
+            )
+            self.assertNotEqual(wrong_soname.returncode, 0)
+            self.assertIn("ELF SONAME differs", wrong_soname.stderr)
 
     @staticmethod
     def _version_tool(path: Path, version: str) -> Path:

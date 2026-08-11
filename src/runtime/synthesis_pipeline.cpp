@@ -11,7 +11,6 @@
 #include <optional>
 #include <span>
 #include <string>
-#include <thread>
 #include <utility>
 #include <vector>
 
@@ -21,6 +20,7 @@
 #include "runtime/async_pipeline_contract.hpp"
 #include "runtime/engine_execution.hpp"
 #include "runtime/eos_contract.hpp"
+#include "runtime/main_device_position_status.hpp"
 #include "runtime/session_workspace.hpp"
 #include "runtime/synthesis_kernels.hpp"
 
@@ -95,14 +95,16 @@ void require_cuda(
 [[nodiscard]] TensorAddressSet step_bindings(
     const RuntimeBundleManifest& manifest,
     SessionWorkspace& workspace,
-    std::int64_t* decoder_position,
     const std::size_t cache_input,
     const std::size_t cache_output) {
   TensorAddressSet bindings;
   bindings.add(
       "previous_codec_tokens",
       workspace.local_codec_tokens());
-  bindings.add("position", decoder_position);
+  bindings.add("position", workspace.decoder_position());
+  bindings.add(
+      "execution_status_in",
+      workspace.main_decoder_execution_status(cache_input));
   bindings.add(
       manifest.alignment.step_prior_input_binding,
       workspace.alignment_prior());
@@ -129,6 +131,9 @@ void require_cuda(
   bindings.add(
       manifest.alignment.step_alignment_output_binding,
       workspace.alignment_scores());
+  bindings.add(
+      "execution_status_out",
+      workspace.main_decoder_execution_status(cache_output));
   for (DecoderLayerWorkspace& layer :
        workspace.decoder_layers()) {
     bindings.add(
@@ -145,31 +150,28 @@ void require_cuda(
 }
 
 [[nodiscard]] TensorAddressSet local_bindings(
-    SessionWorkspace& workspace,
-    const std::size_t step_slot,
-    const std::size_t rng_input,
-    const std::size_t rng_output) {
+    SessionWorkspace& workspace) {
   TensorAddressSet bindings;
   bindings.add("decoder_hidden", workspace.decoder_hidden());
   bindings.add(
-      "unfinished", workspace.unfinished_text(step_slot));
+      "unfinished", workspace.unfinished_text(0));
   bindings.add(
       "finished", workspace.generation_finished());
   bindings.add("forbid_eos", workspace.forbid_eos());
   bindings.add("rng_seed", workspace.rng_seed());
   bindings.add(
-      "rng_counter", workspace.rng_counter(rng_input));
+      "rng_counter", workspace.rng_counter(0));
   bindings.add(
       "codec_tokens", workspace.local_codec_tokens());
   bindings.add(
       "updated_rng_counter",
-      workspace.rng_counter(rng_output));
+      workspace.rng_counter(1));
   bindings.add(
       "invalid_rows",
-      workspace.local_invalid_rows(step_slot));
+      workspace.canonical_local_invalid_rows());
   bindings.add(
       "end_frame_index",
-      workspace.local_end_frame_index(step_slot));
+      workspace.canonical_local_end_frame_index());
   return bindings;
 }
 
@@ -220,6 +222,9 @@ struct GenerationBatchResult {
   std::size_t batch_slot;
   std::uint32_t frame_count;
   bool final;
+  // Both indices are local to this generation batch; -1 means no EOS.
+  std::int32_t eos_step;
+  std::int32_t eos_frame_index;
   std::vector<std::int64_t> attended_token_indices;
 };
 
@@ -275,7 +280,13 @@ class Pipeline final {
       run_impl();
       settle_inflight();
     } catch (...) {
-      settle_inflight();
+      try {
+        settle_inflight();
+      } catch (...) {
+        resources_.abort_main_decoder_request();
+        throw;
+      }
+      resources_.abort_main_decoder_request();
       throw;
     }
     if (request_state_.cancellation_requested() &&
@@ -289,6 +300,7 @@ class Pipeline final {
 
  private:
   void run_impl() {
+    resources_.begin_main_decoder_request();
     require_initial_batch_capacity();
     initialize_request();
     run_text_encoder();
@@ -388,6 +400,15 @@ class Pipeline final {
     const std::int64_t seed =
         static_cast<std::int64_t>(random_seed_);
     const std::int64_t zero_counter = 0;
+    if (manifest_.kv_cache.first_step_position == 0U) {
+      fail(
+          SynthesisPipelineErrorCode::invariant_failure,
+          "Main Decoder first position must be greater than zero");
+    }
+    const std::int64_t position_before_first_step =
+        static_cast<std::int64_t>(
+            manifest_.kv_cache.first_step_position) -
+        1;
     const bool false_value = false;
     require_cuda(
         cudaMemcpyAsync(
@@ -413,6 +434,23 @@ class Pipeline final {
             cudaMemcpyHostToDevice,
             stream),
         "initialize random counter");
+    require_cuda(
+        cudaMemcpyAsync(
+            workspace_.decoder_position(),
+            &position_before_first_step,
+            sizeof(position_before_first_step),
+            cudaMemcpyHostToDevice,
+            stream),
+        "initialize Main Decoder device position");
+    for (std::size_t index = 0; index < 2; ++index) {
+      require_cuda(
+          cudaMemsetAsync(
+              workspace_.main_decoder_execution_status(index),
+              0,
+              sizeof(std::int32_t),
+              stream),
+          "clear Main Decoder execution status");
+    }
     require_cuda(
         cudaMemcpyAsync(
             workspace_.generation_finished(),
@@ -474,6 +512,16 @@ class Pipeline final {
       const std::size_t step_slot,
       const std::size_t batch_slot,
       const std::uint32_t aggregate_frame_offset) {
+    if (step_slot != 0) {
+      require_cuda(
+          cudaMemcpyAsync(
+              workspace_.unfinished_text(0),
+              workspace_.unfinished_text(step_slot),
+              sizeof(bool),
+              cudaMemcpyDeviceToDevice,
+              resources_.generation_stream()),
+          "stage Local AR unfinished input");
+    }
     const bool forbid_eos = generated_decoder_steps_ < 2;
     require_cuda(
         cudaMemcpyAsync(
@@ -483,31 +531,41 @@ class Pipeline final {
             cudaMemcpyHostToDevice,
             resources_.generation_stream()),
         "update EOS gate");
-    const std::size_t next_rng = 1U - rng_index_;
-    enqueue_engine(
-        require_engine(manifest_, EngineRole::local_ar_16),
-        resources_.context(EngineRole::local_ar_16),
-        shape_parameters_,
-        local_bindings(
-            workspace_, step_slot, rng_index_, next_rng),
-        resources_.generation_stream(),
-        nullptr);
+    if (!resources_.local_ar_graph_ready()) {
+      if (startup_capture_ == nullptr) {
+        fail(
+            SynthesisPipelineErrorCode::invariant_failure,
+            "Local AR CUDA graph was absent outside the startup gate");
+      }
+      // The first valid Local invocation warms TensorRT's deferred state. Its
+      // output is deliberately discarded: rng_counter[0] is input-only, and
+      // the graph-backed invocation below overwrites every canonical output.
+      enqueue_engine(
+          require_engine(manifest_, EngineRole::local_ar_16),
+          resources_.context(EngineRole::local_ar_16),
+          shape_parameters_,
+          local_bindings(workspace_),
+          resources_.generation_stream(),
+          nullptr);
+      resources_.capture_and_upload_local_ar_graph();
+    }
+    resources_.launch_local_ar_graph();
     require_cuda(
-        launch_append_codec_step(
+        launch_finalize_local_step(
             static_cast<const std::int64_t*>(
                 workspace_.local_codec_tokens()),
             static_cast<std::int64_t*>(
                 workspace_.aggregate_codec_tokens(batch_slot)),
             aggregate_frame_offset,
-            resources_.generation_stream()),
-        "append Local AR codec frames");
-    require_cuda(
-        launch_latch_generation_finished(
+            workspace_.canonical_local_invalid_rows(),
+            workspace_.canonical_local_end_frame_index(),
+            workspace_.local_invalid_rows(step_slot),
             workspace_.local_end_frame_index(step_slot),
+            workspace_.rng_counter(1),
+            workspace_.rng_counter(0),
             workspace_.generation_finished(),
             resources_.generation_stream()),
-        "latch Local AR EOS");
-    rng_index_ = next_rng;
+        "finalize Local AR step");
     ++generated_decoder_steps_;
   }
 
@@ -519,38 +577,72 @@ class Pipeline final {
           SynthesisPipelineErrorCode::context_exhausted,
           "Main Decoder step would exceed the authenticated context");
     }
-    const std::uint64_t position =
+    const std::uint64_t expected_position =
         static_cast<std::uint64_t>(
             manifest_.kv_cache.first_step_position) +
         generated_decoder_steps_ - 1U;
-    if (position >=
+    if (expected_position >=
         manifest_.kv_cache.step_position_upper_bound_exclusive) {
       fail(
           SynthesisPipelineErrorCode::context_exhausted,
           "absolute Main Decoder position reached its upper bound");
     }
-    const DecoderPositionInput position_input =
-        workspace_.acquire_decoder_position(
-            static_cast<std::int64_t>(position));
-    // `position` is the sole authenticated HOST shape input. Four distinct,
-    // 256-byte-aligned pinned slots allow four decoder steps to enqueue
-    // without a host wait. A slot is overwritten only after TensorRT signals
-    // its per-enqueue input-consumed event; no device mirror, H2D copy, or
-    // device-wide synchronization is part of this path.
     const std::size_t next_cache = 1U - cache_index_;
-    enqueue_engine(
-        require_engine(
-            manifest_, EngineRole::main_decoder_step),
-        resources_.context(EngineRole::main_decoder_step),
-        shape_parameters_,
-        step_bindings(
-            manifest_,
-            workspace_,
-            position_input.address,
-            cache_index_,
-            next_cache),
-        resources_.generation_stream(),
-        position_input.input_consumed_event);
+    const EngineManifest& step_engine =
+        require_engine(manifest_, EngineRole::main_decoder_step);
+    std::optional<PreparedTensorAddressSet>& prepared_bindings =
+        step_binding_cache_.at(cache_index_);
+    if (!prepared_bindings.has_value()) {
+      prepared_bindings.emplace(
+          step_engine,
+          step_bindings(
+              manifest_,
+              workspace_,
+              cache_index_,
+              next_cache));
+    }
+    nvinfer1::IExecutionContext& decoder_context =
+        resources_.main_decoder_context(cache_index_);
+    if (!resources_.main_decoder_warmed(cache_index_)) {
+      // Exactly one eager invocation per direction flushes TensorRT's deferred
+      // shape/context setup. Its output is the production result: A-to-B
+      // produces the second pair of initial frames, while the next B-to-A
+      // invocation occurs only after first audio has been published.
+      require_cuda(
+          launch_advance_decoder_position(
+              workspace_.decoder_position(),
+              resources_.generation_stream()),
+          "advance Main Decoder device position for eager warmup");
+      enqueue_engine(
+          step_engine,
+          decoder_context,
+          shape_parameters_,
+          *prepared_bindings,
+          resources_.generation_stream(),
+          nullptr);
+      resources_.record_main_decoder_eager_warmup(cache_index_);
+    } else if (!resources_.main_decoder_graph_ready(cache_index_)) {
+      // Dynamic text length makes these graphs request-specific. The capture
+      // includes the device-side +1 before enqueueV3, then the graph is
+      // launched once and that result is admitted to the current request.
+      std::int64_t* const decoder_position =
+          workspace_.decoder_position();
+      resources_.capture_and_upload_main_decoder_graph(
+          cache_index_,
+          [&decoder_context, decoder_position](
+              const cudaStream_t stream) noexcept {
+            if (launch_advance_decoder_position(
+                    decoder_position, stream) != cudaSuccess) {
+              return false;
+            }
+            return decoder_context.enqueueV3(stream);
+          });
+      resources_.launch_main_decoder_graph(cache_index_);
+    } else {
+      // No eager enqueue is admitted after capture. Missing or failed graphs
+      // throw from SessionResources/CudaGraphExecutable and close the request.
+      resources_.launch_main_decoder_graph(cache_index_);
+    }
     cache_index_ = next_cache;
     advance_alignment(step_slot);
   }
@@ -642,42 +734,36 @@ class Pipeline final {
       const std::size_t batch_slot,
       const std::size_t step_count) {
     const cudaStream_t stream = resources_.generation_stream();
-    for (std::size_t step = 0; step < step_count; ++step) {
-      require_cuda(
-          cudaMemcpyAsync(
-              workspace_.pinned_attended_token_indices(batch_slot) +
-                  step,
-              workspace_.attended_token_index(step),
-              sizeof(std::int64_t),
-              cudaMemcpyDeviceToHost,
-              stream),
-          "copy attended-token diagnostic");
-      require_cuda(
-          cudaMemcpyAsync(
-              workspace_.pinned_alignment_invalid_steps(batch_slot) +
-                  step,
-              workspace_.alignment_invalid(step),
-              sizeof(std::int32_t),
-              cudaMemcpyDeviceToHost,
-              stream),
-          "copy alignment diagnostic");
-      require_cuda(
-          cudaMemcpyAsync(
-              workspace_.pinned_local_invalid_rows(batch_slot) + step,
-              workspace_.local_invalid_rows(step),
-              sizeof(std::int32_t),
-              cudaMemcpyDeviceToHost,
-              stream),
-          "copy Local AR diagnostic");
-      require_cuda(
-          cudaMemcpyAsync(
-              workspace_.pinned_end_frame_indices(batch_slot) + step,
-              workspace_.local_end_frame_index(step),
-              sizeof(std::int32_t),
-              cudaMemcpyDeviceToHost,
-              stream),
-          "copy EOS diagnostic");
+    GenerationDiagnosticSources sources{};
+    sources.main_decoder_execution_status =
+        workspace_.main_decoder_execution_status(cache_index_);
+    for (std::size_t step = 0;
+         step < kMaximumDecoderStepsPerEmission;
+         ++step) {
+      sources.attended_token_indices[step] =
+          workspace_.attended_token_index(step);
+      sources.alignment_invalid_steps[step] =
+          workspace_.alignment_invalid(step);
+      sources.local_invalid_rows[step] =
+          workspace_.local_invalid_rows(step);
+      sources.end_frame_indices[step] =
+          workspace_.local_end_frame_index(step);
     }
+    require_cuda(
+        launch_pack_generation_diagnostics(
+            sources,
+            static_cast<std::uint32_t>(step_count),
+            workspace_.generation_diagnostics(batch_slot),
+            stream),
+        "pack generation diagnostics");
+    require_cuda(
+        cudaMemcpyAsync(
+            workspace_.pinned_generation_diagnostics(batch_slot),
+            workspace_.generation_diagnostics(batch_slot),
+            sizeof(GenerationBatchDiagnostics),
+            cudaMemcpyDeviceToHost,
+            stream),
+        "copy generation diagnostics");
     require_cuda(
         cudaEventRecord(
             resources_.codes_ready_event(batch_slot), stream),
@@ -699,31 +785,53 @@ class Pipeline final {
     generation_pending_.at(pending.batch_slot) = false;
     overlap_contract_.mark_generation_ready(
         pending.batch_slot);
+    const GenerationBatchDiagnostics& diagnostics =
+        *workspace_.pinned_generation_diagnostics(
+            pending.batch_slot);
+    const GenerationDiagnosticPayloadValidation validation =
+        validate_generation_diagnostic_payload(
+            diagnostics, pending.step_count);
+    if (!validation.valid()) {
+      fail(
+          SynthesisPipelineErrorCode::invariant_failure,
+          "packed generation diagnostics failed validation at step " +
+              std::to_string(validation.step) +
+              " with code " +
+              std::to_string(static_cast<std::uint32_t>(validation.code)));
+    }
+    const std::int32_t main_decoder_status =
+        diagnostics.main_decoder_execution_status;
+    if (main_decoder_status != 0) {
+      fail(
+          SynthesisPipelineErrorCode::main_decoder_failure,
+          describe_main_device_position_status(main_decoder_status));
+    }
     std::vector<std::int64_t> attended;
     attended.reserve(pending.step_count);
     std::uint32_t emitted_frames = static_cast<std::uint32_t>(
         pending.step_count *
         manifest_.local_ar.frames_per_decoder_step);
     bool final = false;
+    std::int32_t eos_step = -1;
+    std::int32_t eos_frame_index = -1;
     for (std::size_t step = 0;
          step < pending.step_count;
          ++step) {
-      if (workspace_.pinned_alignment_invalid_steps(
-              pending.batch_slot)[step] != 0) {
+      const GenerationStepDiagnostics& step_diagnostics =
+          diagnostics.steps[step];
+      if (step_diagnostics.alignment_invalid != 0) {
         fail(
             SynthesisPipelineErrorCode::alignment_failure,
             "alignment controller rejected step " +
                 std::to_string(step));
       }
-      if (workspace_.pinned_local_invalid_rows(
-              pending.batch_slot)[step] != 0) {
+      if (step_diagnostics.local_invalid_rows != 0) {
         fail(
             SynthesisPipelineErrorCode::local_ar_failure,
             "Local AR rejected step " + std::to_string(step));
       }
       const std::int64_t attended_index =
-          workspace_.pinned_attended_token_indices(
-              pending.batch_slot)[step];
+          step_diagnostics.attended_token_index;
       if (attended_index < 0 ||
           attended_index >=
               static_cast<std::int64_t>(
@@ -732,20 +840,28 @@ class Pipeline final {
             SynthesisPipelineErrorCode::alignment_failure,
             "alignment produced an out-of-range token index");
       }
-      attended.push_back(attended_index);
       const std::int32_t eos =
-          workspace_.pinned_end_frame_indices(
-              pending.batch_slot)[step];
+          step_diagnostics.end_frame_index;
       if (eos != -1 && eos != 0 && eos != 1) {
         fail(
             SynthesisPipelineErrorCode::local_ar_failure,
             "Local AR produced an invalid EOS frame index");
       }
-      if (!final && eos >= 0) {
+      // All scheduled steps are checked above, including those after an
+      // earlier EOS, but only the spoken prefix belongs to the chunk. The
+      // previous implementation resized here and then appended later steps
+      // again, which could make a three-frame terminal batch carry four
+      // attended positions and create a lease-external alignment boundary.
+      if (final) {
+        continue;
+      }
+      attended.push_back(attended_index);
+      if (eos >= 0) {
         emitted_frames =
             retained_codec_frames_before_eos(step, eos);
         final = true;
-        attended.resize(step + 1U);
+        eos_step = static_cast<std::int32_t>(step);
+        eos_frame_index = eos;
       }
     }
     if (!final &&
@@ -759,35 +875,48 @@ class Pipeline final {
         .batch_slot = pending.batch_slot,
         .frame_count = emitted_frames,
         .final = final,
+        .eos_step = eos_step,
+        .eos_frame_index = eos_frame_index,
         .attended_token_indices = std::move(attended),
     };
+  }
+
+  [[noreturn]] void fail_audio_chunk_publication(
+      const RequestStateError& error,
+      const AudioChunk& chunk,
+      const GenerationBatchResult& batch) const {
+    fail(
+        SynthesisPipelineErrorCode::invariant_failure,
+        describe_audio_chunk_validation_failure(
+            error,
+            chunk,
+            AudioChunkOrigin{
+                .random_seed = random_seed_,
+                .eos_step = batch.eos_step,
+                .eos_frame_index = batch.eos_frame_index,
+                .attended_token_indices =
+                    batch.attended_token_indices,
+            }));
+  }
+
+  [[nodiscard]] bool publish_audio_chunk(
+      AudioChunk chunk,
+      const GenerationBatchResult& batch) {
+    try {
+      return request_state_.publish(std::move(chunk));
+    } catch (const RequestStateError& error) {
+      // publish() accepts an rvalue reference and performs validation before
+      // moving into the queue, so the rejected chunk is intact here.
+      fail_audio_chunk_publication(error, chunk, batch);
+    }
   }
 
   void await_event(
       const cudaEvent_t event,
       const HostWaitBoundary boundary,
       const std::string_view operation) {
-    cudaError_t last_status = cudaSuccess;
-    const bool completed = await_event_completion(
-        [&]() {
-          last_status = cudaEventQuery(event);
-          if (last_status == cudaSuccess) {
-            return EventPollStatus::complete;
-          }
-          if (last_status == cudaErrorNotReady) {
-            return EventPollStatus::pending;
-          }
-          return EventPollStatus::failed;
-        },
-        []() {
-          std::this_thread::sleep_for(
-              std::chrono::microseconds(20));
-        },
-        boundary,
-        overlap_contract_.metrics());
-    if (!completed) {
-      require_cuda(last_status, operation);
-    }
+    overlap_contract_.record_host_event_synchronization(boundary);
+    require_cuda(cudaEventSynchronize(event), operation);
   }
 
   void settle_inflight() {
@@ -823,7 +952,7 @@ class Pipeline final {
     if (observe_cancellation()) {
       return false;
     }
-    if (!request_state_.publish(AudioChunk{
+    if (!publish_audio_chunk(AudioChunk{
             .samples = AudioBuffer{},
             .first_sample_index = next_sample_index_,
             .sequence = sequence_,
@@ -834,7 +963,7 @@ class Pipeline final {
             .committed_text_tokens =
                 committed_text_tokens_,
             .alignment_events = {},
-        })) {
+        }, batch)) {
       return false;
     }
     ++sequence_;
@@ -865,12 +994,6 @@ class Pipeline final {
     }
     const cudaStream_t codec_stream = resources_.codec_stream();
     require_cuda(
-        cudaStreamWaitEvent(
-            codec_stream,
-            resources_.codes_ready_event(batch.batch_slot),
-            0),
-        "join generation and codec streams");
-    require_cuda(
         launch_pack_codec_frames(
             static_cast<const std::int64_t*>(
                 workspace_.aggregate_codec_tokens(
@@ -890,15 +1013,28 @@ class Pipeline final {
 
     shape_parameters_.codec_frame_count = batch.frame_count;
     if (first) {
-      enqueue_engine(
-          require_engine(
-              manifest_, EngineRole::nanocodec_initial_4),
-          resources_.context(
-              EngineRole::nanocodec_initial_4),
-          shape_parameters_,
-          codec_initial_bindings(workspace_),
-          codec_stream,
-          nullptr);
+      if (!resources_.nanocodec_initial_graph_ready()) {
+        if (startup_capture_ == nullptr) {
+          fail(
+              SynthesisPipelineErrorCode::invariant_failure,
+              "NanoCodec initial CUDA graph was absent outside the "
+              "startup gate");
+        }
+        // Bind the immutable production addresses and flush TensorRT deferred
+        // setup once. The eager state/PCM is discarded; the graph replay
+        // below overwrites every output admitted by the startup golden.
+        enqueue_engine(
+            require_engine(
+                manifest_, EngineRole::nanocodec_initial_4),
+            resources_.context(
+                EngineRole::nanocodec_initial_4),
+            shape_parameters_,
+            codec_initial_bindings(workspace_),
+            codec_stream,
+            nullptr);
+        resources_.capture_and_upload_nanocodec_initial_graph();
+      }
+      resources_.launch_nanocodec_initial_graph();
       codec_state_index_ = 0;
     } else {
       const bool tail = batch.final;
@@ -913,17 +1049,51 @@ class Pipeline final {
       }
       const std::size_t next_state =
           1U - codec_state_index_;
-      enqueue_engine(
-          require_engine(manifest_, role),
-          resources_.context(role),
-          shape_parameters_,
-          codec_stateful_bindings(
-              workspace_,
-              tail,
-              codec_state_index_,
-              next_state),
-          codec_stream,
-          nullptr);
+      if (tail) {
+        // Tail retains its authenticated 1..8 dynamic-shape enqueue. It is
+        // never used as a fallback for a missing fixed steady graph.
+        enqueue_engine(
+            require_engine(manifest_, role),
+            resources_.context(role),
+            shape_parameters_,
+            codec_stateful_bindings(
+                workspace_,
+                true,
+                codec_state_index_,
+                next_state),
+            codec_stream,
+            nullptr);
+      } else {
+        nvinfer1::IExecutionContext& steady_context =
+            resources_.codec_steady_context(codec_state_index_);
+        if (!resources_.nanocodec_steady_graph_ready(
+                codec_state_index_)) {
+          if (startup_capture_ == nullptr) {
+            fail(
+                SynthesisPipelineErrorCode::invariant_failure,
+                "NanoCodec steady CUDA graph was absent outside the "
+                "startup gate");
+          }
+          // Each recurrent direction binds a different context and fixed
+          // A-to-B/B-to-A state addresses. The eager output is discarded and
+          // overwritten by the production graph replay below.
+          enqueue_engine(
+              require_engine(manifest_, role),
+              steady_context,
+              shape_parameters_,
+              codec_stateful_bindings(
+                  workspace_,
+                  false,
+                  codec_state_index_,
+                  next_state),
+              codec_stream,
+              nullptr);
+          resources_.capture_and_upload_nanocodec_steady_graph(
+              codec_state_index_);
+        }
+        resources_.launch_nanocodec_steady_graph(
+            codec_state_index_);
+      }
       codec_state_index_ = next_state;
     }
 
@@ -1034,6 +1204,15 @@ class Pipeline final {
           batch.final &&
           step + 1U ==
               batch.attended_token_indices.size();
+      const std::uint64_t frames_before_step =
+          static_cast<std::uint64_t>(step) *
+          manifest_.local_ar.frames_per_decoder_step;
+      if (terminal_step &&
+          batch.frame_count < frames_before_step) {
+        fail(
+            SynthesisPipelineErrorCode::invariant_failure,
+            "terminal attended prefix exceeds its codec frame count");
+      }
       const std::uint32_t step_frames =
           terminal_step
               ? batch.frame_count -
@@ -1077,7 +1256,7 @@ class Pipeline final {
     const std::shared_ptr<const float[]> samples(
         workspace_.pinned_pcm(),
         [](const float*) noexcept {});
-    if (!request_state_.publish(AudioChunk{
+    if (!publish_audio_chunk(AudioChunk{
         .samples = AudioBuffer(samples, expected_samples),
         .first_sample_index = next_sample_index_,
         .sequence = sequence_,
@@ -1087,7 +1266,7 @@ class Pipeline final {
         .alignment_valid = true,
         .committed_text_tokens = committed_text_tokens_,
         .alignment_events = std::move(events),
-    })) {
+    }, batch)) {
       return false;
     }
     next_sample_index_ += expected_samples;
@@ -1132,8 +1311,9 @@ class Pipeline final {
   StartupGoldenCapture* startup_capture_;
   EngineShapeParameters shape_parameters_;
   AlignmentKernelContract alignment_contract_;
+  std::array<std::optional<PreparedTensorAddressSet>, 2>
+      step_binding_cache_{};
   std::size_t cache_index_{0};
-  std::size_t rng_index_{0};
   std::size_t codec_state_index_{0};
   std::uint64_t generated_decoder_steps_{0};
   std::uint64_t next_sample_index_{0};
@@ -1156,6 +1336,8 @@ std::string_view to_string(
       return "cuda_failure";
     case SynthesisPipelineErrorCode::engine_failure:
       return "engine_failure";
+    case SynthesisPipelineErrorCode::main_decoder_failure:
+      return "main_decoder_failure";
     case SynthesisPipelineErrorCode::alignment_failure:
       return "alignment_failure";
     case SynthesisPipelineErrorCode::local_ar_failure:
@@ -1210,6 +1392,12 @@ void run_synthesis_pipeline(
   } catch (const EngineExecutionError& error) {
     fail(
         SynthesisPipelineErrorCode::engine_failure,
+        error.what());
+  } catch (const CudaGraphError& error) {
+    fail(
+        error.code() == CudaGraphErrorCode::captured_enqueue_failed
+            ? SynthesisPipelineErrorCode::engine_failure
+            : SynthesisPipelineErrorCode::cuda_failure,
         error.what());
   }
 }

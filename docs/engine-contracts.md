@@ -106,7 +106,10 @@ Alignment is the declared reduction of decoder layers 4, 5, 8, and 9.
 Inputs:
 
 - previous codec tokens: `[1, 8, 2] INT64`
-- `position`: scalar INT64 containing the absolute self-cache write index;
+- `position`: DEVICE scalar INT64 containing the absolute self-cache write
+  index;
+- `execution_status_in`: DEVICE scalar INT32 carrying the sticky status from
+  the previous cache direction;
 - `condition_mask`: `[2, T] BOOL`, retained unchanged from prefill;
 - current self K/V caches and key masks;
 - prefilled cross K/V tensors;
@@ -116,6 +119,8 @@ Outputs:
 
 - `decoder_hidden`: `[2, 768] BF16`
 - `alignment`: `[2, T] BF16`
+- `execution_status_out`: DEVICE scalar INT32 carrying the first mode-8
+  execution error seen by this invocation;
 - successfully updated self K/V and key-mask state.
 
 The engine includes the 16 codec-token embedding gathers, their average, and
@@ -130,9 +135,63 @@ positions are `[218, 467)`. Prefill produces the first generated decoder step;
 the 249 one-step positions plus prefill give the declared maximum of 250
 generated steps. No relative-position interpretation is accepted.
 
+`position` is an ordinary TensorRT execution input: its manifest fields are
+`location: device` and `shape_inference_io: false`. It has no optimization
+profile value range. A plan or bundle that exposes `position` as a HOST shape
+input belongs to the superseded contract and is rejected rather than adapted.
+
+`execution_status_in` and `execution_status_out` are ordinary TensorRT
+execution I/O with scalar shape, `location: device`, and
+`shape_inference_io: false`. A-to-B consumes the preceding B-to-A status and
+B-to-A consumes the preceding A-to-B status. The runtime initializes the first
+input to zero, then checks each output before starting the following Local AR
+invocation. A nonzero value is never cleared by a later layer or cache
+direction.
+
+Status bit 31 is zero. Bits 30 through 28 contain the category (`1` invalid
+active K, `2` CUDA graph-update failure), bits 27 through 24 contain the Main
+Decoder layer index, bits 23 through 22 contain the operation (`0` selector,
+`1` QK, `2` PV), and bits 21 through 0 contain the exact detail value. Invalid
+K uses detail zero; CUDA failures retain the exact CUDA status. Every one of
+the 12 mode-8 plugin instances has an immutable `layer_index` field matching
+its decoder-layer order. A status-less plan, a non-scalar status binding, or a
+HOST status binding is rejected rather than adapted.
+
+The mode-8 plugin publishes one immutable launch-class table after discovery:
+7 QK classes, 14 PV classes, and one QK/PV class-and-grid mapping for every
+active K from 219 through 467. Its identity JSON contains ASCII kernel names,
+ASCII operation/transport enums, and integers only. The SHA-256 payload is
+exactly compact JSON with lexicographically sorted object keys
+(`ensure_ascii=true`, separators `,` and `:`), encoded as ASCII with no
+trailing newline. Pointer values and opaque cuBLAS parameter bytes are never
+part of this identity.
+
+At each request boundary the runtime initializes `position` to `217`. Every
+one-step invocation increments that device scalar before TensorRT executes, so
+the plan observes `218, 219, ...` without a HOST shape-input ring or a
+per-step H2D copy. The increment is the first node in both Main Decoder CUDA
+Graphs. The same increment precedes the one eager warmup execution for each
+cache direction, which keeps eager, captured, and replayed position semantics
+identical.
+
+Main Decoder owns separate A-to-B and B-to-A TensorRT contexts. The first
+A-to-B eager result is retained on the first-audio path. After first audio is
+published, the first B-to-A eager result is also retained. The next invocation
+of each direction is captured and immediately launched; direct enqueue is not
+accepted after that direction's single warmup. Because the plan retains
+request-length `T` in its mask, prior, and cross K/V tensors, both graphs are
+destroyed and recaptured for every request. There is no startup-graph or
+same-length reuse branch.
+
 ## Local AR and sampling
 
 The Local AR engine is statically unrolled across `8 × 2 = 16` positions.
+Its fixed tensor shapes permit one captured CUDA Graph. The runtime binds that
+graph to one canonical `unfinished` input, one canonical invalid-row output,
+one canonical EOS output, and fixed RNG counter input/output addresses.
+Logical-step diagnostics are separate storage and are populated only by the
+ordered post-graph commit kernel, so a later Local invocation cannot overwrite
+an earlier step before batch diagnostics are copied to the host.
 
 Inputs:
 
@@ -343,5 +402,22 @@ The initial 4-frame plan has no causal-state input. It creates the deterministic
 initial state inside the verified plan and returns every declared state output.
 The steady and tail plans consume and replace those explicit state tensors.
 The runtime never guesses or fills a missing state tensor.
+
+The fixed initial-4 execution and both fixed steady-8 directions are mandatory
+CUDA Graph routes. Initial-4 writes state A. Steady A-to-B and steady B-to-A
+use separate TensorRT execution contexts and separate immutable graph
+executables; one context must never be captured into both graphs. The runtime
+performs one discarded startup warmup for each route, captures it with its
+production tensor addresses, and then admits only graph replay output. A
+missing, failed, or unaccounted fixed-route graph closes the startup gate and
+has no eager-enqueue fallback.
+
+Tail-1-through-8 remains the authenticated dynamic-shape TensorRT route. That
+direct enqueue is valid only for a terminal batch and cannot substitute for a
+missing initial or steady graph. Before workspace allocation, the runtime adds
+the second steady context's `getDeviceMemorySizeV2()` to explicit session
+context memory. CUDA Graph executable memory is measured independently using
+current and high-water device graph attributes after startup replay; both
+amounts must fit `maximum_device_memory_bytes`.
 
 A 12-frame rolling re-decode route is not part of this contract.

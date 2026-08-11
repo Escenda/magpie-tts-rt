@@ -20,6 +20,42 @@ sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
 
 
+def valid_cublas_identity() -> MODULE.CublasRuntimeIdentity:
+    return MODULE.parse_cublas_runtime_identity(
+        {
+            "api_version_integer": 130400,
+            "library": {
+                "soname": "libcublas.so.13",
+                "size_bytes": 67_751_616,
+                "sha256": (
+                    "826486b8869144621e3a477cddcd28f56733c7c80c6f998b"
+                    "898384fc09e10f91"
+                ),
+            },
+            "lt_library": {
+                "soname": "libcublasLt.so.13",
+                "size_bytes": 606_744_240,
+                "sha256": (
+                    "b7aa42c190c2e7490abd6ea987883e05678e26222b7f9f1c9"
+                    "b96374fcbddbf04"
+                ),
+            },
+        },
+        "test.cublas",
+    )
+
+
+def valid_cuda_identity() -> MODULE.CudaRuntimeIdentity:
+    return MODULE.parse_cuda_runtime_identity(
+        {
+            "cuda_driver_api_version_integer": 13020,
+            "cuda_runtime_version_integer": 13020,
+            "nvidia_driver_version": "595.78",
+        },
+        "test.cuda",
+    )
+
+
 def valid_package_spec() -> MODULE.JsonObject:
     fixture = json.loads(
         (
@@ -344,6 +380,75 @@ class FakeEngine:
         return False
 
 
+class FakeMainDecoderStepPositionEngine:
+    num_optimization_profiles = 1
+
+    def __init__(
+        self,
+        *,
+        position_location: str = FakeTensorLocation.DEVICE,
+        position_shape_inference_io: bool = False,
+        include_execution_status: bool = True,
+        status_dtype: str = "int32",
+    ) -> None:
+        status_records = (
+            (
+                "execution_status_in",
+                FakeTensorIOMode.INPUT,
+                status_dtype,
+                (),
+            ),
+            (
+                "execution_status_out",
+                FakeTensorIOMode.OUTPUT,
+                status_dtype,
+                (),
+            ),
+        ) if include_execution_status else ()
+        self.records = (
+            ("position", FakeTensorIOMode.INPUT, "int64", ()),
+            *status_records,
+            ("decoder_hidden", FakeTensorIOMode.OUTPUT, "bf16", (2, 768)),
+        )
+        self.num_io_tensors = len(self.records)
+        self.position_location = position_location
+        self.position_shape_inference_io = position_shape_inference_io
+
+    def get_tensor_name(self, index: int) -> str:
+        return self.records[index][0]
+
+    def get_tensor_mode(self, name: str) -> str:
+        return next(record[1] for record in self.records if record[0] == name)
+
+    def get_tensor_dtype(self, name: str) -> str:
+        return next(record[2] for record in self.records if record[0] == name)
+
+    def get_tensor_shape(self, name: str) -> tuple[int, ...]:
+        return next(record[3] for record in self.records if record[0] == name)
+
+    def get_tensor_location(self, name: str) -> str:
+        if name == "position":
+            return self.position_location
+        if name in {
+            "decoder_hidden",
+            "execution_status_in",
+            "execution_status_out",
+        }:
+            return FakeTensorLocation.DEVICE
+        raise RuntimeError("unknown tensor")
+
+    def is_shape_inference_io(self, name: str) -> bool:
+        if name == "position":
+            return self.position_shape_inference_io
+        if name in {
+            "decoder_hidden",
+            "execution_status_in",
+            "execution_status_out",
+        }:
+            return False
+        raise RuntimeError("unknown tensor")
+
+
 def fake_codec_engine(
     role: str,
     *,
@@ -549,7 +654,12 @@ def valid_golden_contract(
     return (
         fixture,
         receipt,
-        MODULE.ExportReceiptEvidence(oracle_lock_sha256),
+        MODULE.ExportReceiptEvidence(
+            oracle_lock_sha256=oracle_lock_sha256,
+            cuda_identity=valid_cuda_identity(),
+            cublas_identity=valid_cublas_identity(),
+            mode8_class_table_sha256="f" * 64,
+        ),
     )
 
 
@@ -604,6 +714,20 @@ def valid_consolidated_receipt(
             "tokenizer_identity_receipt_sha256": (
                 files["tokenizer_identity_receipt"].sha256
             ),
+            "locked_magpie_restore_sha256": "7" * 64,
+            "codec_restore": {
+                "embedded_codec_model_id": "nvidia/locked-codec",
+                "codec_model_sha256": "9" * 64,
+                "codec_model_size_bytes": 123,
+                "codec_resolution": "authenticated_local_file",
+                "use_scl_loss": False,
+                "network_resolution": False,
+            },
+        },
+        "runtime_dependencies": {
+            "cuda": valid_cuda_identity().to_json(),
+            "cublas": valid_cublas_identity().to_json(),
+            "mode8_class_table_sha256": "f" * 64,
         },
         "component_receipts": [
             {
@@ -712,6 +836,9 @@ def valid_plugin_build_receipt(
                 "CMAKE_CUDA_ARCHITECTURES=110",
                 "MAGPIE_TTS_RT_WARNINGS_AS_ERRORS=ON",
             ],
+        },
+        "runtime_dependencies": {
+            "cublas": valid_cublas_identity().to_json(),
         },
     }
 
@@ -1052,6 +1179,57 @@ class PackageSpecificationTests(unittest.TestCase):
                     path, specification, files
                 )
 
+    def test_consolidated_receipt_without_cublas_fails_closed(self) -> None:
+        specification = MODULE.parse_package_spec(valid_package_spec())
+        files = fake_bundle_files()
+        receipt = valid_consolidated_receipt(specification, files)
+        del receipt["runtime_dependencies"]
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "receipt.json"
+            path.write_text(json.dumps(receipt), encoding="utf-8")
+            with self.assertRaisesRegex(
+                MODULE.PackageError,
+                "runtime_dependencies",
+            ):
+                MODULE.validate_consolidated_export_receipt(
+                    path, specification, files
+                )
+
+    def test_consolidated_receipt_without_cuda_identity_fails_closed(
+        self,
+    ) -> None:
+        specification = MODULE.parse_package_spec(valid_package_spec())
+        files = fake_bundle_files()
+        receipt = valid_consolidated_receipt(specification, files)
+        del receipt["runtime_dependencies"]["cuda"]
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "receipt.json"
+            path.write_text(json.dumps(receipt), encoding="utf-8")
+            with self.assertRaisesRegex(
+                MODULE.PackageError, "keys mismatch.*cuda"
+            ):
+                MODULE.validate_consolidated_export_receipt(
+                    path, specification, files
+                )
+
+    def test_consolidated_receipt_without_mode8_digest_fails_closed(
+        self,
+    ) -> None:
+        specification = MODULE.parse_package_spec(valid_package_spec())
+        files = fake_bundle_files()
+        receipt = valid_consolidated_receipt(specification, files)
+        del receipt["runtime_dependencies"]["mode8_class_table_sha256"]
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "receipt.json"
+            path.write_text(json.dumps(receipt), encoding="utf-8")
+            with self.assertRaisesRegex(
+                MODULE.PackageError,
+                "keys mismatch.*mode8_class_table_sha256",
+            ):
+                MODULE.validate_consolidated_export_receipt(
+                    path, specification, files
+                )
+
     def test_plugin_build_receipt_authenticates_exact_plugin(self) -> None:
         plugin = fake_bundle_files()["plugin"]
         receipt = valid_plugin_build_receipt(plugin)
@@ -1072,6 +1250,23 @@ class PackageSpecificationTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 MODULE.PackageError,
                 "does not authenticate",
+            ):
+                MODULE.validate_plugin_build_receipt(path, plugin)
+
+    def test_plugin_build_receipt_rejects_mutated_cublas_identity(
+        self,
+    ) -> None:
+        plugin = fake_bundle_files()["plugin"]
+        receipt = valid_plugin_build_receipt(plugin)
+        receipt["runtime_dependencies"]["cublas"]["lt_library"][
+            "soname"
+        ] = "libcublasLt.so.12"
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "plugin-build.json"
+            path.write_text(json.dumps(receipt), encoding="utf-8")
+            with self.assertRaisesRegex(
+                MODULE.PackageError,
+                "libcublasLt.so.13",
             ):
                 MODULE.validate_plugin_build_receipt(path, plugin)
 
@@ -1514,6 +1709,66 @@ class EngineIntrospectionTests(unittest.TestCase):
             inspected.profiles[0].input_shapes[0].maximum,
             (1, 512),
         )
+
+    def test_main_decoder_position_is_device_execution_input(self) -> None:
+        inspected = MODULE.inspect_engine(
+            FakeTensorRt,
+            FakeMainDecoderStepPositionEngine(),
+            "main_decoder_step",
+        )
+        self.assertEqual(inspected.inputs[0].location, "device")
+        self.assertFalse(inspected.inputs[0].shape_inference_io)
+        self.assertEqual(inspected.profiles[0].input_values, ())
+
+    def test_host_main_decoder_position_is_rejected(self) -> None:
+        with self.assertRaisesRegex(
+            MODULE.PackageError,
+            "position must be the authenticated DEVICE execution input",
+        ):
+            MODULE.inspect_engine(
+                FakeTensorRt,
+                FakeMainDecoderStepPositionEngine(
+                    position_location=FakeTensorLocation.HOST,
+                ),
+                "main_decoder_step",
+            )
+
+    def test_shape_inference_main_decoder_position_is_rejected(self) -> None:
+        with self.assertRaisesRegex(
+            MODULE.PackageError,
+            "position must be the authenticated DEVICE execution input",
+        ):
+            MODULE.inspect_engine(
+                FakeTensorRt,
+                FakeMainDecoderStepPositionEngine(
+                    position_shape_inference_io=True,
+                ),
+                "main_decoder_step",
+            )
+
+    def test_main_decoder_without_execution_status_is_rejected(self) -> None:
+        with self.assertRaisesRegex(
+            MODULE.PackageError,
+            "execution_status_in/out are mandatory",
+        ):
+            MODULE.inspect_engine(
+                FakeTensorRt,
+                FakeMainDecoderStepPositionEngine(
+                    include_execution_status=False,
+                ),
+                "main_decoder_step",
+            )
+
+    def test_main_decoder_execution_status_dtype_is_rejected(self) -> None:
+        with self.assertRaisesRegex(
+            MODULE.PackageError,
+            "execution status must be scalar int32",
+        ):
+            MODULE.inspect_engine(
+                FakeTensorRt,
+                FakeMainDecoderStepPositionEngine(status_dtype="int64"),
+                "main_decoder_step",
+            )
 
     def test_codec_state_registry_is_derived_from_plans(self) -> None:
         engines = {

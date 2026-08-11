@@ -4,7 +4,16 @@
 
 #include <cuda_runtime_api.h>
 
+#include "runtime/generation_diagnostics.hpp"
+
 namespace magpie_tts_rt {
+
+// Advances the request-owned absolute Main Decoder position entirely on the
+// generation stream. The same launch precedes eager warmup enqueues and is
+// captured as the first node of both recurrent CUDA Graph directions.
+[[nodiscard]] cudaError_t launch_advance_decoder_position(
+    std::int64_t* decoder_position,
+    cudaStream_t stream) noexcept;
 
 // Expands Text Encoder [1,T,768] BF16 output into the exact two-row CFG
 // contract and constructs the conditional/unconditional masks. No host
@@ -17,12 +26,29 @@ namespace magpie_tts_rt {
     bool* condition_mask,
     cudaStream_t stream) noexcept;
 
-// Copies one Local AR [1,8,2] result into the codebook-major
-// [1,8,8] codec submission buffer at frame_offset.
-[[nodiscard]] cudaError_t launch_append_codec_step(
+// Commits one graph-backed Local AR result. The engine always writes its
+// diagnostics and RNG counter to fixed canonical addresses; this kernel copies
+// those values to the logical step, advances the canonical RNG input, appends
+// the [1,8,2] codec result, and latches EOS in one ordered operation.
+[[nodiscard]] cudaError_t launch_finalize_local_step(
     const std::int64_t* step_codec_tokens,
     std::int64_t* aggregate_codec_tokens,
     std::uint32_t frame_offset,
+    const std::int32_t* canonical_invalid_rows,
+    const std::int32_t* canonical_end_frame_index,
+    std::int32_t* step_invalid_rows,
+    std::int32_t* step_end_frame_index,
+    const std::int64_t* updated_rng_counter,
+    std::int64_t* rng_counter,
+    bool* generation_finished,
+    cudaStream_t stream) noexcept;
+
+// Packs all host-observed generation diagnostics into one fixed record so a
+// generation batch performs exactly one device-to-host transfer.
+[[nodiscard]] cudaError_t launch_pack_generation_diagnostics(
+    const GenerationDiagnosticSources& sources,
+    std::uint32_t step_count,
+    GenerationBatchDiagnostics* output,
     cudaStream_t stream) noexcept;
 
 // Packs the first frame_count columns from the internal [1,8,8] stride into
@@ -31,14 +57,6 @@ namespace magpie_tts_rt {
     const std::int64_t* aggregate_codec_tokens,
     std::int64_t* packed_codec_tokens,
     std::uint32_t frame_count,
-    cudaStream_t stream) noexcept;
-
-// Marks the remaining speculative Local AR steps as finished after the first
-// EOS result. The next Local AR invocation will therefore emit forced EOS
-// tokens instead of consuming another meaningful random branch.
-[[nodiscard]] cudaError_t launch_latch_generation_finished(
-    const std::int32_t* end_frame_index,
-    bool* generation_finished,
     cudaStream_t stream) noexcept;
 
 }  // namespace magpie_tts_rt

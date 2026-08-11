@@ -27,6 +27,8 @@ from typing import Protocol
 import torch
 
 from alignment_controller import SofiaAlignmentController
+from cublas_runtime_identity import collect_cublas_runtime_identity
+from cuda_runtime_identity import collect_cuda_runtime_identity
 from export_main_decoder import (
     DECODER_LAYERS,
     MODEL_WIDTH,
@@ -46,8 +48,10 @@ from sequence_contract import (
     SequenceCodeTracker,
 )
 from validate_main_decoder_plans import (
+    AuthenticatedCodecRestore,
     AuthenticatedPlanExport,
     JsonValue,
+    authenticate_codec_restore,
     authenticate_plan_export,
     load_fixture_metadata,
     load_json,
@@ -80,6 +84,8 @@ class AuthenticatedLocalARExport:
     root: Path
     receipt_sha256: str
     oracle_lock_sha256: str
+    locked_magpie_restore_sha256: str
+    codec_restore: AuthenticatedCodecRestore
     source_fixture_manifest_sha256s: tuple[str, ...]
     plan: Path
     plan_sha256: str
@@ -96,6 +102,8 @@ class AuthenticatedTextEncoderExport:
     root: Path
     receipt_sha256: str
     oracle_lock_sha256: str
+    locked_magpie_restore_sha256: str
+    codec_restore: AuthenticatedCodecRestore
     source_fixture_manifest_sha256: str
     required_plugin_sha256: str
     plan: Path
@@ -145,7 +153,13 @@ class TensorRTPlanSession:
             raise RuntimeError(
                 f"failed to create TensorRT context: {self.plan_path}"
             )
-        self._host_inputs: dict[str, torch.Tensor] = {}
+        # The Main Decoder mode-8 plugin builds a CUDA Graph bank against the
+        # first execution's exact tensor addresses.  A reused TensorRT context
+        # therefore requires stable I/O storage; rebinding newly allocated
+        # tensors on a later decoder step is a contract violation, not a
+        # recoverable allocation detail.
+        self._bound_inputs: dict[str, torch.Tensor] = {}
+        self._outputs: dict[str, torch.Tensor] = {}
 
     def execute(
         self,
@@ -182,11 +196,19 @@ class TensorRTPlanSession:
             location = self.engine.get_tensor_location(name)
             if location == self.tensorrt.TensorLocation.HOST:
                 source = value.detach().cpu().contiguous()
-                bound = torch.empty_like(
-                    source,
-                    device="cpu",
-                    pin_memory=True,
-                )
+                bound = self._bound_inputs.get(name)
+                if (
+                    bound is None
+                    or bound.device.type != "cpu"
+                    or not bound.is_pinned()
+                    or bound.dtype != source.dtype
+                    or tuple(bound.shape) != tuple(source.shape)
+                ):
+                    bound = torch.empty_like(
+                        source,
+                        device="cpu",
+                        pin_memory=True,
+                    )
                 bound.copy_(source)
                 if bound.data_ptr() % 256 != 0:
                     raise RuntimeError(
@@ -202,7 +224,15 @@ class TensorRTPlanSession:
                         f"TensorRT input {name} must be contiguous on "
                         "the current CUDA device"
                     )
-                bound = value
+                bound = self._bound_inputs.get(name)
+                if (
+                    bound is None
+                    or bound.device != value.device
+                    or bound.dtype != value.dtype
+                    or tuple(bound.shape) != tuple(value.shape)
+                ):
+                    bound = torch.empty_like(value)
+                bound.copy_(value)
             else:
                 raise RuntimeError(
                     f"TensorRT input {name} has unsupported location "
@@ -222,11 +252,7 @@ class TensorRTPlanSession:
             if not self.context.set_tensor_address(name, bound.data_ptr()):
                 raise RuntimeError(f"failed to bind TensorRT input: {name}")
             bound_inputs[name] = bound
-        self._host_inputs = {
-            name: value
-            for name, value in bound_inputs.items()
-            if value.device.type == "cpu"
-        }
+        self._bound_inputs = bound_inputs
         missing = self.context.infer_shapes()
         if missing:
             raise RuntimeError(
@@ -247,11 +273,20 @@ class TensorRTPlanSession:
                     raise RuntimeError(
                         f"unsupported TensorRT output dtype: {name}"
                     )
-                value = torch.empty(
-                    tuple(self.context.get_tensor_shape(name)),
-                    dtype=dtype,
-                    device="cuda",
-                )
+                output_shape = tuple(self.context.get_tensor_shape(name))
+                value = self._outputs.get(name)
+                if (
+                    value is None
+                    or value.device.type != "cuda"
+                    or value.device.index != torch.cuda.current_device()
+                    or value.dtype != dtype
+                    or tuple(value.shape) != output_shape
+                ):
+                    value = torch.empty(
+                        output_shape,
+                        dtype=dtype,
+                        device="cuda",
+                    )
                 outputs[name] = value
             if not self.context.set_tensor_address(name, value.data_ptr()):
                 raise RuntimeError(f"failed to bind TensorRT tensor: {name}")
@@ -261,6 +296,7 @@ class TensorRTPlanSession:
             raise RuntimeError(
                 f"TensorRT execution failed: {self.plan_path}"
             )
+        self._outputs = outputs
         return outputs
 
 
@@ -450,6 +486,14 @@ def authenticate_text_encoder_export(
             source.get("oracle_lock_sha256"),
             "text receipt.source.oracle_lock_sha256",
         ),
+        locked_magpie_restore_sha256=require_sha256(
+            source.get("locked_magpie_restore_sha256"),
+            "text receipt.source.locked_magpie_restore_sha256",
+        ),
+        codec_restore=authenticate_codec_restore(
+            source,
+            "text receipt.source",
+        ),
         source_fixture_manifest_sha256=require_sha256(
             source.get("boundary_fixture_manifest_sha256"),
             "text receipt.source.boundary_fixture_manifest_sha256",
@@ -635,6 +679,11 @@ def authenticate_local_ar_export(
             source.get("oracle_lock_sha256"),
             "receipt.source.oracle_lock_sha256",
         ),
+        locked_magpie_restore_sha256=require_sha256(
+            source.get("locked_magpie_restore_sha256"),
+            "receipt.source.locked_magpie_restore_sha256",
+        ),
+        codec_restore=authenticate_codec_restore(source, "receipt.source"),
         source_fixture_manifest_sha256s=source_manifest_sha256s,
         plan=plan,
         plan_sha256=plan_sha256,
@@ -879,6 +928,8 @@ def run_fixture_sequence(
     )
     tracker = SequenceCodeTracker()
     attended_trace: list[int] = []
+    execution_status = torch.zeros((), dtype=torch.int32, device="cuda")
+    execution_status_check_count = 0
 
     while True:
         alignment_update = alignment_controller.update(alignment)
@@ -908,6 +959,7 @@ def run_fixture_sequence(
                 dtype=torch.int64,
                 device="cuda",
             ),
+            "execution_status_in": execution_status,
             "alignment_prior": alignment_update.prior,
             "condition_mask": condition_mask,
         }
@@ -918,6 +970,14 @@ def run_fixture_sequence(
             step_inputs[f"step_cross_key_in_{layer}"] = cross_keys[layer]
             step_inputs[f"step_cross_value_in_{layer}"] = cross_values[layer]
         step_outputs = step_session.execute(step_inputs)
+        execution_status = step_outputs["execution_status_out"]
+        execution_status_check_count += 1
+        status_value = int(execution_status.item())
+        if status_value != 0:
+            raise RuntimeError(
+                "Main Decoder execution status failed closed before the "
+                f"next Local AR invocation: status={status_value}"
+            )
         decoder_hidden = step_outputs["decoder_hidden"]
         alignment = step_outputs["alignment"]
         self_keys = [
@@ -976,6 +1036,10 @@ def run_fixture_sequence(
         "final_rng_counter": comparison.final_rng_counter,
         "alignment_monotonic": True,
         "attended_trace_length": len(attended_trace),
+        "main_execution_status_check_count": (
+            execution_status_check_count
+        ),
+        "main_execution_status_all_zero": True,
         "artifacts": artifacts,
     }
 
@@ -1016,6 +1080,7 @@ def main() -> int:
 
     lock_path = args.lock.resolve(strict=True)
     lock_sha256 = sha256_file(lock_path)
+    lock = require_mapping(json.loads(lock_path.read_text(encoding="utf-8")), "lock")
     text_encoder_export = authenticate_text_encoder_export(
         args.text_encoder_export
     )
@@ -1032,6 +1097,39 @@ def main() -> int:
             f"text_encoder={text_encoder_export.oracle_lock_sha256}, "
             f"main={main_export.oracle_lock_sha256}, "
             f"local_ar={local_ar_export.oracle_lock_sha256}"
+        )
+    expected_restore_sha256 = sha256_file(
+        (Path(__file__).parent / "locked_magpie_restore.py").resolve(strict=True)
+    )
+    restore_sha256s = {
+        text_encoder_export.locked_magpie_restore_sha256,
+        main_export.locked_magpie_restore_sha256,
+        local_ar_export.locked_magpie_restore_sha256,
+    }
+    if restore_sha256s != {expected_restore_sha256}:
+        raise RuntimeError(
+            "Text/Main/Local use different or non-current locked Magpie "
+            f"restore helpers: {sorted(restore_sha256s)}"
+        )
+    codec_lock = require_mapping(lock.get("codec"), "lock.codec")
+    expected_codec_restore = AuthenticatedCodecRestore(
+        embedded_codec_model_id=require_string(
+            codec_lock.get("model_id"), "lock.codec.model_id"
+        ),
+        codec_model_sha256=require_sha256(
+            codec_lock.get("sha256"), "lock.codec.sha256"
+        ),
+        codec_model_size_bytes=require_nonnegative_integer(
+            codec_lock.get("size_bytes"), "lock.codec.size_bytes"
+        ),
+    )
+    if (
+        text_encoder_export.codec_restore != expected_codec_restore
+        or main_export.codec_restore != expected_codec_restore
+        or local_ar_export.codec_restore != expected_codec_restore
+    ):
+        raise RuntimeError(
+            "Text/Main/Local codec restore identities differ from the lock"
         )
     if (
         text_encoder_export.source_fixture_manifest_sha256
@@ -1139,6 +1237,20 @@ def main() -> int:
             plan_path=local_ar_export.plan,
             plugin_path=local_ar_export.plugin,
         )
+        cublas_identity = collect_cublas_runtime_identity(
+            local_ar_session.plugin.library
+        )
+        cuda_identity = collect_cuda_runtime_identity()
+        if cuda_identity != main_export.cuda_identity:
+            raise RuntimeError(
+                "sequence CUDA runtime identity differs from the Main "
+                "Decoder export"
+            )
+        if cublas_identity != main_export.cublas_identity:
+            raise RuntimeError(
+                "sequence cuBLAS identity differs from the Main Decoder "
+                "export"
+            )
         text_encoder_session = TensorRTPlanSession(
             tensorrt=tensorrt,
             plan_path=text_encoder_export.plan,
@@ -1218,6 +1330,21 @@ def main() -> int:
                     ).resolve(strict=True)
                 ),
                 "oracle_lock_sha256": lock_sha256,
+                "locked_magpie_restore_sha256": expected_restore_sha256,
+                "codec_restore": {
+                    "embedded_codec_model_id": (
+                        expected_codec_restore.embedded_codec_model_id
+                    ),
+                    "codec_model_sha256": (
+                        expected_codec_restore.codec_model_sha256
+                    ),
+                    "codec_model_size_bytes": (
+                        expected_codec_restore.codec_model_size_bytes
+                    ),
+                    "codec_resolution": "authenticated_local_file",
+                    "use_scl_loss": False,
+                    "network_resolution": False,
+                },
                 "text_encoder_export_receipt_sha256": (
                     text_encoder_export.receipt_sha256
                 ),
@@ -1225,6 +1352,9 @@ def main() -> int:
                     text_encoder_export.plan_sha256
                 ),
                 "main_export_receipt_sha256": main_export.receipt_sha256,
+                "main_mode8_validation_receipt_sha256": (
+                    main_export.mode8_validation_receipt_sha256
+                ),
                 "main_prefill_plan_sha256": main_export.prefill_plan_sha256,
                 "main_step_plan_sha256": main_export.step_plan_sha256,
                 "local_ar_export_receipt_sha256": (
@@ -1238,6 +1368,7 @@ def main() -> int:
                 "torch": torch.__version__,
                 "torch_cuda_build": torch.version.cuda,
                 "cudnn": torch.backends.cudnn.version(),
+                "cuda": cuda_identity.to_json(),
                 "tensorrt": tensorrt.__version__,
                 "gpu_name": torch.cuda.get_device_name(0),
                 "gpu_compute_capability": list(
@@ -1250,6 +1381,10 @@ def main() -> int:
                     torch.backends.cuda.matmul.allow_tf32
                 ),
                 "cudnn_allow_tf32": torch.backends.cudnn.allow_tf32,
+                "cublas": cublas_identity.to_json(),
+                "mode8_class_table_sha256": (
+                    main_export.mode8_class_table_sha256
+                ),
             },
             "session_policy": {
                 "ignore_finished_sentence_tracking": True,
@@ -1261,6 +1396,10 @@ def main() -> int:
                 "maximum_decoder_steps": MAX_DECODER_STEPS,
                 "text_encoder_plan_and_context_reuse": True,
                 "plan_and_context_reuse": True,
+                "main_execution_status_recurrence": (
+                    "int32-device-scalar-sticky-12-layer"
+                ),
+                "main_execution_status_checked_before_next_local_ar": True,
             },
             "fixture_count": len(cases),
             "exact_code_case_count": exact_case_count,

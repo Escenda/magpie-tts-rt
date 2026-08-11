@@ -19,8 +19,9 @@ namespace {
 
 [[noreturn]] void fail_state(
     const RequestStateErrorCode code,
-    const std::string& detail) {
-  throw RequestStateError(code, detail);
+    const std::string& detail,
+    const std::int64_t alignment_event_index = -1) {
+  throw RequestStateError(code, detail, alignment_event_index);
 }
 
 [[nodiscard]] bool is_terminal_state(
@@ -110,10 +111,12 @@ std::string_view to_string(const RequestStateErrorCode code) noexcept {
 
 RequestStateError::RequestStateError(
     const RequestStateErrorCode code,
-    std::string detail)
+    std::string detail,
+    const std::int64_t alignment_event_index)
     : std::runtime_error(build_error_message(code, detail)),
       code_(code),
-      detail_(std::move(detail)) {}
+      detail_(std::move(detail)),
+      alignment_event_index_(alignment_event_index) {}
 
 RequestStateErrorCode RequestStateError::code() const noexcept {
   return code_;
@@ -121,6 +124,51 @@ RequestStateErrorCode RequestStateError::code() const noexcept {
 
 const std::string& RequestStateError::detail() const noexcept {
   return detail_;
+}
+
+std::int64_t RequestStateError::alignment_event_index() const noexcept {
+  return alignment_event_index_;
+}
+
+std::string describe_audio_chunk_validation_failure(
+    const RequestStateError& error,
+    const AudioChunk& chunk,
+    const AudioChunkOrigin& origin) {
+  const std::uint64_t chunk_end =
+      chunk.first_sample_index + chunk.samples.size();
+  std::string diagnostic =
+      "audio_chunk_diag{seed=" + std::to_string(origin.random_seed) +
+      ",event_index=" +
+      std::to_string(error.alignment_event_index()) +
+      ",chunk=[" + std::to_string(chunk.first_sample_index) + "," +
+      std::to_string(chunk_end) + ")" +
+      ",frames=" + std::to_string(chunk.codec_frame_count) +
+      ",eos_step=" + std::to_string(origin.eos_step) +
+      ",eos_frame=" + std::to_string(origin.eos_frame_index) +
+      ",attended=[";
+  for (std::size_t index = 0;
+       index < origin.attended_token_indices.size();
+       ++index) {
+    if (index != 0) {
+      diagnostic += ',';
+    }
+    diagnostic +=
+        std::to_string(origin.attended_token_indices[index]);
+  }
+  diagnostic += ']';
+  const std::int64_t event_index = error.alignment_event_index();
+  if (event_index >= 0 &&
+      static_cast<std::uint64_t>(event_index) <
+          chunk.alignment_events.size()) {
+    const AlignmentProgress& event =
+        chunk.alignment_events[static_cast<std::size_t>(event_index)];
+    diagnostic +=
+        ",event_sample=" + std::to_string(event.sample_index) +
+        ",event_tokens=" +
+        std::to_string(event.committed_text_tokens);
+  }
+  diagnostic += "}; validation=" + error.detail();
+  return diagnostic;
 }
 
 AudioBuffer::AudioBuffer(std::vector<float> samples)
@@ -291,19 +339,25 @@ void StreamingRequestState::validate_chunk_locked(
         RequestStateErrorCode::invalid_audio_chunk,
         "lease-level alignment progress cannot advance without an event");
   }
-  for (const AlignmentProgress& event : chunk.alignment_events) {
+  for (std::size_t event_index = 0;
+       event_index < chunk.alignment_events.size();
+       ++event_index) {
+    const AlignmentProgress& event =
+        chunk.alignment_events[event_index];
     if (event.sample_index <= previous_sample ||
         event.sample_index > chunk_end ||
         event.sample_index % kCodecSamplesPerFrame != 0) {
       fail_state(
           RequestStateErrorCode::invalid_audio_chunk,
-          "alignment event is outside its lease or not frame-aligned");
+          "alignment event is outside its lease or not frame-aligned",
+          static_cast<std::int64_t>(event_index));
     }
     if (event.committed_text_tokens <= previous_tokens ||
         event.committed_text_tokens > text_token_count_) {
       fail_state(
           RequestStateErrorCode::invalid_audio_chunk,
-          "alignment token progress is not a strict in-range advance");
+          "alignment token progress is not a strict in-range advance",
+          static_cast<std::int64_t>(event_index));
     }
     previous_sample = event.sample_index;
     previous_tokens = event.committed_text_tokens;
@@ -317,7 +371,7 @@ void StreamingRequestState::validate_chunk_locked(
   }
 }
 
-bool StreamingRequestState::publish(AudioChunk chunk) {
+bool StreamingRequestState::publish(AudioChunk&& chunk) {
   std::unique_lock lock(mutex_);
   if (cancellation_requested_) {
     // Cancellation acceptance closes publication atomically, but only the

@@ -1,7 +1,7 @@
 use std::mem::size_of;
 use std::process::Command;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -18,6 +18,9 @@ static AUDIO_ACQUIRE_MODE: AtomicUsize = AtomicUsize::new(0);
 static AUDIO_ACQUIRE_CALLS: AtomicUsize = AtomicUsize::new(0);
 static SNAPSHOT_MODE: AtomicUsize = AtomicUsize::new(0);
 static SNAPSHOT_CALLS: AtomicUsize = AtomicUsize::new(0);
+static LAST_WAIT_TIMEOUT_NANOSECONDS: AtomicU64 = AtomicU64::new(0);
+static REQUEST_WAIT_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+static REQUEST_OPERATION_OVERLAP: AtomicBool = AtomicBool::new(false);
 static CANCEL_MODE: AtomicUsize = AtomicUsize::new(0);
 static REQUEST_START_MODE: AtomicUsize = AtomicUsize::new(0);
 static AUDIO: [f32; 4_096] = [0.25; 4_096];
@@ -90,6 +93,14 @@ unsafe fn write_error(
     error.stage = stage;
     error.message = [0; sys::MTT_ERROR_MESSAGE_CAPACITY as usize];
     error.message[0] = b'm' as core::ffi::c_char;
+}
+
+unsafe fn write_control_error(error: *mut sys::mtt_error_v1_t, status: sys::mtt_status_t) {
+    // SAFETY: mock functions receive a writable initialized error structure.
+    let error = unsafe { &mut *error };
+    error.code = status;
+    error.stage = sys::MTT_ERROR_STAGE_REQUEST;
+    error.message = [0; sys::MTT_ERROR_MESSAGE_CAPACITY as usize];
 }
 
 unsafe extern "C" fn runtime_create(
@@ -325,20 +336,66 @@ unsafe extern "C" fn request_poll(
 unsafe extern "C" fn request_wait(
     _request: *mut sys::mtt_request_t,
     after_revision: u64,
-    _timeout_nanoseconds: u64,
+    timeout_nanoseconds: u64,
     snapshot: *mut sys::mtt_request_snapshot_v1_t,
-    _error: *mut sys::mtt_error_v1_t,
+    error: *mut sys::mtt_error_v1_t,
 ) -> sys::mtt_status_t {
     record("request_wait");
+    LAST_WAIT_TIMEOUT_NANOSECONDS.store(timeout_nanoseconds, Ordering::SeqCst);
+    if REQUEST_WAIT_IN_FLIGHT.swap(true, Ordering::SeqCst) {
+        REQUEST_OPERATION_OVERLAP.store(true, Ordering::SeqCst);
+    }
+    let call_index = SNAPSHOT_CALLS.fetch_add(1, Ordering::SeqCst);
+    let mode = SNAPSHOT_MODE.load(Ordering::SeqCst);
+    if mode == 17 && call_index > 0 {
+        thread::sleep(Duration::from_nanos(timeout_nanoseconds));
+        // SAFETY: error is the writable initialized buffer supplied by the wrapper.
+        unsafe { write_control_error(error, sys::MTT_STATUS_TIMEOUT) };
+        REQUEST_WAIT_IN_FLIGHT.store(false, Ordering::SeqCst);
+        return sys::MTT_STATUS_TIMEOUT;
+    }
+
     const STALE_WAIT_MODE: usize = 7;
-    let revision = if SNAPSHOT_MODE.load(Ordering::SeqCst) == STALE_WAIT_MODE {
+    let revision = if mode == STALE_WAIT_MODE {
         after_revision
     } else {
         after_revision.saturating_add(1)
     };
     // SAFETY: snapshot is the writable pointer supplied by Request::wait_after.
     unsafe { write_running_snapshot(snapshot, revision) };
-    sys::MTT_STATUS_OK
+    // SAFETY: snapshot remains the writable output supplied by Request::wait_after.
+    let snapshot = unsafe { &mut *snapshot };
+    if matches!(AUDIO_ACQUIRE_MODE.load(Ordering::SeqCst), 3 | 4 | 7) {
+        snapshot.available_audio_leases = 2;
+    }
+    let status = match mode {
+        14 => {
+            snapshot.state = sys::MTT_REQUEST_STATE_COMPLETED;
+            sys::MTT_STATUS_OK
+        }
+        15 if call_index > 0 => {
+            // SAFETY: error is the valid buffer supplied by the wrapper.
+            unsafe { write_error(error, sys::MTT_STATUS_CUDA_ERROR, sys::MTT_ERROR_STAGE_CUDA) };
+            sys::MTT_STATUS_CUDA_ERROR
+        }
+        16 => {
+            snapshot.state = sys::MTT_REQUEST_STATE_CANCELLED;
+            snapshot.available_audio_leases = 0;
+            snapshot.terminal_status = sys::MTT_STATUS_CANCELLED;
+            snapshot.terminal_error_stage = sys::MTT_ERROR_STAGE_REQUEST;
+            sys::MTT_STATUS_OK
+        }
+        17 => {
+            snapshot.available_audio_leases = 0;
+            snapshot.generated_codec_frames = 0;
+            snapshot.published_samples = 0;
+            snapshot.committed_text_tokens = 0;
+            sys::MTT_STATUS_OK
+        }
+        _ => sys::MTT_STATUS_OK,
+    };
+    REQUEST_WAIT_IN_FLIGHT.store(false, Ordering::SeqCst);
+    status
 }
 
 unsafe extern "C" fn request_cancel(
@@ -346,6 +403,9 @@ unsafe extern "C" fn request_cancel(
     error: *mut sys::mtt_error_v1_t,
 ) -> sys::mtt_status_t {
     record("request_cancel");
+    if REQUEST_WAIT_IN_FLIGHT.load(Ordering::SeqCst) {
+        REQUEST_OPERATION_OVERLAP.store(true, Ordering::SeqCst);
+    }
     match CANCEL_MODE.load(Ordering::SeqCst) {
         0 => sys::MTT_STATUS_OK,
         1 => {
@@ -367,6 +427,18 @@ unsafe extern "C" fn request_cancel(
         3 => {
             SNAPSHOT_MODE.store(16, Ordering::SeqCst);
             sys::MTT_STATUS_OK
+        }
+        4 => {
+            SNAPSHOT_MODE.store(14, Ordering::SeqCst);
+            // SAFETY: error is the valid buffer supplied by the wrapper.
+            unsafe {
+                write_error(
+                    error,
+                    sys::MTT_STATUS_INVALID_ARGUMENT,
+                    sys::MTT_ERROR_STAGE_REQUEST,
+                )
+            };
+            sys::MTT_STATUS_INVALID_ARGUMENT
         }
         unexpected => panic!("unknown request cancel mode {unexpected}"),
     }
@@ -574,6 +646,9 @@ fn clear_events() {
     AUDIO_ACQUIRE_CALLS.store(0, Ordering::SeqCst);
     SNAPSHOT_MODE.store(0, Ordering::SeqCst);
     SNAPSHOT_CALLS.store(0, Ordering::SeqCst);
+    LAST_WAIT_TIMEOUT_NANOSECONDS.store(0, Ordering::SeqCst);
+    REQUEST_WAIT_IN_FLIGHT.store(false, Ordering::SeqCst);
+    REQUEST_OPERATION_OVERLAP.store(false, Ordering::SeqCst);
     CANCEL_MODE.store(0, Ordering::SeqCst);
     REQUEST_START_MODE.store(0, Ordering::SeqCst);
 }
@@ -685,15 +760,115 @@ fn inference_worker_owns_and_joins_the_complete_native_hierarchy() {
             "model_get_info",
             "session_create",
             "request_start",
+            "request_wait",
             "audio_acquire",
             "audio_release",
-            "request_poll",
             "request_destroy",
             "session_destroy",
             "model_destroy",
             "runtime_destroy",
         ]
     );
+}
+
+#[test]
+fn inference_worker_waits_for_advertised_audio_instead_of_speculative_acquire() {
+    let _test = TEST_LOCK.lock().expect("test lock poisoned");
+    clear_events();
+    SNAPSHOT_MODE.store(17, Ordering::SeqCst);
+    // SAFETY: mock_get_api and its backing storage remain live for the test.
+    let worker = unsafe { InferenceWorker::spawn_with_get_api(mock_get_api, worker_config()) }
+        .expect("inference worker");
+    let stream = worker
+        .synthesize(vec![7, 3_358], 1)
+        .expect("start synthesis");
+
+    wait_for_event_count("request_wait", 3);
+    assert_eq!(event_count("audio_acquire"), 0);
+    assert_eq!(event_count("request_poll"), 0);
+    assert_eq!(
+        LAST_WAIT_TIMEOUT_NANOSECONDS.load(Ordering::SeqCst),
+        2_000_000
+    );
+
+    SNAPSHOT_MODE.store(14, Ordering::SeqCst);
+    receive_completed_stream(&stream);
+    worker.shutdown().expect("joined worker shutdown");
+    assert_eq!(event_count("audio_acquire"), 1);
+}
+
+#[test]
+fn inference_worker_services_cancel_between_bounded_request_waits() {
+    let _test = TEST_LOCK.lock().expect("test lock poisoned");
+    clear_events();
+    SNAPSHOT_MODE.store(17, Ordering::SeqCst);
+    CANCEL_MODE.store(3, Ordering::SeqCst);
+    // SAFETY: mock_get_api and its backing storage remain live for the test.
+    let worker = unsafe { InferenceWorker::spawn_with_get_api(mock_get_api, worker_config()) }
+        .expect("inference worker");
+    let stream = worker
+        .synthesize(vec![7, 3_358], 1)
+        .expect("start synthesis");
+
+    wait_for_event_count("request_wait", 2);
+    let started = Instant::now();
+    stream.cancel().expect("bounded cancellation");
+    assert!(
+        started.elapsed() < Duration::from_millis(100),
+        "cancel must be serviced after at most one bounded native wait"
+    );
+    assert_eq!(
+        LAST_WAIT_TIMEOUT_NANOSECONDS.load(Ordering::SeqCst),
+        2_000_000
+    );
+    assert!(!REQUEST_OPERATION_OVERLAP.load(Ordering::SeqCst));
+    assert_eq!(
+        stream.recv().expect("cancelled event"),
+        SynthesisEvent::Cancelled
+    );
+    worker.shutdown().expect("joined worker shutdown");
+}
+
+#[test]
+fn inference_worker_idle_shutdown_is_wake_driven() {
+    let _test = TEST_LOCK.lock().expect("test lock poisoned");
+    clear_events();
+    // SAFETY: mock_get_api and its backing storage remain live for the test.
+    let worker = unsafe { InferenceWorker::spawn_with_get_api(mock_get_api, worker_config()) }
+        .expect("inference worker");
+
+    thread::sleep(Duration::from_millis(20));
+    assert_eq!(event_count("request_poll"), 0);
+    assert_eq!(event_count("request_wait"), 0);
+
+    let (result_sender, result_receiver) = std::sync::mpsc::sync_channel(1);
+    let shutdown_thread = thread::spawn(move || {
+        result_sender
+            .send(worker.shutdown())
+            .expect("shutdown result receiver remains live");
+    });
+    assert_eq!(
+        result_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("idle shutdown wake must be bounded"),
+        Ok(())
+    );
+    shutdown_thread.join().expect("shutdown thread");
+}
+
+#[test]
+fn inference_worker_idle_sender_disconnect_wakes_teardown() {
+    let _test = TEST_LOCK.lock().expect("test lock poisoned");
+    clear_events();
+    // SAFETY: mock_get_api and its backing storage remain live for the test.
+    let worker = unsafe { InferenceWorker::spawn_with_get_api(mock_get_api, worker_config()) }
+        .expect("inference worker");
+
+    drop(worker);
+    wait_for_event_count("runtime_destroy", 1);
+    assert_eq!(event_count("request_poll"), 0);
+    assert_eq!(event_count("request_wait"), 0);
+    assert_eq!(event_count("request_cancel"), 0);
 }
 
 #[test]
@@ -853,7 +1028,7 @@ fn disconnected_event_receiver_does_not_erase_the_worker_runtime_error() {
         .synthesize(vec![7, 3_358], 1)
         .expect("start synthesis");
     drop(stream);
-    wait_for_event_count("request_poll", 1);
+    wait_for_event_count("request_wait", 2);
     match worker.shutdown() {
         Err(magpie_tts_rt::WorkerError::Runtime(Error::Native(native))) => {
             assert_eq!(native.status(), Status::CUDA_ERROR);
@@ -874,7 +1049,7 @@ fn unread_audio_does_not_block_shutdown_after_an_injected_runtime_failure() {
     let _unread_stream = worker
         .synthesize(vec![7, 3_358], 1)
         .expect("start synthesis");
-    wait_for_event_count("request_poll", 1);
+    wait_for_event_count("request_wait", 2);
 
     let (result_sender, result_receiver) = std::sync::mpsc::sync_channel(1);
     let shutdown_thread = thread::spawn(move || {
@@ -983,9 +1158,9 @@ fn inference_worker_shutdown_does_not_block_behind_a_full_event_channel() {
             "model_get_info",
             "session_create",
             "request_start",
+            "request_wait",
             "audio_acquire",
             "audio_release",
-            "request_poll",
             "request_destroy",
             "session_destroy",
             "model_destroy",
@@ -998,8 +1173,8 @@ fn inference_worker_shutdown_does_not_block_behind_a_full_event_channel() {
 fn inference_worker_cancel_is_idempotent_across_a_queued_native_terminal() {
     let _test = TEST_LOCK.lock().expect("test lock poisoned");
     clear_events();
-    SNAPSHOT_MODE.store(14, Ordering::SeqCst);
-    CANCEL_MODE.store(1, Ordering::SeqCst);
+    SNAPSHOT_MODE.store(17, Ordering::SeqCst);
+    CANCEL_MODE.store(4, Ordering::SeqCst);
     // SAFETY: mock_get_api returns the complete static mock ABI table above,
     // whose functions and backing audio remain live for the test process.
     let worker = unsafe { InferenceWorker::spawn_with_get_api(mock_get_api, worker_config()) }

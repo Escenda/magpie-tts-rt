@@ -5,6 +5,7 @@
 
 #include <cub/block/block_radix_sort.cuh>
 #include <cublas_v2.h>
+#include <cuda.h>
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 #include <math_constants.h>
@@ -22,6 +23,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -63,9 +65,8 @@ constexpr std::int32_t kMainCrossAttentionSoftmaxMode = 1;
 constexpr std::int32_t kMainSelfAttentionContextMode = 2;
 constexpr std::int32_t kMainCrossAttentionContextMode = 3;
 constexpr std::int32_t kMainAttentionPriorNormalizationMode = 4;
-constexpr std::int32_t kMainSelfAttentionStepScoresMode = 5;
-constexpr std::int32_t kMainSelfAttentionStepContextMode = 6;
 constexpr std::int32_t kMainAlignmentMeanMode = 7;
+constexpr std::int32_t kMainSelfAttentionDevicePositionMode = 8;
 constexpr std::int32_t kNormalizationWidth = kLocalArEmbeddingWidth;
 constexpr float kLayerNormEpsilon = 1.0e-5F;
 constexpr std::int32_t kLayerNormWarpSize = 32;
@@ -82,13 +83,42 @@ constexpr std::int32_t kMainSelfAttentionHeadWidth =
     kMainDecoderCrossAttentionWidth / 2;
 constexpr std::int32_t kMainSelfAttentionBatchHeads =
     kMainDecoderBatch * kAttentionHeads;
-constexpr std::size_t kMainStepValueWorkspaceBytes =
+constexpr std::size_t kMainDevicePositionScoreElements =
+    static_cast<std::size_t>(kMainSelfAttentionBatchHeads) *
+    static_cast<std::size_t>(kMainDecoderCacheCapacity);
+constexpr std::size_t kMainDevicePositionScoreBytes =
+    kMainDevicePositionScoreElements * sizeof(__nv_bfloat16);
+constexpr std::size_t kMainDevicePositionCompactBytes =
     static_cast<std::size_t>(kMainSelfAttentionBatchHeads) *
     static_cast<std::size_t>(kMainDecoderCacheCapacity) *
     static_cast<std::size_t>(kMainSelfAttentionHeadWidth) *
     sizeof(__nv_bfloat16);
-constexpr std::size_t kMainStepContextWorkspaceBytes =
-    kMainStepValueWorkspaceBytes;
+constexpr std::size_t kMainDevicePositionCublasWorkspaceBytes =
+    4U * 1024U * 1024U;
+constexpr std::size_t kMainDevicePositionCompactOffset = 0U;
+constexpr std::size_t kMainDevicePositionScoresOffset =
+    kMainDevicePositionCompactOffset + kMainDevicePositionCompactBytes;
+constexpr std::size_t kMainDevicePositionProbabilitiesOffset =
+    kMainDevicePositionScoresOffset + kMainDevicePositionScoreBytes;
+constexpr std::size_t kMainDevicePositionCublasWorkspaceOffset =
+    (kMainDevicePositionProbabilitiesOffset +
+     kMainDevicePositionScoreBytes + kWorkspaceAlignment - 1U) &
+    ~(kWorkspaceAlignment - 1U);
+constexpr std::size_t kMainDevicePositionWorkspaceBytes =
+    kMainDevicePositionCublasWorkspaceOffset +
+    kMainDevicePositionCublasWorkspaceBytes;
+constexpr std::int32_t kMainDevicePositionMinimumK =
+    kMainDecoderPrefillLength + 1;
+constexpr std::int32_t kMainDevicePositionMaximumK =
+    kMainDecoderCacheCapacity;
+constexpr std::int32_t kMainDevicePositionKCount =
+    kMainDevicePositionMaximumK - kMainDevicePositionMinimumK + 1;
+constexpr std::size_t kMainDevicePositionQkClasses = 7;
+constexpr std::size_t kMainDevicePositionPvClasses = 14;
+constexpr std::size_t kMainDevicePositionMaximumParameterBytes = 2048;
+constexpr std::int32_t kMainDevicePositionLayerCount =
+    static_cast<std::int32_t>(
+        MTT_MAIN_DEVICE_POSITION_LAYER_COUNT_V1);
 
 using MainSelfAttentionContextKernel =
     typename cutlass::gemm::kernel::DefaultGemmUniversal<
@@ -162,33 +192,6 @@ template <typename Element, std::int32_t Size>
 struct alignas(sizeof(Element) * Size) AlignedVector final {
   Element values[Size];
 };
-
-__global__ void stage_main_step_values_kernel(
-    const AlignedVector<__nv_bfloat16, 8>* capacity_stride_values,
-    AlignedVector<__nv_bfloat16, 8>* compact_values,
-    const std::int32_t active_length) {
-  constexpr std::int32_t vectors_per_token =
-      kMainSelfAttentionHeadWidth / 8;
-  const std::int32_t linear_index =
-      static_cast<std::int32_t>(blockIdx.x * blockDim.x + threadIdx.x);
-  const std::int32_t vectors_per_matrix =
-      active_length * vectors_per_token;
-  const std::int32_t vector_count =
-      kMainSelfAttentionBatchHeads * vectors_per_matrix;
-  if (linear_index >= vector_count) {
-    return;
-  }
-  const std::int32_t matrix = linear_index / vectors_per_matrix;
-  const std::int32_t matrix_vector = linear_index % vectors_per_matrix;
-  const std::int32_t token = matrix_vector / vectors_per_token;
-  const std::int32_t token_vector = matrix_vector % vectors_per_token;
-  const std::int32_t source_index =
-      (matrix * kMainDecoderCacheCapacity + token) *
-          vectors_per_token +
-      token_vector;
-  compact_values[linear_index] =
-      capacity_stride_values[source_index];
-}
 
 [[nodiscard]] __device__ WelfordData welford_online_sum(
     const float value,
@@ -478,6 +481,560 @@ __global__ void persistent_softmax_kernel(
         output[batch * element_count + iteration * warp_size] =
             __float2bfloat16_rn(value);
       }
+    }
+  }
+}
+
+__global__ void main_device_position_qk_kernel(
+    const __nv_bfloat16* query,
+    const __nv_bfloat16* key,
+    const bool* key_mask,
+    const std::int64_t* position,
+    __nv_bfloat16* scores) {
+  const std::int64_t position_value = position[0];
+  const bool position_valid =
+      position_value >= kMainDecoderPrefillLength &&
+      position_value < kMainDecoderCacheCapacity;
+  const std::int32_t row = static_cast<std::int32_t>(blockIdx.x);
+  const std::int32_t batch = row / kAttentionHeads;
+  const std::int32_t thread = static_cast<std::int32_t>(threadIdx.x);
+  const std::size_t query_base =
+      static_cast<std::size_t>(row) *
+      static_cast<std::size_t>(kMainSelfAttentionHeadWidth);
+  for (std::int32_t cache_index = thread;
+       cache_index < kMainDecoderCacheCapacity;
+       cache_index += static_cast<std::int32_t>(blockDim.x)) {
+    const std::size_t output_index =
+        static_cast<std::size_t>(row) *
+            static_cast<std::size_t>(kMainDecoderCacheCapacity) +
+        static_cast<std::size_t>(cache_index);
+    if (!position_valid) {
+      scores[output_index] = __float2bfloat16_rn(CUDART_NAN_F);
+      continue;
+    }
+    if (cache_index > position_value ||
+        !key_mask[
+            static_cast<std::size_t>(batch) *
+                static_cast<std::size_t>(kMainDecoderCacheCapacity) +
+            static_cast<std::size_t>(cache_index)]) {
+      scores[output_index] = __float2bfloat16_rn(-CUDART_INF_F);
+      continue;
+    }
+    const std::size_t key_base =
+        output_index *
+        static_cast<std::size_t>(kMainSelfAttentionHeadWidth);
+    float accumulator = 0.0F;
+#pragma unroll
+    for (std::int32_t head_index = 0;
+         head_index < kMainSelfAttentionHeadWidth;
+         ++head_index) {
+      accumulator = __fmaf_rn(
+          __bfloat162float(
+              query[query_base + static_cast<std::size_t>(head_index)]),
+          __bfloat162float(
+              key[key_base + static_cast<std::size_t>(head_index)]),
+          accumulator);
+    }
+    const __nv_bfloat16 rounded_dot = __float2bfloat16_rn(accumulator);
+    scores[output_index] = __float2bfloat16_rn(
+        __bfloat162float(rounded_dot) * 0.125F);
+  }
+}
+
+template <std::int32_t Log2Elements, bool UpperRange>
+__global__ void main_device_position_softmax_kernel(
+    const __nv_bfloat16* scores,
+    const std::int64_t* position,
+    __nv_bfloat16* probabilities) {
+  constexpr std::int32_t next_power_of_two = 1 << Log2Elements;
+  constexpr std::int32_t warp_size = 32;
+  constexpr std::int32_t warp_iterations = next_power_of_two / warp_size;
+  const std::int64_t position_value = position[0];
+  const std::int32_t element_count =
+      static_cast<std::int32_t>(position_value + 1);
+  const bool in_selected_range = UpperRange
+                                     ? element_count > 256
+                                     : element_count <= 256;
+  if (position_value < kMainDecoderPrefillLength ||
+      position_value >= kMainDecoderCacheCapacity ||
+      !in_selected_range) {
+    return;
+  }
+
+  const std::int32_t row = static_cast<std::int32_t>(blockIdx.x);
+  const std::int32_t lane = static_cast<std::int32_t>(threadIdx.x);
+  const std::size_t row_base =
+      static_cast<std::size_t>(row) *
+      static_cast<std::size_t>(kMainDecoderCacheCapacity);
+  float elements[warp_iterations];
+#pragma unroll
+  for (std::int32_t iteration = 0; iteration < warp_iterations;
+       ++iteration) {
+    const std::int32_t element_index = lane + iteration * warp_size;
+    elements[iteration] =
+        element_index < element_count
+            ? __bfloat162float(
+                  scores[row_base +
+                         static_cast<std::size_t>(element_index)])
+            : -CUDART_INF_F;
+  }
+
+  float maximum = elements[0];
+#pragma unroll
+  for (std::int32_t iteration = 0; iteration < warp_iterations;
+       ++iteration) {
+    maximum = maximum > elements[iteration]
+                  ? maximum
+                  : elements[iteration];
+  }
+  for (std::int32_t offset = warp_size / 2; offset > 0; offset /= 2) {
+    const float other =
+        __shfl_xor_sync(0xFFFFFFFFU, maximum, offset, warp_size);
+    maximum = maximum < other ? other : maximum;
+  }
+
+  float sum = 0.0F;
+#pragma unroll
+  for (std::int32_t iteration = 0; iteration < warp_iterations;
+       ++iteration) {
+    elements[iteration] = expf(elements[iteration] - maximum);
+    sum += elements[iteration];
+  }
+  for (std::int32_t offset = warp_size / 2; offset > 0; offset /= 2) {
+    sum += __shfl_xor_sync(0xFFFFFFFFU, sum, offset, warp_size);
+  }
+
+#pragma unroll
+  for (std::int32_t iteration = 0; iteration < warp_iterations;
+       ++iteration) {
+    const std::int32_t element_index = lane + iteration * warp_size;
+    if (element_index < element_count) {
+      const float value =
+          sum == 0.0F ? CUDART_NAN_F : elements[iteration] / sum;
+      probabilities[
+          row_base + static_cast<std::size_t>(element_index)] =
+          __float2bfloat16_rn(value);
+    }
+  }
+}
+
+__global__ void main_device_position_pv_kernel(
+    const __nv_bfloat16* probabilities,
+    const __nv_bfloat16* value,
+    const std::int64_t* position,
+    __nv_bfloat16* output) {
+  const std::int64_t position_value = position[0];
+  const bool position_valid =
+      position_value >= kMainDecoderPrefillLength &&
+      position_value < kMainDecoderCacheCapacity;
+  const std::int32_t row = static_cast<std::int32_t>(blockIdx.x);
+  const std::int32_t head_index = static_cast<std::int32_t>(threadIdx.x);
+  if (head_index >= kMainSelfAttentionHeadWidth) {
+    return;
+  }
+  const std::size_t output_index =
+      static_cast<std::size_t>(row) *
+          static_cast<std::size_t>(kMainSelfAttentionHeadWidth) +
+      static_cast<std::size_t>(head_index);
+  if (!position_valid) {
+    output[output_index] = __float2bfloat16_rn(CUDART_NAN_F);
+    return;
+  }
+  const std::size_t probability_base =
+      static_cast<std::size_t>(row) *
+      static_cast<std::size_t>(kMainDecoderCacheCapacity);
+  float accumulator = 0.0F;
+  for (std::int32_t cache_index = 0;
+       cache_index <= position_value;
+       ++cache_index) {
+    const std::size_t value_index =
+        (probability_base + static_cast<std::size_t>(cache_index)) *
+            static_cast<std::size_t>(kMainSelfAttentionHeadWidth) +
+        static_cast<std::size_t>(head_index);
+    accumulator = __fmaf_rn(
+        __bfloat162float(
+            probabilities[
+                probability_base + static_cast<std::size_t>(cache_index)]),
+        __bfloat162float(value[value_index]),
+        accumulator);
+  }
+  output[output_index] = __float2bfloat16_rn(accumulator);
+}
+
+struct alignas(16) MainDevicePositionBankLaunch {
+  std::int32_t class_index{-1};
+  dim3 grid{};
+  std::size_t parameter_offset{};
+  std::size_t parameter_size{};
+  alignas(16) std::uint8_t
+      parameter_bytes[kMainDevicePositionMaximumParameterBytes]{};
+};
+
+struct MainDevicePositionBankNode {
+  cudaGraphDeviceNode_t node{};
+};
+
+struct alignas(16) MainDevicePositionDynamicInputs {
+  std::int64_t position{};
+  bool key_mask[kMainDecoderBatch * kMainDecoderCacheCapacity]{};
+};
+
+struct MainDevicePositionBankControl {
+  const MainDevicePositionDynamicInputs* dynamic{};
+  const std::int32_t* status_input{};
+  std::int32_t* status_output{};
+  std::int32_t layer_index{-1};
+  MainDevicePositionBankNode
+      qk_nodes[kMainDevicePositionQkClasses]{};
+  MainDevicePositionBankNode
+      pv_nodes[kMainDevicePositionPvClasses]{};
+  const MainDevicePositionBankLaunch* qk_launches{};
+  const MainDevicePositionBankLaunch* pv_launches{};
+};
+
+struct MainDevicePositionUpdateFailure {
+  std::uint32_t operation{};
+  cudaError_t status{cudaSuccess};
+};
+
+__device__ void record_main_device_position_update_failure(
+    MainDevicePositionUpdateFailure* failure,
+    const std::uint32_t operation,
+    const cudaError_t status) {
+  if (failure->status == cudaSuccess && status != cudaSuccess) {
+    failure->operation = operation;
+    failure->status = status;
+  }
+}
+
+__device__ void disable_main_device_position_variants(
+    MainDevicePositionBankNode* nodes,
+    const std::size_t node_count,
+    const std::uint32_t operation,
+    MainDevicePositionUpdateFailure* failure) {
+  for (std::size_t index = 0; index < node_count; ++index) {
+    const cudaError_t status =
+        cudaGraphKernelNodeSetEnabled(nodes[index].node, false);
+    record_main_device_position_update_failure(
+        failure, operation, status);
+  }
+}
+
+__device__ cudaError_t enable_main_device_position_variant(
+    MainDevicePositionBankNode* nodes,
+    const std::size_t node_count,
+    const MainDevicePositionBankLaunch& launch) {
+  if (launch.class_index < 0 ||
+      static_cast<std::size_t>(launch.class_index) >= node_count ||
+      launch.parameter_size == 0U ||
+      launch.parameter_size > kMainDevicePositionMaximumParameterBytes) {
+    return cudaErrorInvalidValue;
+  }
+  const cudaGraphDeviceNode_t selected =
+      nodes[static_cast<std::size_t>(launch.class_index)].node;
+  cudaError_t status =
+      cudaGraphKernelNodeSetGridDim(selected, launch.grid);
+  if (status == cudaSuccess) {
+    status = cudaGraphKernelNodeSetParam(
+        selected,
+        launch.parameter_offset,
+        launch.parameter_bytes,
+        launch.parameter_size);
+  }
+  if (status == cudaSuccess) {
+    status = cudaGraphKernelNodeSetEnabled(selected, true);
+  }
+  return status;
+}
+
+[[nodiscard]] __device__ std::int32_t
+encode_main_device_position_status(
+    const std::uint32_t category,
+    const std::int32_t layer_index,
+    const std::uint32_t operation,
+    const std::uint32_t detail) {
+  return static_cast<std::int32_t>(
+      (category << MTT_MAIN_DEVICE_POSITION_STATUS_CATEGORY_SHIFT) |
+      (static_cast<std::uint32_t>(layer_index)
+       << MTT_MAIN_DEVICE_POSITION_STATUS_LAYER_SHIFT) |
+      (operation << MTT_MAIN_DEVICE_POSITION_STATUS_OPERATION_SHIFT) |
+      (detail & MTT_MAIN_DEVICE_POSITION_STATUS_DETAIL_MASK));
+}
+
+__global__ void update_main_device_position_bank(
+    MainDevicePositionBankControl* control) {
+  if (blockIdx.x != 0 || threadIdx.x != 0) {
+    return;
+  }
+  const std::int64_t position = control->dynamic->position;
+  const std::int64_t active_k = position + 1;
+  const bool valid =
+      active_k >= kMainDevicePositionMinimumK &&
+      active_k <= kMainDevicePositionMaximumK;
+  MainDevicePositionUpdateFailure disable_failure{};
+  disable_main_device_position_variants(
+      control->qk_nodes,
+      kMainDevicePositionQkClasses,
+      MTT_MAIN_DEVICE_POSITION_STATUS_OPERATION_QK,
+      &disable_failure);
+  disable_main_device_position_variants(
+      control->pv_nodes,
+      kMainDevicePositionPvClasses,
+      MTT_MAIN_DEVICE_POSITION_STATUS_OPERATION_PV,
+      &disable_failure);
+
+  const std::int32_t incoming_status = control->status_input[0];
+  if (incoming_status != 0) {
+    control->status_output[0] = incoming_status;
+    return;
+  }
+  if (!valid) {
+    control->status_output[0] = encode_main_device_position_status(
+        MTT_MAIN_DEVICE_POSITION_STATUS_INVALID_K,
+        control->layer_index,
+        MTT_MAIN_DEVICE_POSITION_STATUS_OPERATION_SELECTOR,
+        0U);
+    return;
+  }
+  if (disable_failure.status != cudaSuccess) {
+    control->status_output[0] = encode_main_device_position_status(
+        MTT_MAIN_DEVICE_POSITION_STATUS_CUDA_GRAPH_UPDATE,
+        control->layer_index,
+        disable_failure.operation,
+        static_cast<std::uint32_t>(disable_failure.status));
+    return;
+  }
+
+  const std::size_t launch_index = static_cast<std::size_t>(
+      active_k - kMainDevicePositionMinimumK);
+  cudaError_t status = enable_main_device_position_variant(
+      control->qk_nodes,
+      kMainDevicePositionQkClasses,
+      control->qk_launches[launch_index]);
+  if (status != cudaSuccess) {
+    control->status_output[0] = encode_main_device_position_status(
+        MTT_MAIN_DEVICE_POSITION_STATUS_CUDA_GRAPH_UPDATE,
+        control->layer_index,
+        MTT_MAIN_DEVICE_POSITION_STATUS_OPERATION_QK,
+        static_cast<std::uint32_t>(status));
+    return;
+  }
+  status = enable_main_device_position_variant(
+      control->pv_nodes,
+      kMainDevicePositionPvClasses,
+      control->pv_launches[launch_index]);
+  if (status != cudaSuccess) {
+    control->status_output[0] = encode_main_device_position_status(
+        MTT_MAIN_DEVICE_POSITION_STATUS_CUDA_GRAPH_UPDATE,
+        control->layer_index,
+        MTT_MAIN_DEVICE_POSITION_STATUS_OPERATION_PV,
+        static_cast<std::uint32_t>(status));
+    return;
+  }
+  control->status_output[0] = 0;
+}
+
+__global__ void stage_main_device_position_dynamic_inputs(
+    const std::int64_t* position,
+    const bool* key_mask,
+    MainDevicePositionDynamicInputs* dynamic) {
+  const std::size_t index =
+      static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (index == 0U) {
+    dynamic->position = position[0];
+  }
+  constexpr std::size_t mask_elements =
+      static_cast<std::size_t>(kMainDecoderBatch) *
+      static_cast<std::size_t>(kMainDecoderCacheCapacity);
+  if (index < mask_elements) {
+    dynamic->key_mask[index] = key_mask[index];
+  }
+}
+
+__global__ void stage_main_device_position_key(
+    const __nv_bfloat16* fixed_key,
+    const MainDevicePositionDynamicInputs* dynamic,
+    const std::int32_t* status,
+    __nv_bfloat16* compact_key_transposed) {
+  if (status[0] != 0) {
+    return;
+  }
+  const std::int32_t active_k =
+      static_cast<std::int32_t>(dynamic->position + 1);
+  if (active_k < kMainDevicePositionMinimumK ||
+      active_k > kMainDevicePositionMaximumK) {
+    return;
+  }
+  const std::size_t count =
+      static_cast<std::size_t>(kMainSelfAttentionBatchHeads) *
+      static_cast<std::size_t>(kMainSelfAttentionHeadWidth) *
+      static_cast<std::size_t>(active_k);
+  for (std::size_t index =
+           static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       index < count;
+       index += static_cast<std::size_t>(blockDim.x) * gridDim.x) {
+    const std::size_t cache_index =
+        index % static_cast<std::size_t>(active_k);
+    const std::size_t component =
+        (index / static_cast<std::size_t>(active_k)) %
+        static_cast<std::size_t>(kMainSelfAttentionHeadWidth);
+    const std::size_t row =
+        index /
+        (static_cast<std::size_t>(active_k) *
+         static_cast<std::size_t>(kMainSelfAttentionHeadWidth));
+    const std::size_t source =
+        (row * static_cast<std::size_t>(kMainDecoderCacheCapacity) +
+         cache_index) *
+            static_cast<std::size_t>(kMainSelfAttentionHeadWidth) +
+        component;
+    compact_key_transposed[index] = fixed_key[source];
+  }
+}
+
+__global__ void stage_main_device_position_value(
+    const __nv_bfloat16* fixed_value,
+    const MainDevicePositionDynamicInputs* dynamic,
+    const std::int32_t* status,
+    __nv_bfloat16* compact_value) {
+  if (status[0] != 0) {
+    return;
+  }
+  const std::int32_t active_k =
+      static_cast<std::int32_t>(dynamic->position + 1);
+  if (active_k < kMainDevicePositionMinimumK ||
+      active_k > kMainDevicePositionMaximumK) {
+    return;
+  }
+  const std::size_t count =
+      static_cast<std::size_t>(kMainSelfAttentionBatchHeads) *
+      static_cast<std::size_t>(active_k) *
+      static_cast<std::size_t>(kMainSelfAttentionHeadWidth);
+  for (std::size_t index =
+           static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       index < count;
+       index += static_cast<std::size_t>(blockDim.x) * gridDim.x) {
+    const std::size_t component =
+        index % static_cast<std::size_t>(kMainSelfAttentionHeadWidth);
+    const std::size_t cache_index =
+        (index / static_cast<std::size_t>(kMainSelfAttentionHeadWidth)) %
+        static_cast<std::size_t>(active_k);
+    const std::size_t row =
+        index /
+        (static_cast<std::size_t>(active_k) *
+         static_cast<std::size_t>(kMainSelfAttentionHeadWidth));
+    const std::size_t source =
+        (row * static_cast<std::size_t>(kMainDecoderCacheCapacity) +
+         cache_index) *
+            static_cast<std::size_t>(kMainSelfAttentionHeadWidth) +
+        component;
+    compact_value[index] = fixed_value[source];
+  }
+}
+
+__global__ void scale_mask_main_device_position_scores(
+    const MainDevicePositionDynamicInputs* dynamic,
+    const std::int32_t* status,
+    __nv_bfloat16* compact_scores) {
+  if (status[0] != 0) {
+    return;
+  }
+  const std::int32_t active_k =
+      static_cast<std::int32_t>(dynamic->position + 1);
+  if (active_k < kMainDevicePositionMinimumK ||
+      active_k > kMainDevicePositionMaximumK) {
+    return;
+  }
+  const std::size_t count =
+      static_cast<std::size_t>(kMainSelfAttentionBatchHeads) *
+      static_cast<std::size_t>(active_k);
+  for (std::size_t index =
+           static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       index < count;
+       index += static_cast<std::size_t>(blockDim.x) * gridDim.x) {
+    const std::size_t cache_index =
+        index % static_cast<std::size_t>(active_k);
+    const std::size_t row =
+        index / static_cast<std::size_t>(active_k);
+    const std::size_t batch =
+        row / static_cast<std::size_t>(kAttentionHeads);
+    if (!dynamic->key_mask[
+            batch * static_cast<std::size_t>(kMainDecoderCacheCapacity) +
+            cache_index]) {
+      compact_scores[index] = __float2bfloat16_rn(-CUDART_INF_F);
+      continue;
+    }
+    compact_scores[index] = __float2bfloat16_rn(
+        __bfloat162float(compact_scores[index]) * 0.125F);
+  }
+}
+
+template <std::int32_t Log2Elements, bool UpperRange>
+__global__ void softmax_main_device_position_compact(
+    const __nv_bfloat16* compact_scores,
+    const MainDevicePositionDynamicInputs* dynamic,
+    const std::int32_t* status,
+    __nv_bfloat16* compact_probabilities) {
+  if (status[0] != 0) {
+    return;
+  }
+  constexpr std::int32_t next_power_of_two = 1 << Log2Elements;
+  constexpr std::int32_t warp_size = 32;
+  constexpr std::int32_t warp_iterations = next_power_of_two / warp_size;
+  const std::int32_t element_count =
+      static_cast<std::int32_t>(dynamic->position + 1);
+  const bool selected = UpperRange
+      ? element_count > 256
+      : element_count <= 256;
+  if (element_count < kMainDevicePositionMinimumK ||
+      element_count > kMainDevicePositionMaximumK || !selected) {
+    return;
+  }
+  const std::int32_t row = static_cast<std::int32_t>(blockIdx.x);
+  const std::int32_t lane = static_cast<std::int32_t>(threadIdx.x);
+  const std::size_t row_base =
+      static_cast<std::size_t>(row) *
+      static_cast<std::size_t>(element_count);
+  float elements[warp_iterations];
+#pragma unroll
+  for (std::int32_t iteration = 0; iteration < warp_iterations;
+       ++iteration) {
+    const std::int32_t element = lane + iteration * warp_size;
+    elements[iteration] = element < element_count
+        ? __bfloat162float(
+              compact_scores[row_base + static_cast<std::size_t>(element)])
+        : -CUDART_INF_F;
+  }
+  float maximum = elements[0];
+#pragma unroll
+  for (std::int32_t iteration = 0; iteration < warp_iterations;
+       ++iteration) {
+    maximum = maximum > elements[iteration]
+        ? maximum
+        : elements[iteration];
+  }
+  for (std::int32_t offset = warp_size / 2; offset > 0; offset /= 2) {
+    const float other =
+        __shfl_xor_sync(0xFFFFFFFFU, maximum, offset, warp_size);
+    maximum = maximum < other ? other : maximum;
+  }
+  float sum = 0.0F;
+#pragma unroll
+  for (std::int32_t iteration = 0; iteration < warp_iterations;
+       ++iteration) {
+    elements[iteration] = expf(elements[iteration] - maximum);
+    sum += elements[iteration];
+  }
+  for (std::int32_t offset = warp_size / 2; offset > 0; offset /= 2) {
+    sum += __shfl_xor_sync(0xFFFFFFFFU, sum, offset, warp_size);
+  }
+#pragma unroll
+  for (std::int32_t iteration = 0; iteration < warp_iterations;
+       ++iteration) {
+    const std::int32_t element = lane + iteration * warp_size;
+    if (element < element_count) {
+      compact_probabilities[
+          row_base + static_cast<std::size_t>(element)] =
+          __float2bfloat16_rn(elements[iteration] / sum);
     }
   }
 }
@@ -953,6 +1510,15 @@ __global__ void eos_finalize_kernel(
   return true;
 }
 
+// TensorRT preserves these tensors as scalar, DEVICE, non-shape I/O in the
+// engine contract. Myelin may represent the same single storage element as
+// rank-one [1] when it invokes the plugin runtime callbacks.
+[[nodiscard]] bool is_tensorrt_scalar_storage_shape(
+    const nvinfer1::Dims& dims) noexcept {
+  return dims.nbDims == 0 ||
+         (dims.nbDims == 1 && dims.d[0] == 1);
+}
+
 [[nodiscard]] bool is_supported_layer_norm_shape(
     const nvinfer1::Dims& dims) noexcept {
   if (dims.nbDims != 3 || dims.d[2] != kNormalizationWidth) {
@@ -1078,42 +1644,15 @@ __global__ void eos_finalize_kernel(
          shape_reference.d[3] == head_width;
 }
 
-[[nodiscard]] bool is_supported_main_self_attention_step_context_shape(
-    const nvinfer1::Dims& probabilities,
-    const nvinfer1::Dims& value,
-    const nvinfer1::Dims& shape_reference) noexcept {
-  if (probabilities.nbDims != 4 || value.nbDims != 4 ||
-      shape_reference.nbDims != 4) {
-    return false;
-  }
-  const std::int32_t active_length = probabilities.d[3];
-  constexpr std::int32_t head_width =
-      kMainDecoderCrossAttentionWidth / 2;
-  return active_length >= kMainDecoderPrefillLength + 1 &&
-         active_length <= kMainDecoderCacheCapacity &&
-         probabilities.d[0] == kMainDecoderBatch &&
-         probabilities.d[1] == kAttentionHeads &&
-         probabilities.d[2] == 1 &&
-         value.d[0] == kMainDecoderBatch &&
-         value.d[1] == kAttentionHeads &&
-         value.d[2] == kMainDecoderCacheCapacity &&
-         value.d[3] == head_width &&
-         shape_reference.d[0] == kMainDecoderBatch &&
-         shape_reference.d[1] == kAttentionHeads &&
-         shape_reference.d[2] == 1 &&
-         shape_reference.d[3] == head_width;
-}
-
-[[nodiscard]] bool is_supported_main_self_attention_step_scores_shape(
+[[nodiscard]] bool is_supported_main_self_attention_device_position_shape(
     const nvinfer1::Dims& query,
-    const nvinfer1::Dims& key_transposed,
+    const nvinfer1::Dims& key,
+    const nvinfer1::Dims& value,
+    const nvinfer1::Dims& key_mask,
+    const nvinfer1::Dims& position,
     const nvinfer1::Dims& shape_reference) noexcept {
   constexpr std::int32_t head_width =
       kMainDecoderCrossAttentionWidth / 2;
-  if (shape_reference.nbDims != 4) {
-    return false;
-  }
-  const std::int32_t active_length = shape_reference.d[3];
   return has_dims(
              query,
              {
@@ -1123,18 +1662,33 @@ __global__ void eos_finalize_kernel(
                  head_width,
              }) &&
          has_dims(
-             key_transposed,
+             key,
              {
                  kMainDecoderBatch,
                  kAttentionHeads,
+                 kMainDecoderCacheCapacity,
                  head_width,
-                 active_length,
              }) &&
-         active_length >= kMainDecoderPrefillLength + 1 &&
-         active_length <= kMainDecoderCacheCapacity &&
-         shape_reference.d[0] == kMainDecoderBatch &&
-         shape_reference.d[1] == kAttentionHeads &&
-         shape_reference.d[2] == 1;
+         has_dims(
+             value,
+             {
+                 kMainDecoderBatch,
+                 kAttentionHeads,
+                 kMainDecoderCacheCapacity,
+                 head_width,
+             }) &&
+         has_dims(
+             key_mask,
+             {kMainDecoderBatch, kMainDecoderCacheCapacity}) &&
+         is_tensorrt_scalar_storage_shape(position) &&
+         has_dims(
+             shape_reference,
+             {
+                 kMainDecoderBatch,
+                 kAttentionHeads,
+                 1,
+                 head_width,
+             });
 }
 
 [[nodiscard]] bool is_supported_main_cross_attention_context_shape(
@@ -1214,15 +1768,21 @@ __global__ void eos_finalize_kernel(
     return 4;
   }
   if (mode == kMainSelfAttentionContextMode ||
-      mode == kMainSelfAttentionStepContextMode ||
-      mode == kMainCrossAttentionContextMode ||
-      mode == kMainSelfAttentionStepScoresMode) {
+      mode == kMainCrossAttentionContextMode) {
     return 3;
   }
   if (mode == kMainAttentionPriorNormalizationMode) {
     return 2;
   }
+  if (mode == kMainSelfAttentionDevicePositionMode) {
+    return 7;
+  }
   return mode == kSoftmaxMode ? 1 : 0;
+}
+
+[[nodiscard]] std::int32_t softmax_output_count_for_mode(
+    const std::int32_t mode) noexcept {
+  return mode == kMainSelfAttentionDevicePositionMode ? 2 : 1;
 }
 
 [[nodiscard]] std::int32_t softmax_shape_reference_index(
@@ -1233,10 +1793,11 @@ __global__ void eos_finalize_kernel(
   if (mode == kMainAttentionPriorNormalizationMode) {
     return 0;
   }
+  if (mode == kMainSelfAttentionDevicePositionMode) {
+    return 5;
+  }
   return mode == kMainSelfAttentionContextMode ||
-                 mode == kMainSelfAttentionStepContextMode ||
-                 mode == kMainCrossAttentionContextMode ||
-                 mode == kMainSelfAttentionStepScoresMode
+                 mode == kMainCrossAttentionContextMode
              ? 2
              : 0;
 }
@@ -1938,21 +2499,936 @@ class GeluTanhPlugin final : public nvinfer1::IPluginV3,
   nvinfer1::PluginFieldCollection fields_{};
 };
 
+enum class MainDevicePositionBankOperation {
+  qk,
+  pv,
+};
+
+enum class MainDevicePositionParameterTransport {
+  kernel_params,
+  extra,
+};
+
+struct MainDevicePositionKernelSnapshot {
+  void* function_identity{};
+  std::array<
+      char,
+      MTT_MAIN_DEVICE_POSITION_FUNCTION_NAME_CAPACITY> function_name{};
+  MainDevicePositionParameterTransport parameter_transport{};
+  dim3 grid{};
+  dim3 block{};
+  unsigned int shared_memory{};
+  std::size_t parameter_offset{};
+  std::size_t parameter_size{};
+  alignas(16) std::array<
+      std::uint8_t,
+      kMainDevicePositionMaximumParameterBytes> parameter_bytes{};
+};
+
+struct MainDevicePositionRepresentative {
+  std::int32_t active_k{};
+  MainDevicePositionKernelSnapshot kernel{};
+};
+
+struct MainDevicePositionManagedStorage {
+  std::array<
+      MainDevicePositionBankLaunch,
+      kMainDevicePositionKCount> qk_launches{};
+  std::array<
+      MainDevicePositionBankLaunch,
+      kMainDevicePositionKCount> pv_launches{};
+};
+
+struct MainDevicePositionBindings {
+  const void* query{};
+  const void* key{};
+  const void* value{};
+  const bool* key_mask{};
+  const std::int64_t* position{};
+  const std::int32_t* status_input{};
+  std::int32_t* status_output{};
+  void* workspace{};
+  void* output{};
+  std::int32_t device{-1};
+};
+
+std::mutex main_device_position_class_table_mutex;
+mtt_main_device_position_class_table_v1_t
+    main_device_position_class_table{};
+bool main_device_position_class_table_ready = false;
+bool main_device_position_class_table_conflict = false;
+
+[[nodiscard]] bool same_dim3(const dim3 left, const dim3 right) noexcept {
+  return left.x == right.x && left.y == right.y && left.z == right.z;
+}
+
+[[nodiscard]] bool same_main_device_position_kernel_class(
+    const MainDevicePositionKernelSnapshot& left,
+    const MainDevicePositionKernelSnapshot& right) noexcept {
+  return left.function_identity == right.function_identity &&
+         left.function_name == right.function_name &&
+         left.parameter_transport == right.parameter_transport &&
+         same_dim3(left.block, right.block) &&
+         left.shared_memory == right.shared_memory &&
+         left.parameter_offset == right.parameter_offset &&
+         left.parameter_size == right.parameter_size;
+}
+
+[[nodiscard]] bool snapshot_main_device_position_kernel(
+    const cudaGraphNode_t node,
+    MainDevicePositionKernelSnapshot* output) noexcept {
+  if (node == nullptr || output == nullptr) {
+    return false;
+  }
+  CUDA_KERNEL_NODE_PARAMS parameters{};
+  if (cuGraphKernelNodeGetParams(
+          reinterpret_cast<CUgraphNode>(node), &parameters) != CUDA_SUCCESS) {
+    return false;
+  }
+  std::size_t parameter_count = 0;
+  CUresult status = CUDA_ERROR_INVALID_VALUE;
+  const char* function_name = nullptr;
+  if (parameters.kern != nullptr) {
+    status = cuKernelGetParamCount(parameters.kern, &parameter_count);
+    if (status == CUDA_SUCCESS) {
+      status = cuKernelGetName(&function_name, parameters.kern);
+    }
+    output->function_identity = reinterpret_cast<void*>(parameters.kern);
+  } else if (parameters.func != nullptr) {
+    status = cuFuncGetParamCount(parameters.func, &parameter_count);
+    if (status == CUDA_SUCCESS) {
+      status = cuFuncGetName(&function_name, parameters.func);
+    }
+    output->function_identity = reinterpret_cast<void*>(parameters.func);
+  }
+  if (status != CUDA_SUCCESS || parameter_count != 1U ||
+      function_name == nullptr || function_name[0] == '\0') {
+    return false;
+  }
+  const std::size_t function_name_size = std::strlen(function_name);
+  if (function_name_size >= output->function_name.size()) {
+    return false;
+  }
+  std::memcpy(
+      output->function_name.data(), function_name, function_name_size + 1U);
+  std::size_t offset = 0;
+  std::size_t size = 0;
+  status = parameters.kern != nullptr
+      ? cuKernelGetParamInfo(parameters.kern, 0, &offset, &size)
+      : cuFuncGetParamInfo(parameters.func, 0, &offset, &size);
+  if (status != CUDA_SUCCESS || size == 0U ||
+      size > kMainDevicePositionMaximumParameterBytes) {
+    return false;
+  }
+  const std::uint8_t* parameter_bytes = nullptr;
+  if (parameters.kernelParams != nullptr) {
+    output->parameter_transport =
+        MainDevicePositionParameterTransport::kernel_params;
+    parameter_bytes = static_cast<const std::uint8_t*>(
+        parameters.kernelParams[0]);
+  } else if (parameters.extra != nullptr) {
+    output->parameter_transport =
+        MainDevicePositionParameterTransport::extra;
+    const std::uint8_t* packed = nullptr;
+    std::size_t packed_size = 0;
+    for (std::size_t index = 0;
+         parameters.extra[index] != CU_LAUNCH_PARAM_END;
+         index += 2U) {
+      if (parameters.extra[index] == CU_LAUNCH_PARAM_BUFFER_POINTER) {
+        packed = static_cast<const std::uint8_t*>(
+            parameters.extra[index + 1U]);
+      } else if (parameters.extra[index] ==
+                 CU_LAUNCH_PARAM_BUFFER_SIZE) {
+        packed_size = *static_cast<const std::size_t*>(
+            parameters.extra[index + 1U]);
+      } else {
+        return false;
+      }
+    }
+    if (packed == nullptr || offset + size > packed_size) {
+      return false;
+    }
+    parameter_bytes = packed + offset;
+  }
+  if (parameter_bytes == nullptr) {
+    return false;
+  }
+  output->grid = dim3(
+      parameters.gridDimX,
+      parameters.gridDimY,
+      parameters.gridDimZ);
+  output->block = dim3(
+      parameters.blockDimX,
+      parameters.blockDimY,
+      parameters.blockDimZ);
+  output->shared_memory = parameters.sharedMemBytes;
+  output->parameter_offset = offset;
+  output->parameter_size = size;
+  std::memcpy(output->parameter_bytes.data(), parameter_bytes, size);
+  return true;
+}
+
+void populate_main_device_position_class_record(
+    mtt_main_device_position_class_v1_t* record,
+    const std::uint32_t operation,
+    const std::uint32_t class_index,
+    const MainDevicePositionKernelSnapshot& snapshot) noexcept {
+  record->struct_size = sizeof(*record);
+  record->abi_version = MTT_PLUGIN_ABI_VERSION_1;
+  record->operation = operation;
+  record->class_index = class_index;
+  record->parameter_transport =
+      snapshot.parameter_transport ==
+              MainDevicePositionParameterTransport::kernel_params
+          ? MTT_MAIN_DEVICE_POSITION_PARAMETER_KERNEL_PARAMS
+          : MTT_MAIN_DEVICE_POSITION_PARAMETER_EXTRA;
+  record->block_x = snapshot.block.x;
+  record->block_y = snapshot.block.y;
+  record->block_z = snapshot.block.z;
+  record->shared_memory_bytes = snapshot.shared_memory;
+  record->parameter_offset = snapshot.parameter_offset;
+  record->parameter_size = snapshot.parameter_size;
+  std::memcpy(
+      record->function_name,
+      snapshot.function_name.data(),
+      snapshot.function_name.size());
+}
+
+[[nodiscard]] bool latch_main_device_position_class_table(
+    const std::array<
+        MainDevicePositionRepresentative,
+        kMainDevicePositionQkClasses>& qk_representatives,
+    const std::array<
+        MainDevicePositionRepresentative,
+        kMainDevicePositionPvClasses>& pv_representatives,
+    const std::array<
+        MainDevicePositionBankLaunch,
+        kMainDevicePositionKCount>& qk_launches,
+    const std::array<
+        MainDevicePositionBankLaunch,
+        kMainDevicePositionKCount>& pv_launches) noexcept {
+  static_assert(
+      kMainDevicePositionQkClasses + kMainDevicePositionPvClasses ==
+      MTT_MAIN_DEVICE_POSITION_CLASS_COUNT_V1);
+  static_assert(
+      kMainDevicePositionKCount == MTT_MAIN_DEVICE_POSITION_K_COUNT_V1);
+  mtt_main_device_position_class_table_v1_t candidate{};
+  std::memset(&candidate, 0, sizeof(candidate));
+  candidate.struct_size = sizeof(candidate);
+  candidate.abi_version = MTT_PLUGIN_ABI_VERSION_1;
+  candidate.class_count = MTT_MAIN_DEVICE_POSITION_CLASS_COUNT_V1;
+  candidate.k_count = MTT_MAIN_DEVICE_POSITION_K_COUNT_V1;
+  for (std::size_t index = 0; index < qk_representatives.size(); ++index) {
+    populate_main_device_position_class_record(
+        &candidate.classes[index],
+        MTT_MAIN_DEVICE_POSITION_OPERATION_QK,
+        static_cast<std::uint32_t>(index),
+        qk_representatives[index].kernel);
+  }
+  for (std::size_t index = 0; index < pv_representatives.size(); ++index) {
+    populate_main_device_position_class_record(
+        &candidate.classes[qk_representatives.size() + index],
+        MTT_MAIN_DEVICE_POSITION_OPERATION_PV,
+        static_cast<std::uint32_t>(index),
+        pv_representatives[index].kernel);
+  }
+  for (std::size_t index = 0; index < qk_launches.size(); ++index) {
+    const MainDevicePositionBankLaunch& qk = qk_launches[index];
+    const MainDevicePositionBankLaunch& pv = pv_launches[index];
+    if (qk.class_index < 0 ||
+        qk.class_index >=
+            static_cast<std::int32_t>(kMainDevicePositionQkClasses) ||
+        pv.class_index < 0 ||
+        pv.class_index >=
+            static_cast<std::int32_t>(kMainDevicePositionPvClasses)) {
+      return false;
+    }
+    mtt_main_device_position_k_v1_t& record =
+        candidate.k_records[index];
+    record.struct_size = sizeof(record);
+    record.abi_version = MTT_PLUGIN_ABI_VERSION_1;
+    record.active_k =
+        kMainDevicePositionMinimumK + static_cast<std::int32_t>(index);
+    record.qk_class_index = qk.class_index;
+    record.qk_grid_x = qk.grid.x;
+    record.qk_grid_y = qk.grid.y;
+    record.qk_grid_z = qk.grid.z;
+    record.pv_class_index = pv.class_index;
+    record.pv_grid_x = pv.grid.x;
+    record.pv_grid_y = pv.grid.y;
+    record.pv_grid_z = pv.grid.z;
+  }
+  const std::lock_guard<std::mutex> lock(
+      main_device_position_class_table_mutex);
+  if (main_device_position_class_table_conflict) {
+    return false;
+  }
+  if (!main_device_position_class_table_ready) {
+    main_device_position_class_table = candidate;
+    main_device_position_class_table_ready = true;
+    return true;
+  }
+  if (std::memcmp(
+          &main_device_position_class_table,
+          &candidate,
+          sizeof(candidate)) != 0) {
+    main_device_position_class_table_conflict = true;
+    return false;
+  }
+  return true;
+}
+
+[[nodiscard]] bool launch_main_device_position_qk_cublas(
+    cublasHandle_t handle,
+    const void* query_bf16,
+    const void* compact_key_transposed_bf16,
+    void* compact_scores_bf16,
+    const std::int32_t active_k) noexcept {
+  constexpr float alpha = 1.0F;
+  constexpr float beta = 0.0F;
+  return cublasGemmStridedBatchedEx(
+             handle,
+             CUBLAS_OP_N,
+             CUBLAS_OP_N,
+             active_k,
+             1,
+             kMainSelfAttentionHeadWidth,
+             &alpha,
+             compact_key_transposed_bf16,
+             CUDA_R_16BF,
+             active_k,
+             static_cast<long long>(
+                 kMainSelfAttentionHeadWidth * active_k),
+             query_bf16,
+             CUDA_R_16BF,
+             kMainSelfAttentionHeadWidth,
+             kMainSelfAttentionHeadWidth,
+             &beta,
+             compact_scores_bf16,
+             CUDA_R_16BF,
+             active_k,
+             active_k,
+             kMainSelfAttentionBatchHeads,
+             CUBLAS_COMPUTE_32F,
+             CUBLAS_GEMM_DEFAULT_TENSOR_OP) == CUBLAS_STATUS_SUCCESS;
+}
+
+[[nodiscard]] bool launch_main_device_position_pv_cublas(
+    cublasHandle_t handle,
+    const void* compact_probabilities_bf16,
+    const void* compact_value_bf16,
+    void* output_bf16,
+    const std::int32_t active_k) noexcept {
+  constexpr float alpha = 1.0F;
+  constexpr float beta = 0.0F;
+  return cublasGemmStridedBatchedEx(
+             handle,
+             CUBLAS_OP_N,
+             CUBLAS_OP_N,
+             kMainSelfAttentionHeadWidth,
+             1,
+             active_k,
+             &alpha,
+             compact_value_bf16,
+             CUDA_R_16BF,
+             kMainSelfAttentionHeadWidth,
+             static_cast<long long>(
+                 active_k * kMainSelfAttentionHeadWidth),
+             compact_probabilities_bf16,
+             CUDA_R_16BF,
+             active_k,
+             active_k,
+             &beta,
+             output_bf16,
+             CUDA_R_16BF,
+             kMainSelfAttentionHeadWidth,
+             kMainSelfAttentionHeadWidth,
+             kMainSelfAttentionBatchHeads,
+             CUBLAS_COMPUTE_32F,
+             CUBLAS_GEMM_DEFAULT_TENSOR_OP) == CUBLAS_STATUS_SUCCESS;
+}
+
+[[nodiscard]] bool capture_main_device_position_kernel(
+    const MainDevicePositionBankOperation operation,
+    cublasHandle_t handle,
+    const MainDevicePositionBindings& bindings,
+    const std::int32_t active_k,
+    cudaStream_t stream,
+    MainDevicePositionKernelSnapshot* snapshot) noexcept {
+  auto* workspace = static_cast<std::byte*>(bindings.workspace);
+  void* compact = workspace + kMainDevicePositionCompactOffset;
+  void* scores = workspace + kMainDevicePositionScoresOffset;
+  void* probabilities =
+      workspace + kMainDevicePositionProbabilitiesOffset;
+  if (cublasSetStream(handle, stream) != CUBLAS_STATUS_SUCCESS ||
+      cudaStreamBeginCapture(
+          stream, cudaStreamCaptureModeThreadLocal) != cudaSuccess) {
+    return false;
+  }
+  const bool launched = operation == MainDevicePositionBankOperation::qk
+      ? launch_main_device_position_qk_cublas(
+            handle, bindings.query, compact, scores, active_k)
+      : launch_main_device_position_pv_cublas(
+            handle, probabilities, compact, bindings.output, active_k);
+  cudaGraph_t graph = nullptr;
+  const cudaError_t end_status = cudaStreamEndCapture(stream, &graph);
+  if (!launched || end_status != cudaSuccess || graph == nullptr) {
+    if (graph != nullptr) {
+      static_cast<void>(cudaGraphDestroy(graph));
+    }
+    return false;
+  }
+  std::size_t node_count = 0;
+  bool result = cudaGraphGetNodes(graph, nullptr, &node_count) == cudaSuccess &&
+                node_count == 1U;
+  cudaGraphNode_t node = nullptr;
+  if (result) {
+    result = cudaGraphGetNodes(graph, &node, &node_count) == cudaSuccess &&
+             snapshot_main_device_position_kernel(node, snapshot);
+  }
+  const cudaError_t destroy_status = cudaGraphDestroy(graph);
+  return result && destroy_status == cudaSuccess;
+}
+
+class MainDevicePositionBankState final {
+ public:
+  explicit MainDevicePositionBankState(
+      const std::int32_t layer_index = -1)
+      : layer_index_(layer_index) {}
+  MainDevicePositionBankState(const MainDevicePositionBankState&) = delete;
+  MainDevicePositionBankState& operator=(
+      const MainDevicePositionBankState&) = delete;
+
+  ~MainDevicePositionBankState() { reset(); }
+
+  void release() noexcept { reset(); }
+
+  [[nodiscard]] int enqueue(
+      const MainDevicePositionBindings& bindings,
+      cudaStream_t stream) noexcept {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    if (state_ == State::failed) {
+      return -1;
+    }
+    cudaStreamCaptureStatus capture_status = cudaStreamCaptureStatusNone;
+    if (cudaStreamIsCapturing(stream, &capture_status) != cudaSuccess) {
+      return fail("cudaStreamIsCapturing");
+    }
+    if (state_ == State::empty) {
+      if (capture_status != cudaStreamCaptureStatusNone) {
+        return fail("first enqueue was already inside CUDA stream capture");
+      }
+      if (cublasCreate(&handle_) != CUBLAS_STATUS_SUCCESS) {
+        return fail("cublasCreate");
+      }
+      if (cublasSetMathMode(handle_, CUBLAS_DEFAULT_MATH) !=
+          CUBLAS_STATUS_SUCCESS) {
+        return fail("cublasSetMathMode");
+      }
+      if (!build(handle_, bindings)) {
+        return fail("build bank");
+      }
+    }
+    if (state_ != State::ready || !same_bindings(bindings)) {
+      return fail("bank not ready or TensorRT bindings changed");
+    }
+    constexpr std::size_t dynamic_elements =
+        static_cast<std::size_t>(kMainDecoderBatch) *
+        static_cast<std::size_t>(kMainDecoderCacheCapacity);
+    stage_main_device_position_dynamic_inputs<<<
+        static_cast<unsigned int>((dynamic_elements + 255U) / 256U),
+        256,
+        0,
+        stream>>>(bindings.position, bindings.key_mask, dynamic_);
+    if (cudaPeekAtLastError() != cudaSuccess) {
+      return fail("stage dynamic position and mask");
+    }
+    if (capture_status == cudaStreamCaptureStatusNone) {
+      return cudaGraphLaunch(standalone_, stream) == cudaSuccess
+          ? 0
+          : fail("cudaGraphLaunch standalone");
+    }
+    return inject_outer(handle_, bindings, stream)
+        ? 0
+        : fail("inject into outer capture");
+  }
+
+#if defined(MAGPIE_TTS_RT_PLUGIN_TESTING)
+  [[nodiscard]] bool invalidate_qk_node_for_test(
+      const std::size_t class_index) noexcept {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    if (state_ != State::ready || standalone_control_host_ == nullptr ||
+        class_index >= kMainDevicePositionQkClasses) {
+      return false;
+    }
+    standalone_control_host_->qk_nodes[class_index] =
+        MainDevicePositionBankNode{};
+    return true;
+  }
+#endif
+
+ private:
+  enum class State { empty, building, ready, failed };
+
+  class BuildStream final {
+   public:
+    BuildStream() noexcept {
+      valid_ = cudaStreamCreateWithFlags(
+                   &stream_, cudaStreamNonBlocking) == cudaSuccess;
+    }
+
+    BuildStream(const BuildStream&) = delete;
+    BuildStream& operator=(const BuildStream&) = delete;
+
+    ~BuildStream() {
+      if (stream_ != nullptr) {
+        static_cast<void>(cudaStreamDestroy(stream_));
+      }
+    }
+
+    [[nodiscard]] bool valid() const noexcept { return valid_; }
+    [[nodiscard]] cudaStream_t get() const noexcept { return stream_; }
+
+   private:
+    cudaStream_t stream_{nullptr};
+    bool valid_{false};
+  };
+
+  [[nodiscard]] int fail(const char* reason) noexcept {
+    static_cast<void>(reason);
+    state_ = State::failed;
+    return -1;
+  }
+
+  void reset() noexcept {
+    if (standalone_ != nullptr) {
+      static_cast<void>(cudaGraphExecDestroy(standalone_));
+      standalone_ = nullptr;
+    }
+    if (standalone_control_device_ != nullptr) {
+      static_cast<void>(cudaFree(standalone_control_device_));
+      standalone_control_device_ = nullptr;
+    }
+    if (outer_control_device_ != nullptr) {
+      static_cast<void>(cudaFree(outer_control_device_));
+      outer_control_device_ = nullptr;
+    }
+    if (standalone_control_host_ != nullptr) {
+      static_cast<void>(cudaFreeHost(standalone_control_host_));
+      standalone_control_host_ = nullptr;
+    }
+    if (outer_control_host_ != nullptr) {
+      static_cast<void>(cudaFreeHost(outer_control_host_));
+      outer_control_host_ = nullptr;
+    }
+    if (storage_ != nullptr) {
+      std::destroy_at(storage_);
+      static_cast<void>(cudaFree(storage_));
+      storage_ = nullptr;
+    }
+    if (dynamic_ != nullptr) {
+      static_cast<void>(cudaFree(dynamic_));
+      dynamic_ = nullptr;
+    }
+    if (handle_ != nullptr) {
+      static_cast<void>(cublasDestroy(handle_));
+      handle_ = nullptr;
+    }
+  }
+
+  [[nodiscard]] bool same_bindings(
+      const MainDevicePositionBindings& value) const noexcept {
+    return value.query == bindings_.query &&
+           value.key == bindings_.key &&
+           value.value == bindings_.value &&
+           value.status_input == bindings_.status_input &&
+           value.status_output == bindings_.status_output &&
+           value.workspace == bindings_.workspace &&
+           value.output == bindings_.output &&
+           value.device == bindings_.device;
+  }
+
+  template <std::size_t ClassCount>
+  [[nodiscard]] bool scan_operation(
+      const MainDevicePositionBankOperation operation,
+      cublasHandle_t handle,
+      const MainDevicePositionBindings& bindings,
+      cudaStream_t stream,
+      std::array<MainDevicePositionRepresentative, ClassCount>* representatives,
+      std::array<
+          MainDevicePositionBankLaunch,
+          kMainDevicePositionKCount>* launches,
+      std::size_t* class_count) noexcept {
+    *class_count = 0;
+    for (std::int32_t active_k = kMainDevicePositionMinimumK;
+         active_k <= kMainDevicePositionMaximumK;
+         ++active_k) {
+      MainDevicePositionKernelSnapshot snapshot{};
+      if (!capture_main_device_position_kernel(
+              operation,
+              handle,
+              bindings,
+              active_k,
+              stream,
+              &snapshot)) {
+        return false;
+      }
+      std::size_t class_index = *class_count;
+      for (std::size_t index = 0; index < *class_count; ++index) {
+        if (same_main_device_position_kernel_class(
+                (*representatives)[index].kernel, snapshot)) {
+          class_index = index;
+          break;
+        }
+      }
+      if (class_index == *class_count) {
+        if (*class_count >= ClassCount) {
+          return false;
+        }
+        (*representatives)[class_index] =
+            MainDevicePositionRepresentative{active_k, snapshot};
+        ++*class_count;
+      }
+      MainDevicePositionBankLaunch& launch =
+          (*launches)[static_cast<std::size_t>(
+              active_k - kMainDevicePositionMinimumK)];
+      launch.class_index = static_cast<std::int32_t>(class_index);
+      launch.grid = snapshot.grid;
+      launch.parameter_offset = snapshot.parameter_offset;
+      launch.parameter_size = snapshot.parameter_size;
+      std::memcpy(
+          launch.parameter_bytes,
+          snapshot.parameter_bytes.data(),
+          snapshot.parameter_size);
+    }
+    return *class_count == ClassCount;
+  }
+
+  [[nodiscard]] bool current_capture_leaf(
+      cudaStream_t stream,
+      cudaGraphNode_t* leaf) noexcept {
+    cudaStreamCaptureStatus status = cudaStreamCaptureStatusNone;
+    cudaGraph_t graph = nullptr;
+    const cudaGraphNode_t* dependencies = nullptr;
+    const cudaGraphEdgeData* edge_data = nullptr;
+    std::size_t dependency_count = 0;
+    return cudaStreamGetCaptureInfo(
+               stream,
+               &status,
+               nullptr,
+               &graph,
+               &dependencies,
+               &edge_data,
+               &dependency_count) == cudaSuccess &&
+           status == cudaStreamCaptureStatusActive && graph != nullptr &&
+           dependency_count == 1U && dependencies != nullptr &&
+           ((*leaf = dependencies[0]) != nullptr);
+  }
+
+  template <std::size_t ClassCount>
+  [[nodiscard]] bool emit_variants(
+      const MainDevicePositionBankOperation operation,
+      cublasHandle_t handle,
+      const MainDevicePositionBindings& bindings,
+      const std::array<MainDevicePositionRepresentative, ClassCount>&
+          representatives,
+      MainDevicePositionBankNode* nodes,
+      cudaStream_t stream) noexcept {
+    auto* workspace = static_cast<std::byte*>(bindings.workspace);
+    void* compact = workspace + kMainDevicePositionCompactOffset;
+    void* scores = workspace + kMainDevicePositionScoresOffset;
+    void* probabilities =
+        workspace + kMainDevicePositionProbabilitiesOffset;
+    for (std::size_t index = 0; index < ClassCount; ++index) {
+      const std::int32_t active_k = representatives[index].active_k;
+      const bool launched =
+          operation == MainDevicePositionBankOperation::qk
+          ? launch_main_device_position_qk_cublas(
+                handle, bindings.query, compact, scores, active_k)
+          : launch_main_device_position_pv_cublas(
+                handle,
+                probabilities,
+                compact,
+                bindings.output,
+                active_k);
+      cudaGraphNode_t leaf = nullptr;
+      MainDevicePositionKernelSnapshot captured{};
+      if (!launched || !current_capture_leaf(stream, &leaf) ||
+          !snapshot_main_device_position_kernel(leaf, &captured) ||
+          !same_main_device_position_kernel_class(
+              captured, representatives[index].kernel)) {
+        return false;
+      }
+      cudaKernelNodeAttrValue attribute{};
+      attribute.deviceUpdatableKernelNode.deviceUpdatable = 1;
+      if (cudaGraphKernelNodeSetAttribute(
+              leaf,
+              cudaLaunchAttributeDeviceUpdatableKernelNode,
+              &attribute) != cudaSuccess ||
+          attribute.deviceUpdatableKernelNode.devNode == nullptr) {
+        return false;
+      }
+      nodes[index].node = attribute.deviceUpdatableKernelNode.devNode;
+    }
+    return true;
+  }
+
+  [[nodiscard]] bool emit(
+      cublasHandle_t handle,
+      const MainDevicePositionBindings& bindings,
+      MainDevicePositionBankControl* host_control,
+      MainDevicePositionBankControl* device_control,
+      cudaStream_t stream) noexcept {
+    if (cublasSetStream(handle, stream) != CUBLAS_STATUS_SUCCESS) {
+      return false;
+    }
+    auto* workspace = static_cast<std::byte*>(bindings.workspace);
+    auto* compact = reinterpret_cast<__nv_bfloat16*>(
+        workspace + kMainDevicePositionCompactOffset);
+    auto* scores = reinterpret_cast<__nv_bfloat16*>(
+        workspace + kMainDevicePositionScoresOffset);
+    auto* probabilities = reinterpret_cast<__nv_bfloat16*>(
+        workspace + kMainDevicePositionProbabilitiesOffset);
+    if (cudaMemcpyAsync(
+            device_control,
+            host_control,
+            sizeof(*host_control),
+            cudaMemcpyHostToDevice,
+            stream) != cudaSuccess) {
+      return false;
+    }
+    update_main_device_position_bank<<<1, 1, 0, stream>>>(device_control);
+    stage_main_device_position_key<<<96, 256, 0, stream>>>(
+        static_cast<const __nv_bfloat16*>(bindings.key),
+        dynamic_,
+        bindings.status_output,
+        compact);
+    if (cudaPeekAtLastError() != cudaSuccess ||
+        !emit_variants(
+            MainDevicePositionBankOperation::qk,
+            handle,
+            bindings,
+            qk_representatives_,
+            host_control->qk_nodes,
+            stream)) {
+      return false;
+    }
+    scale_mask_main_device_position_scores<<<96, 256, 0, stream>>>(
+        dynamic_, bindings.status_output, scores);
+    softmax_main_device_position_compact<8, false><<<
+        kMainSelfAttentionBatchHeads, 32, 0, stream>>>(
+        scores, dynamic_, bindings.status_output, probabilities);
+    softmax_main_device_position_compact<9, true><<<
+        kMainSelfAttentionBatchHeads, 32, 0, stream>>>(
+        scores, dynamic_, bindings.status_output, probabilities);
+    stage_main_device_position_value<<<96, 256, 0, stream>>>(
+        static_cast<const __nv_bfloat16*>(bindings.value),
+        dynamic_,
+        bindings.status_output,
+        compact);
+    if (cudaPeekAtLastError() != cudaSuccess ||
+        !emit_variants(
+            MainDevicePositionBankOperation::pv,
+            handle,
+            bindings,
+            pv_representatives_,
+            host_control->pv_nodes,
+            stream)) {
+      return false;
+    }
+    return cudaPeekAtLastError() == cudaSuccess;
+  }
+
+  [[nodiscard]] bool build(
+      cublasHandle_t handle,
+      const MainDevicePositionBindings& bindings) noexcept {
+    state_ = State::building;
+    bindings_ = bindings;
+    BuildStream build_stream;
+    if (!build_stream.valid()) {
+      return false;
+    }
+    const cudaStream_t stream = build_stream.get();
+    if (bindings.device < 0 ||
+        layer_index_ < 0 ||
+        layer_index_ >= kMainDevicePositionLayerCount ||
+        bindings.status_input == nullptr ||
+        bindings.status_output == nullptr ||
+        cudaMalloc(&dynamic_, sizeof(*dynamic_)) != cudaSuccess ||
+        cudaMallocManaged(&storage_, sizeof(*storage_)) != cudaSuccess ||
+        cudaMallocHost(
+            reinterpret_cast<void**>(&standalone_control_host_),
+            sizeof(*standalone_control_host_)) != cudaSuccess ||
+        cudaMallocHost(
+            reinterpret_cast<void**>(&outer_control_host_),
+            sizeof(*outer_control_host_)) != cudaSuccess ||
+        cudaMalloc(
+            &standalone_control_device_,
+            sizeof(*standalone_control_device_)) != cudaSuccess ||
+        cudaMalloc(
+            &outer_control_device_,
+            sizeof(*outer_control_device_)) != cudaSuccess) {
+      return false;
+    }
+    std::construct_at(storage_);
+    *standalone_control_host_ = MainDevicePositionBankControl{};
+    *outer_control_host_ = MainDevicePositionBankControl{};
+    standalone_control_host_->dynamic = dynamic_;
+    standalone_control_host_->status_input = bindings.status_input;
+    standalone_control_host_->status_output = bindings.status_output;
+    standalone_control_host_->layer_index = layer_index_;
+    standalone_control_host_->qk_launches =
+        storage_->qk_launches.data();
+    standalone_control_host_->pv_launches =
+        storage_->pv_launches.data();
+    outer_control_host_->dynamic = dynamic_;
+    outer_control_host_->status_input = bindings.status_input;
+    outer_control_host_->status_output = bindings.status_output;
+    outer_control_host_->layer_index = layer_index_;
+    outer_control_host_->qk_launches = storage_->qk_launches.data();
+    outer_control_host_->pv_launches = storage_->pv_launches.data();
+    auto* workspace = static_cast<std::byte*>(bindings.workspace);
+    if (cublasSetWorkspace(
+            handle,
+            workspace + kMainDevicePositionCublasWorkspaceOffset,
+            kMainDevicePositionCublasWorkspaceBytes) !=
+        CUBLAS_STATUS_SUCCESS ||
+        !scan_operation(
+            MainDevicePositionBankOperation::qk,
+            handle,
+            bindings,
+            stream,
+            &qk_representatives_,
+            &storage_->qk_launches,
+            &qk_class_count_) ||
+        !scan_operation(
+            MainDevicePositionBankOperation::pv,
+            handle,
+            bindings,
+            stream,
+            &pv_representatives_,
+            &storage_->pv_launches,
+            &pv_class_count_) ||
+        !latch_main_device_position_class_table(
+            qk_representatives_,
+            pv_representatives_,
+            storage_->qk_launches,
+            storage_->pv_launches)) {
+      return false;
+    }
+    const cudaMemLocation device_location{
+        cudaMemLocationTypeDevice, bindings.device};
+    if (cudaMemPrefetchAsync(
+            storage_,
+            sizeof(*storage_),
+            device_location,
+            0,
+            stream) != cudaSuccess ||
+        cudaStreamSynchronize(stream) != cudaSuccess ||
+        cudaStreamBeginCapture(
+            stream, cudaStreamCaptureModeThreadLocal) != cudaSuccess) {
+      return false;
+    }
+    const bool emitted = emit(
+        handle,
+        bindings,
+        standalone_control_host_,
+        standalone_control_device_,
+        stream);
+    cudaGraph_t graph = nullptr;
+    const cudaError_t end_status = cudaStreamEndCapture(stream, &graph);
+    if (!emitted || end_status != cudaSuccess || graph == nullptr) {
+      if (graph != nullptr) {
+        static_cast<void>(cudaGraphDestroy(graph));
+      }
+      return false;
+    }
+    cudaGraphExec_t executable = nullptr;
+    const cudaError_t instantiate_status =
+        cudaGraphInstantiate(&executable, graph, nullptr, nullptr, 0);
+    const cudaError_t destroy_status = cudaGraphDestroy(graph);
+    if (instantiate_status != cudaSuccess || executable == nullptr ||
+        destroy_status != cudaSuccess) {
+      if (executable != nullptr) {
+        static_cast<void>(cudaGraphExecDestroy(executable));
+      }
+      return false;
+    }
+    if (cudaGraphUpload(executable, stream) != cudaSuccess ||
+        cudaStreamSynchronize(stream) != cudaSuccess) {
+      static_cast<void>(cudaGraphExecDestroy(executable));
+      return false;
+    }
+    standalone_ = executable;
+    state_ = State::ready;
+    return true;
+  }
+
+  [[nodiscard]] bool inject_outer(
+      cublasHandle_t handle,
+      const MainDevicePositionBindings& bindings,
+      cudaStream_t stream) noexcept {
+    for (MainDevicePositionBankNode& node :
+         outer_control_host_->qk_nodes) {
+      node = MainDevicePositionBankNode{};
+    }
+    for (MainDevicePositionBankNode& node :
+         outer_control_host_->pv_nodes) {
+      node = MainDevicePositionBankNode{};
+    }
+    return emit(
+        handle,
+        bindings,
+        outer_control_host_,
+        outer_control_device_,
+        stream);
+  }
+
+  State state_{State::empty};
+  std::int32_t layer_index_{-1};
+  std::mutex mutex_;
+  MainDevicePositionBindings bindings_{};
+  MainDevicePositionManagedStorage* storage_{nullptr};
+  MainDevicePositionDynamicInputs* dynamic_{nullptr};
+  MainDevicePositionBankControl* standalone_control_host_{nullptr};
+  MainDevicePositionBankControl* outer_control_host_{nullptr};
+  MainDevicePositionBankControl* standalone_control_device_{nullptr};
+  MainDevicePositionBankControl* outer_control_device_{nullptr};
+  cudaGraphExec_t standalone_{nullptr};
+  cublasHandle_t handle_{nullptr};
+  std::array<
+      MainDevicePositionRepresentative,
+      kMainDevicePositionQkClasses> qk_representatives_{};
+  std::array<
+      MainDevicePositionRepresentative,
+      kMainDevicePositionPvClasses> pv_representatives_{};
+  std::size_t qk_class_count_{};
+  std::size_t pv_class_count_{};
+};
+
 class SoftmaxPlugin final : public nvinfer1::IPluginV3,
                             public nvinfer1::IPluginV3OneCore,
                             public nvinfer1::IPluginV3OneBuild,
                             public nvinfer1::IPluginV3OneRuntime {
  public:
-  explicit SoftmaxPlugin(const std::int32_t mode = kSoftmaxMode)
-      : mode_(mode) {
+  explicit SoftmaxPlugin(
+      const std::int32_t mode = kSoftmaxMode,
+      const std::int32_t layer_index = -1)
+      : mode_(mode),
+        layer_index_(layer_index),
+        bank_state_(layer_index) {
     initialize_fields();
     initialize_cublas();
   }
-  SoftmaxPlugin(const SoftmaxPlugin& other) : mode_(other.mode_) {
+  SoftmaxPlugin(const SoftmaxPlugin& other)
+      : mode_(other.mode_),
+        layer_index_(other.layer_index_),
+        bank_state_(other.layer_index_) {
     initialize_fields();
     initialize_cublas();
   }
   ~SoftmaxPlugin() override {
+    bank_state_.release();
     if (cublas_handle_ != nullptr) {
       static_cast<void>(cublasDestroy(cublas_handle_));
     }
@@ -1986,7 +3462,9 @@ class SoftmaxPlugin final : public nvinfer1::IPluginV3,
     return kPluginNamespace;
   }
 
-  std::int32_t getNbOutputs() const noexcept override { return 1; }
+  std::int32_t getNbOutputs() const noexcept override {
+    return softmax_output_count_for_mode(mode_);
+  }
 
   std::int32_t configurePlugin(
       const nvinfer1::DynamicPluginTensorDesc* inputs,
@@ -1997,7 +3475,10 @@ class SoftmaxPlugin final : public nvinfer1::IPluginV3,
     static_cast<void>(outputs);
     const std::int32_t expected_inputs =
         softmax_input_count_for_mode(mode_);
-    return input_count == expected_inputs && output_count == 1 ? 0 : -1;
+    return input_count == expected_inputs &&
+                   output_count == softmax_output_count_for_mode(mode_)
+        ? 0
+        : -1;
   }
 
   bool supportsFormatCombination(
@@ -2007,7 +3488,8 @@ class SoftmaxPlugin final : public nvinfer1::IPluginV3,
       const std::int32_t output_count) noexcept override {
     const std::int32_t expected_inputs =
         softmax_input_count_for_mode(mode_);
-    if (input_count != expected_inputs || output_count != 1 ||
+    if (input_count != expected_inputs ||
+        output_count != softmax_output_count_for_mode(mode_) ||
         position < 0 ||
         position >= input_count + output_count) {
       return false;
@@ -2020,10 +3502,22 @@ class SoftmaxPlugin final : public nvinfer1::IPluginV3,
       return tensors[position].desc.type ==
              nvinfer1::DataType::kBF16;
     }
+    if (mode_ == kMainSelfAttentionDevicePositionMode) {
+      const std::array<nvinfer1::DataType, 9> types{
+          nvinfer1::DataType::kBF16,
+          nvinfer1::DataType::kBF16,
+          nvinfer1::DataType::kBF16,
+          nvinfer1::DataType::kBOOL,
+          nvinfer1::DataType::kINT64,
+          nvinfer1::DataType::kBF16,
+          nvinfer1::DataType::kINT32,
+          nvinfer1::DataType::kBF16,
+          nvinfer1::DataType::kINT32};
+      return tensors[position].desc.type ==
+             types[static_cast<std::size_t>(position)];
+    }
     if (mode_ == kMainSelfAttentionContextMode ||
-        mode_ == kMainSelfAttentionStepContextMode ||
         mode_ == kMainCrossAttentionContextMode ||
-        mode_ == kMainSelfAttentionStepScoresMode ||
         mode_ == kMainAttentionPriorNormalizationMode ||
         mode_ == kMainAlignmentMeanMode) {
       return tensors[position].desc.type ==
@@ -2046,7 +3540,8 @@ class SoftmaxPlugin final : public nvinfer1::IPluginV3,
       const std::int32_t input_count) const noexcept override {
     const std::int32_t expected_inputs =
         softmax_input_count_for_mode(mode_);
-    if (input_count != expected_inputs || output_count != 1 ||
+    if (input_count != expected_inputs ||
+        output_count != softmax_output_count_for_mode(mode_) ||
         input_types[0] != nvinfer1::DataType::kBF16) {
       return -1;
     }
@@ -2057,9 +3552,7 @@ class SoftmaxPlugin final : public nvinfer1::IPluginV3,
       return -1;
     }
     if ((mode_ == kMainSelfAttentionContextMode ||
-         mode_ == kMainSelfAttentionStepContextMode ||
-         mode_ == kMainCrossAttentionContextMode ||
-         mode_ == kMainSelfAttentionStepScoresMode) &&
+         mode_ == kMainCrossAttentionContextMode) &&
         (input_types[1] != nvinfer1::DataType::kBF16 ||
          input_types[2] != nvinfer1::DataType::kBF16)) {
       return -1;
@@ -2074,7 +3567,19 @@ class SoftmaxPlugin final : public nvinfer1::IPluginV3,
          input_types[3] != nvinfer1::DataType::kBF16)) {
       return -1;
     }
+    if (mode_ == kMainSelfAttentionDevicePositionMode &&
+        (input_types[1] != nvinfer1::DataType::kBF16 ||
+         input_types[2] != nvinfer1::DataType::kBF16 ||
+         input_types[3] != nvinfer1::DataType::kBOOL ||
+         input_types[4] != nvinfer1::DataType::kINT64 ||
+         input_types[5] != nvinfer1::DataType::kBF16 ||
+         input_types[6] != nvinfer1::DataType::kINT32)) {
+      return -1;
+    }
     output_types[0] = nvinfer1::DataType::kBF16;
+    if (mode_ == kMainSelfAttentionDevicePositionMode) {
+      output_types[1] = nvinfer1::DataType::kINT32;
+    }
     return 0;
   }
 
@@ -2091,10 +3596,13 @@ class SoftmaxPlugin final : public nvinfer1::IPluginV3,
     const std::int32_t expected_inputs =
         softmax_input_count_for_mode(mode_);
     if (input_count != expected_inputs || shape_input_count != 0 ||
-        output_count != 1) {
+        output_count != softmax_output_count_for_mode(mode_)) {
       return -1;
     }
     outputs[0] = inputs[softmax_shape_reference_index(mode_)];
+    if (mode_ == kMainSelfAttentionDevicePositionMode) {
+      outputs[1].nbDims = 0;
+    }
     return 0;
   }
 
@@ -2109,9 +3617,9 @@ class SoftmaxPlugin final : public nvinfer1::IPluginV3,
     if (mode_ == kMainCrossAttentionSoftmaxMode && input_count == 4) {
       return main_cross_attention_softmax_workspace_size();
     }
-    if (mode_ == kMainSelfAttentionStepContextMode &&
-        input_count == 3) {
-      return main_self_attention_step_context_workspace_size();
+    if (mode_ == kMainSelfAttentionDevicePositionMode &&
+        input_count == 7 && output_count == 2) {
+      return main_self_attention_device_position_workspace_size();
     }
     return 0;
   }
@@ -2121,10 +3629,10 @@ class SoftmaxPlugin final : public nvinfer1::IPluginV3,
       const std::int32_t input_count,
       const nvinfer1::PluginTensorDesc* outputs,
       const std::int32_t output_count) noexcept override {
-    static_cast<void>(outputs);
     const std::int32_t expected_inputs =
         softmax_input_count_for_mode(mode_);
-    if (input_count != expected_inputs || output_count != 1) {
+    if (input_count != expected_inputs ||
+        output_count != softmax_output_count_for_mode(mode_)) {
       return -1;
     }
     if (mode_ == kSoftmaxMode) {
@@ -2138,21 +3646,18 @@ class SoftmaxPlugin final : public nvinfer1::IPluginV3,
                  ? 0
                  : -1;
     }
-    if (mode_ == kMainSelfAttentionStepContextMode) {
-      return is_supported_main_self_attention_step_context_shape(
-                 inputs[0].dims,
-                 inputs[1].dims,
-                 inputs[2].dims)
-                 ? 0
-                 : -1;
-    }
-    if (mode_ == kMainSelfAttentionStepScoresMode) {
-      return is_supported_main_self_attention_step_scores_shape(
-                 inputs[0].dims,
-                 inputs[1].dims,
-                 inputs[2].dims)
-                 ? 0
-                 : -1;
+    if (mode_ == kMainSelfAttentionDevicePositionMode) {
+      const bool supported =
+          is_supported_main_self_attention_device_position_shape(
+              inputs[0].dims,
+              inputs[1].dims,
+              inputs[2].dims,
+              inputs[3].dims,
+              inputs[4].dims,
+              inputs[5].dims) &&
+          is_tensorrt_scalar_storage_shape(inputs[6].dims) &&
+          is_tensorrt_scalar_storage_shape(outputs[1].dims);
+      return supported ? 0 : -1;
     }
     if (mode_ == kMainCrossAttentionContextMode) {
       return is_supported_main_cross_attention_context_shape(
@@ -2194,8 +3699,7 @@ class SoftmaxPlugin final : public nvinfer1::IPluginV3,
       void* const* outputs,
       void* workspace,
       cudaStream_t stream) noexcept override {
-    static_cast<void>(output_desc);
-    if (input_desc == nullptr || inputs == nullptr ||
+    if (input_desc == nullptr || output_desc == nullptr || inputs == nullptr ||
         outputs == nullptr) {
       return -1;
     }
@@ -2233,36 +3737,34 @@ class SoftmaxPlugin final : public nvinfer1::IPluginV3,
           input_desc[0].dims.d[3],
           stream);
     }
-    if (mode_ == kMainSelfAttentionStepContextMode) {
-      if (!is_supported_main_self_attention_step_context_shape(
+    if (mode_ == kMainSelfAttentionDevicePositionMode) {
+      if (!is_supported_main_self_attention_device_position_shape(
               input_desc[0].dims,
               input_desc[1].dims,
-              input_desc[2].dims)) {
+              input_desc[2].dims,
+              input_desc[3].dims,
+              input_desc[4].dims,
+              input_desc[5].dims) ||
+          !is_tensorrt_scalar_storage_shape(input_desc[6].dims) ||
+          !is_tensorrt_scalar_storage_shape(output_desc[1].dims)) {
         return -1;
       }
-      return launch_main_self_attention_step_context(
-          cublas_handle_,
+      std::int32_t device = -1;
+      if (cudaGetDevice(&device) != cudaSuccess) {
+        return -1;
+      }
+      const MainDevicePositionBindings bindings{
           inputs[0],
           inputs[1],
+          inputs[2],
+          static_cast<const bool*>(inputs[3]),
+          static_cast<const std::int64_t*>(inputs[4]),
+          static_cast<const std::int32_t*>(inputs[6]),
+          static_cast<std::int32_t*>(outputs[1]),
           workspace,
           outputs[0],
-          input_desc[0].dims.d[3],
-          stream);
-    }
-    if (mode_ == kMainSelfAttentionStepScoresMode) {
-      if (!is_supported_main_self_attention_step_scores_shape(
-              input_desc[0].dims,
-              input_desc[1].dims,
-              input_desc[2].dims)) {
-        return -1;
-      }
-      return launch_main_self_attention_step_scores(
-          cublas_handle_,
-          inputs[0],
-          inputs[1],
-          outputs[0],
-          input_desc[2].dims.d[3],
-          stream);
+          device};
+      return bank_state_.enqueue(bindings, stream);
     }
     if (mode_ == kMainCrossAttentionContextMode) {
       if (!is_supported_main_cross_attention_context_shape(
@@ -2336,9 +3838,7 @@ class SoftmaxPlugin final : public nvinfer1::IPluginV3,
  private:
   void initialize_cublas() noexcept {
     if (mode_ != kMainCrossAttentionSoftmaxMode &&
-        mode_ != kMainCrossAttentionContextMode &&
-        mode_ != kMainSelfAttentionStepContextMode &&
-        mode_ != kMainSelfAttentionStepScoresMode) {
+        mode_ != kMainCrossAttentionContextMode) {
       return;
     }
     if (cublasCreate(&cublas_handle_) != CUBLAS_STATUS_SUCCESS) {
@@ -2358,13 +3858,20 @@ class SoftmaxPlugin final : public nvinfer1::IPluginV3,
         &mode_,
         nvinfer1::PluginFieldType::kINT32,
         1};
-    fields_.nbFields = 1;
+    serialized_fields_[1] = nvinfer1::PluginField{
+        "layer_index",
+        &layer_index_,
+        nvinfer1::PluginFieldType::kINT32,
+        1};
+    fields_.nbFields = 2;
     fields_.fields = serialized_fields_.data();
   }
 
   std::int32_t mode_{kSoftmaxMode};
+  std::int32_t layer_index_{-1};
   cublasHandle_t cublas_handle_{nullptr};
-  std::array<nvinfer1::PluginField, 1> serialized_fields_{};
+  MainDevicePositionBankState bank_state_{};
+  std::array<nvinfer1::PluginField, 2> serialized_fields_{};
   nvinfer1::PluginFieldCollection fields_{};
 };
 
@@ -2411,7 +3918,12 @@ class SoftmaxCreator final : public nvinfer1::IPluginCreatorV3One {
         nullptr,
         nvinfer1::PluginFieldType::kINT32,
         1};
-    fields_.nbFields = 1;
+    advertised_fields_[1] = nvinfer1::PluginField{
+        "layer_index",
+        nullptr,
+        nvinfer1::PluginFieldType::kINT32,
+        1};
+    fields_.nbFields = 2;
     fields_.fields = advertised_fields_.data();
   }
 
@@ -2435,35 +3947,53 @@ class SoftmaxCreator final : public nvinfer1::IPluginCreatorV3One {
     static_cast<void>(name);
     static_cast<void>(phase);
     if (fields == nullptr || fields->nbFields < 0 ||
-        fields->nbFields > 1) {
+        fields->nbFields > 2) {
       return nullptr;
     }
     std::int32_t mode = kSoftmaxMode;
-    if (fields->nbFields == 1) {
-      const nvinfer1::PluginField& field = fields->fields[0];
+    std::int32_t layer_index = -1;
+    bool mode_seen = false;
+    bool layer_index_seen = false;
+    for (std::int32_t index = 0; index < fields->nbFields; ++index) {
+      const nvinfer1::PluginField& field = fields->fields[index];
       if (field.name == nullptr ||
-          std::string_view(field.name) != "mode" ||
           field.type != nvinfer1::PluginFieldType::kINT32 ||
           field.length != 1 || field.data == nullptr) {
         return nullptr;
       }
-      mode = *static_cast<const std::int32_t*>(field.data);
+      const std::string_view name(field.name);
+      if (name == "mode" && !mode_seen) {
+        mode = *static_cast<const std::int32_t*>(field.data);
+        mode_seen = true;
+      } else if (name == "layer_index" && !layer_index_seen) {
+        layer_index = *static_cast<const std::int32_t*>(field.data);
+        layer_index_seen = true;
+      } else {
+        return nullptr;
+      }
     }
     if (mode != kSoftmaxMode &&
         mode != kMainCrossAttentionSoftmaxMode &&
         mode != kMainSelfAttentionContextMode &&
         mode != kMainCrossAttentionContextMode &&
         mode != kMainAttentionPriorNormalizationMode &&
-        mode != kMainSelfAttentionStepScoresMode &&
-        mode != kMainSelfAttentionStepContextMode &&
-        mode != kMainAlignmentMeanMode) {
+        mode != kMainAlignmentMeanMode &&
+        mode != kMainSelfAttentionDevicePositionMode) {
       return nullptr;
     }
-    return new (std::nothrow) SoftmaxPlugin(mode);
+    if (mode == kMainSelfAttentionDevicePositionMode) {
+      if (!layer_index_seen || layer_index < 0 ||
+          layer_index >= kMainDevicePositionLayerCount) {
+        return nullptr;
+      }
+    } else if (layer_index != -1) {
+      return nullptr;
+    }
+    return new (std::nothrow) SoftmaxPlugin(mode, layer_index);
   }
 
  private:
-  std::array<nvinfer1::PluginField, 1> advertised_fields_{};
+  std::array<nvinfer1::PluginField, 2> advertised_fields_{};
   nvinfer1::PluginFieldCollection fields_{};
 };
 
@@ -2570,6 +4100,27 @@ mtt_plugin_status_t register_plugins_explicitly() noexcept {
                ? MTT_PLUGIN_STATUS_REGISTRATION_CONFLICT
                : MTT_PLUGIN_STATUS_REGISTRATION_FAILED;
   }
+  return MTT_PLUGIN_STATUS_OK;
+}
+
+mtt_plugin_status_t get_main_device_position_class_table(
+    mtt_main_device_position_class_table_v1_t* table) noexcept {
+  if (table == nullptr) {
+    return MTT_PLUGIN_STATUS_INVALID_ARGUMENT;
+  }
+  if (table->struct_size != sizeof(*table) ||
+      table->abi_version != MTT_PLUGIN_ABI_VERSION_1) {
+    return MTT_PLUGIN_STATUS_ABI_MISMATCH;
+  }
+  const std::lock_guard<std::mutex> lock(
+      main_device_position_class_table_mutex);
+  if (main_device_position_class_table_conflict) {
+    return MTT_PLUGIN_STATUS_CLASS_TABLE_CONFLICT;
+  }
+  if (!main_device_position_class_table_ready) {
+    return MTT_PLUGIN_STATUS_NOT_READY;
+  }
+  *table = main_device_position_class_table;
   return MTT_PLUGIN_STATUS_OK;
 }
 
@@ -2943,133 +4494,58 @@ int launch_main_self_attention_context(
   return operation.run(stream) == cutlass::Status::kSuccess ? 0 : -1;
 }
 
-std::size_t main_self_attention_step_context_workspace_size() noexcept {
-  return kMainStepContextWorkspaceBytes;
+std::size_t main_self_attention_device_position_workspace_size() noexcept {
+  return kMainDevicePositionWorkspaceBytes;
 }
 
-int launch_main_self_attention_step_context(
-    cublasHandle_t cublas_handle,
-    const void* probabilities_bf16,
+int launch_main_self_attention_device_position(
+    const void* query_bf16,
+    const void* key_bf16,
     const void* value_bf16,
+    const bool* key_mask,
+    const std::int64_t* position,
     void* workspace,
     void* output_bf16,
-    const std::int32_t active_length,
     cudaStream_t stream) noexcept {
-  if (cublas_handle == nullptr || probabilities_bf16 == nullptr ||
-      value_bf16 == nullptr || workspace == nullptr ||
-      output_bf16 == nullptr ||
-      active_length < kMainDecoderPrefillLength + 1 ||
-      active_length > kMainDecoderCacheCapacity) {
+  if (query_bf16 == nullptr || key_bf16 == nullptr ||
+      value_bf16 == nullptr || key_mask == nullptr || position == nullptr ||
+      workspace == nullptr || output_bf16 == nullptr) {
     return -1;
   }
-  auto* compact_values = static_cast<__nv_bfloat16*>(workspace);
-  // The active QK/softmax path already produces a compact [24,1,K]
-  // probability tensor.  PyTorch clones only the non-contiguous value slice
-  // to [24,K,64] before the context GEMM.  Reconstruct that value layout in
-  // bounded TensorRT workspace and keep the probability leading dimension
-  // and batch stride equal to K; restoring the old capacity-467 probability
-  // stride changes cuBLAS results for some accepted inputs.
-  constexpr std::int32_t staging_threads = 256;
-  const std::int32_t value_vectors =
-      kMainSelfAttentionBatchHeads * active_length *
-      (kMainSelfAttentionHeadWidth / 8);
-  stage_main_step_values_kernel<<<
-      (value_vectors + staging_threads - 1) / staging_threads,
-      staging_threads,
+  auto* scores = static_cast<__nv_bfloat16*>(workspace);
+  auto* probabilities = reinterpret_cast<__nv_bfloat16*>(
+      static_cast<std::byte*>(workspace) + kMainDevicePositionScoreBytes);
+  constexpr std::int32_t score_threads = 128;
+  main_device_position_qk_kernel<<<
+      kMainSelfAttentionBatchHeads,
+      score_threads,
       0,
       stream>>>(
-      reinterpret_cast<
-          const AlignedVector<__nv_bfloat16, 8>*>(value_bf16),
-      reinterpret_cast<AlignedVector<__nv_bfloat16, 8>*>(
-          compact_values),
-      active_length);
-  if (cudaPeekAtLastError() != cudaSuccess) {
-    return -1;
-  }
-  if (cublasSetStream(cublas_handle, stream) != CUBLAS_STATUS_SUCCESS) {
-    return -1;
-  }
-  constexpr float alpha = 1.0F;
-  constexpr float beta = 0.0F;
-  return cublasGemmStridedBatchedEx(
-             cublas_handle,
-             CUBLAS_OP_N,
-             CUBLAS_OP_N,
-             kMainSelfAttentionHeadWidth,
-             1,
-             active_length,
-             &alpha,
-             compact_values,
-             CUDA_R_16BF,
-             kMainSelfAttentionHeadWidth,
-             static_cast<long long>(
-                 active_length * kMainSelfAttentionHeadWidth),
-             probabilities_bf16,
-             CUDA_R_16BF,
-             active_length,
-             static_cast<long long>(active_length),
-             &beta,
-             output_bf16,
-             CUDA_R_16BF,
-             kMainSelfAttentionHeadWidth,
-             static_cast<long long>(kMainSelfAttentionHeadWidth),
-             kMainSelfAttentionBatchHeads,
-             CUBLAS_COMPUTE_32F,
-             CUBLAS_GEMM_DEFAULT_TENSOR_OP) == CUBLAS_STATUS_SUCCESS
-             ? 0
-             : -1;
-}
-
-int launch_main_self_attention_step_scores(
-    cublasHandle_t cublas_handle,
-    const void* query_bf16,
-    const void* key_transposed_bf16,
-    void* output_bf16,
-    const std::int32_t active_length,
-    cudaStream_t stream) noexcept {
-  if (cublas_handle == nullptr || query_bf16 == nullptr ||
-      key_transposed_bf16 == nullptr || output_bf16 == nullptr ||
-      active_length < kMainDecoderPrefillLength + 1 ||
-      active_length > kMainDecoderCacheCapacity) {
-    return -1;
-  }
-  if (cublasSetStream(cublas_handle, stream) != CUBLAS_STATUS_SUCCESS) {
-    return -1;
-  }
-  constexpr std::int32_t head_width =
-      kMainDecoderCrossAttentionWidth / 2;
-  constexpr std::int32_t batch_count =
-      kMainDecoderBatch * kAttentionHeads;
-  constexpr float alpha = 1.0F;
-  constexpr float beta = 0.0F;
-  return cublasGemmStridedBatchedEx(
-             cublas_handle,
-             CUBLAS_OP_N,
-             CUBLAS_OP_N,
-             active_length,
-             1,
-             head_width,
-             &alpha,
-             key_transposed_bf16,
-             CUDA_R_16BF,
-             active_length,
-             static_cast<long long>(
-                 head_width * active_length),
-             query_bf16,
-             CUDA_R_16BF,
-             head_width,
-             static_cast<long long>(head_width),
-             &beta,
-             output_bf16,
-             CUDA_R_16BF,
-             active_length,
-             static_cast<long long>(active_length),
-             batch_count,
-             CUBLAS_COMPUTE_32F,
-             CUBLAS_GEMM_DEFAULT_TENSOR_OP) ==
-             CUBLAS_STATUS_SUCCESS
-         ? 0
-         : -1;
+      static_cast<const __nv_bfloat16*>(query_bf16),
+      static_cast<const __nv_bfloat16*>(key_bf16),
+      key_mask,
+      position,
+      scores);
+  main_device_position_softmax_kernel<8, false><<<
+      kMainSelfAttentionBatchHeads,
+      32,
+      0,
+      stream>>>(scores, position, probabilities);
+  main_device_position_softmax_kernel<9, true><<<
+      kMainSelfAttentionBatchHeads,
+      32,
+      0,
+      stream>>>(scores, position, probabilities);
+  main_device_position_pv_kernel<<<
+      kMainSelfAttentionBatchHeads,
+      kMainSelfAttentionHeadWidth,
+      0,
+      stream>>>(
+      probabilities,
+      static_cast<const __nv_bfloat16*>(value_bf16),
+      position,
+      static_cast<__nv_bfloat16*>(output_bf16));
+  return cudaPeekAtLastError() == cudaSuccess ? 0 : -1;
 }
 
 int launch_main_cross_attention_context(
@@ -3226,6 +4702,141 @@ int launch_main_alignment_mean(
 }
 
 #if defined(MAGPIE_TTS_RT_PLUGIN_TESTING)
+struct MainDevicePositionBankTestState final {
+  explicit MainDevicePositionBankTestState(
+      const std::int32_t layer_index)
+      : bank(layer_index) {}
+
+  MainDevicePositionBankState bank;
+};
+
+MainDevicePositionBankTestState*
+create_main_device_position_bank_test_state(
+    const std::int32_t layer_index) noexcept {
+  if (layer_index < 0 ||
+      layer_index >= kMainDevicePositionLayerCount) {
+    return nullptr;
+  }
+  return new (std::nothrow)
+      MainDevicePositionBankTestState(layer_index);
+}
+
+void destroy_main_device_position_bank_test_state(
+    MainDevicePositionBankTestState* state) noexcept {
+  delete state;
+}
+
+int enqueue_main_device_position_bank_test_state(
+    MainDevicePositionBankTestState* state,
+    const void* query_bf16,
+    const void* key_bf16,
+    const void* value_bf16,
+    const bool* key_mask,
+    const std::int64_t* position,
+    const std::int32_t* status_input,
+    std::int32_t* status_output,
+    void* workspace,
+    void* output_bf16,
+    cudaStream_t stream) noexcept {
+  if (state == nullptr || query_bf16 == nullptr || key_bf16 == nullptr ||
+      value_bf16 == nullptr || key_mask == nullptr || position == nullptr ||
+      status_input == nullptr || status_output == nullptr ||
+      workspace == nullptr || output_bf16 == nullptr) {
+    return -1;
+  }
+  std::int32_t device = -1;
+  if (cudaGetDevice(&device) != cudaSuccess) {
+    return -1;
+  }
+  return state->bank.enqueue(
+      MainDevicePositionBindings{
+          query_bf16,
+          key_bf16,
+          value_bf16,
+          key_mask,
+          position,
+          status_input,
+          status_output,
+          workspace,
+          output_bf16,
+          device},
+      stream);
+}
+
+bool invalidate_main_device_position_qk_node_test_state(
+    MainDevicePositionBankTestState* state,
+    const std::size_t class_index) noexcept {
+  return state != nullptr &&
+         state->bank.invalidate_qk_node_for_test(class_index);
+}
+
+bool validate_main_device_position_scalar_callback_shapes_test() noexcept {
+  SoftmaxPlugin plugin(kMainSelfAttentionDevicePositionMode, 0);
+  std::array<nvinfer1::PluginTensorDesc, 7> inputs{};
+  std::array<nvinfer1::PluginTensorDesc, 2> outputs{};
+  const auto set_dims = [](
+                            nvinfer1::PluginTensorDesc& descriptor,
+                            const std::initializer_list<std::int32_t> dims) {
+    descriptor.dims.nbDims = static_cast<std::int32_t>(dims.size());
+    std::int32_t index = 0;
+    for (const std::int32_t extent : dims) {
+      descriptor.dims.d[index++] = extent;
+    }
+  };
+  constexpr std::int32_t head_width =
+      kMainDecoderCrossAttentionWidth / 2;
+  set_dims(
+      inputs[0],
+      {kMainDecoderBatch, kAttentionHeads, 1, head_width});
+  set_dims(
+      inputs[1],
+      {kMainDecoderBatch,
+       kAttentionHeads,
+       kMainDecoderCacheCapacity,
+       head_width});
+  set_dims(
+      inputs[2],
+      {kMainDecoderBatch,
+       kAttentionHeads,
+       kMainDecoderCacheCapacity,
+       head_width});
+  set_dims(inputs[3], {kMainDecoderBatch, kMainDecoderCacheCapacity});
+  set_dims(
+      inputs[5],
+      {kMainDecoderBatch, kAttentionHeads, 1, head_width});
+  outputs[0].dims = inputs[5].dims;
+
+  inputs[4].dims.nbDims = 0;
+  inputs[6].dims.nbDims = 0;
+  outputs[1].dims.nbDims = 0;
+  const bool accepts_rank_zero =
+      plugin.onShapeChange(
+          inputs.data(),
+          static_cast<std::int32_t>(inputs.size()),
+          outputs.data(),
+          static_cast<std::int32_t>(outputs.size())) == 0;
+
+  set_dims(inputs[4], {1});
+  set_dims(inputs[6], {1});
+  set_dims(outputs[1], {1});
+  const bool accepts_myelin_lowering =
+      plugin.onShapeChange(
+          inputs.data(),
+          static_cast<std::int32_t>(inputs.size()),
+          outputs.data(),
+          static_cast<std::int32_t>(outputs.size())) == 0;
+
+  set_dims(inputs[6], {2});
+  const bool rejects_non_scalar =
+      plugin.onShapeChange(
+          inputs.data(),
+          static_cast<std::int32_t>(inputs.size()),
+          outputs.data(),
+          static_cast<std::int32_t>(outputs.size())) == -1;
+  return accepts_rank_zero && accepts_myelin_lowering &&
+         rejects_non_scalar;
+}
+
 int launch_test_clamped_gumbel(
     const float* uniform,
     float* gumbel,
@@ -3293,4 +4904,10 @@ mtt_plugin_get_api_v1(mtt_plugin_api_v1_t* api) {
       magpie_tts_rt::plugins::kSoftmaxPluginName);
   *api = populated;
   return MTT_PLUGIN_STATUS_OK;
+}
+
+extern "C" MTT_PLUGIN_API mtt_plugin_status_t
+mtt_plugin_get_main_device_position_class_table_v1(
+    mtt_main_device_position_class_table_v1_t* table) {
+  return magpie_tts_rt::plugins::get_main_device_position_class_table(table);
 }

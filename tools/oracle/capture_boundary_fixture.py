@@ -22,6 +22,11 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+EXPORT_TOOLS = PROJECT_ROOT / "tools" / "export"
+if str(EXPORT_TOOLS) not in sys.path:
+    sys.path.insert(0, str(EXPORT_TOOLS))
+
 import numpy as np
 import pyopenjtalk
 import torch
@@ -47,6 +52,7 @@ from verify_oracle_lock import (
     sha256_file,
 )
 from validate_boundary_fixture import validate_boundary_fixture
+from locked_magpie_restore import LockedCodec, load_locked_magpie_model
 
 
 TARGET_DTYPE = torch.bfloat16
@@ -260,6 +266,7 @@ def verify_inputs(args: argparse.Namespace) -> dict:
         args.speech_root,
         source_lock["base_revision"],
         source_lock["files"],
+        source_lock["optimized_source_bundle_sha256"],
     )
     require_imported_nemo_source(args.speech_root)
     return lock
@@ -615,10 +622,10 @@ def selected_bf16_modules(model: MagpieTTSModel) -> dict[str, torch.nn.Module]:
     }
 
 
-def load_model(model_path: Path) -> MagpieTTSModel:
+def load_model(model_path: Path, codec: LockedCodec) -> MagpieTTSModel:
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is unavailable; CPU fixture generation is forbidden")
-    model = MagpieTTSModel.restore_from(str(model_path.resolve(strict=True)), map_location="cpu")
+    model = load_locked_magpie_model(model_path, codec)
     model.eval()
     model.to("cuda")
     for module in selected_bf16_modules(model).values():
@@ -1007,12 +1014,23 @@ def write_manifest(
     codec_contract: dict[str, int | list[int]],
     elapsed_seconds: float,
 ) -> None:
+    codec_lock = lock["codec"]
+    locked_codec = LockedCodec(
+        path=args.codec_model,
+        model_id=codec_lock["model_id"],
+        sha256=codec_lock["sha256"],
+        size_bytes=codec_lock["size_bytes"],
+    )
     manifest = {
         "schema_version": 1,
         "fixture_id": "magpie-v2607-sofia-ja-boundaries-v1",
         "oracle_lock_sha256": sha256_file(args.lock.resolve(strict=True)),
         "model_sha256": lock["model"]["sha256"],
         "codec_model_sha256": lock["codec"]["sha256"],
+        "locked_magpie_restore_sha256": sha256_file(
+            (EXPORT_TOOLS / "locked_magpie_restore.py").resolve(strict=True)
+        ),
+        "codec_restore": locked_codec.restore_receipt().to_json(),
         "source_bundle_sha256": lock["oracle_source"]["optimized_source_bundle_sha256"],
         "acceptance_receipt_sha256": lock["acceptance"]["receipt_sha256"],
         "text": args.text,
@@ -1069,7 +1087,17 @@ def main() -> int:
         torch.set_float32_matmul_precision("highest")
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.allow_tf32 = False
-        model = load_model(args.model)
+        codec_lock = lock["codec"]
+        locked_codec = LockedCodec(
+            path=args.codec_model,
+            model_id=codec_lock["model_id"],
+            sha256=codec_lock["sha256"],
+            size_bytes=codec_lock["size_bytes"],
+        )
+        model = load_model(
+            args.model,
+            locked_codec,
+        )
         frontend_contract = require_frontend_contract(model, lock)
         batch = prepare_batch(model, args.text, args.language)
         writer = TensorWriter(staging)

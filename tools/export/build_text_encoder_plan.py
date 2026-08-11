@@ -166,6 +166,7 @@ def register_plugin(path: Path) -> tuple[ctypes.CDLL, dict]:
 
 def verify_export_directory(
     export_path: Path,
+    lock: dict,
     lock_sha256: str,
     fixture_manifest_sha256: str,
 ) -> tuple[Path, str]:
@@ -210,6 +211,17 @@ def verify_export_directory(
     required_source = {
         "oracle_lock_sha256": lock_sha256,
         "boundary_fixture_manifest_sha256": fixture_manifest_sha256,
+        "locked_magpie_restore_sha256": sha256_file(
+            (SCRIPT_DIRECTORY / "locked_magpie_restore.py").resolve(strict=True)
+        ),
+        "codec_restore": {
+            "embedded_codec_model_id": lock["codec"]["model_id"],
+            "codec_model_sha256": lock["codec"]["sha256"],
+            "codec_model_size_bytes": lock["codec"]["size_bytes"],
+            "codec_resolution": "authenticated_local_file",
+            "use_scl_loss": False,
+            "network_resolution": False,
+        },
     }
     for key, expected in required_source.items():
         actual = source.get(key)
@@ -534,6 +546,7 @@ def inspect_and_validate_plan(
 
 def build_plan_receipt(
     args: argparse.Namespace,
+    lock: dict,
     lock_sha256: str,
     fixture_manifest_sha256: str,
     export_receipt_sha256: str,
@@ -560,6 +573,19 @@ def build_plan_receipt(
         "created_at_utc": datetime.datetime.now(datetime.UTC).isoformat(),
         "source": {
             "builder_sha256": sha256_file(Path(__file__).resolve(strict=True)),
+            "locked_magpie_restore_sha256": sha256_file(
+                (SCRIPT_DIRECTORY / "locked_magpie_restore.py").resolve(
+                    strict=True
+                )
+            ),
+            "codec_restore": {
+                "embedded_codec_model_id": lock["codec"]["model_id"],
+                "codec_model_sha256": lock["codec"]["sha256"],
+                "codec_model_size_bytes": lock["codec"]["size_bytes"],
+                "codec_resolution": "authenticated_local_file",
+                "use_scl_loss": False,
+                "network_resolution": False,
+            },
             "oracle_lock_sha256": lock_sha256,
             "boundary_fixture_manifest_sha256": fixture_manifest_sha256,
             "export_receipt_sha256": export_receipt_sha256,
@@ -639,6 +665,7 @@ def main() -> int:
     )
     onnx_path, export_receipt_sha256 = verify_export_directory(
         args.export,
+        lock,
         lock_sha256,
         fixture_manifest_sha256,
     )
@@ -668,6 +695,7 @@ def main() -> int:
             raise AssertionError("plugin library ownership was lost")
         receipt = build_plan_receipt(
             args,
+            lock,
             lock_sha256,
             fixture_manifest_sha256,
             export_receipt_sha256,

@@ -29,6 +29,7 @@ MODEL_WIDTH = 768
 DECODER_LAYERS = 12
 SELF_HEADS = 12
 SELF_HEAD_WIDTH = 64
+SELF_ATTENTION_SCALE = SELF_HEAD_WIDTH**-0.5
 CROSS_HEADS = 1
 CROSS_HEAD_WIDTH = 128
 SOFIA_INDEX = 4
@@ -174,18 +175,28 @@ class _OracleMainSelfAttentionContext(torch.autograd.Function):
         return output
 
 
-class _OracleMainSelfAttentionStepContext(torch.autograd.Function):
-    """Slice to the active cache and lower the one-step context as mode 6."""
+class _OracleMainSelfAttentionDevicePosition(torch.autograd.Function):
+    """Fixed-I/O self-attention with a device-resident absolute position.
+
+    The TensorRT lowering deliberately has no position-derived shape edge.
+    Its CUDA implementation owns QK, masking, active-width softmax, and PV.
+    The eager path remains the accepted active-prefix Torch operation used by
+    the locked oracle.
+    """
 
     @staticmethod
     def forward(
         ctx: torch.autograd.function.FunctionCtx,
-        probabilities: torch.Tensor,
+        query_heads: torch.Tensor,
+        key_heads: torch.Tensor,
         value_heads: torch.Tensor,
+        key_mask: torch.Tensor,
         position: torch.Tensor,
         shape_reference: torch.Tensor,
-    ) -> torch.Tensor:
-        del ctx, shape_reference
+        execution_status: torch.Tensor,
+        layer_index: int,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        del ctx, shape_reference, layer_index
         active_length = int(position.item()) + 1
         if active_length < PREFILL_LENGTH + 1:
             raise ValueError(
@@ -197,129 +208,53 @@ class _OracleMainSelfAttentionStepContext(torch.autograd.Function):
                 "Main Decoder step position exceeds the cache capacity: "
                 f"{active_length - 1}"
             )
-        return torch.matmul(
-            probabilities[..., :active_length],
-            value_heads[..., :active_length, :],
-        )
-
-    @staticmethod
-    def symbolic(
-        graph,
-        probabilities,
-        value_heads,
-        position,
-        shape_reference,
-    ):
-        active_length = graph.op(
-            "Add",
-            position,
-            _int64_constant(graph, (1,)),
-        )
-        active_probabilities = graph.op(
-            "Slice",
-            probabilities,
-            _int64_constant(graph, (0,)),
-            active_length,
-            _int64_constant(graph, (3,)),
-            _int64_constant(graph, (1,)),
-        )
-        output = graph.op(
-            "magpie_tts_rt::MagpieSoftmax",
-            active_probabilities,
-            value_heads,
-            shape_reference,
-            mode_i=6,
-            plugin_version_s=PLUGIN_VERSION,
-            plugin_namespace_s=PLUGIN_NAMESPACE,
-        )
-        output.setType(shape_reference.type())
-        return output
-
-
-class _OracleMainSelfAttentionStepScores(torch.autograd.Function):
-    """Lower the accepted one-step self-attention QK GEMM as mode 5."""
-
-    @staticmethod
-    def forward(
-        ctx: torch.autograd.function.FunctionCtx,
-        query_heads: torch.Tensor,
-        key_transposed: torch.Tensor,
-        shape_reference: torch.Tensor,
-    ) -> torch.Tensor:
-        del ctx
-        active_length = shape_reference.size(-1)
-        return torch.matmul(
+        active_mask = key_mask[:, None, None, :active_length]
+        scores = torch.matmul(
             query_heads,
-            key_transposed[..., :active_length],
+            key_heads[..., :active_length, :].transpose(-1, -2).contiguous(),
+        )
+        scores = scores * SELF_ATTENTION_SCALE
+        scores = scores.masked_fill(~active_mask, float("-inf"))
+        probabilities = torch.softmax(scores, dim=-1)
+        probabilities = probabilities.masked_fill(~active_mask, 0.0)
+        return (
+            torch.matmul(
+                probabilities,
+                value_heads[..., :active_length, :],
+            ),
+            execution_status,
         )
 
     @staticmethod
     def symbolic(
         graph,
         query_heads,
-        key_transposed,
+        key_heads,
+        value_heads,
+        key_mask,
+        position,
         shape_reference,
+        execution_status,
+        layer_index,
     ):
-        output = graph.op(
+        context, status = graph.op(
             "magpie_tts_rt::MagpieSoftmax",
             query_heads,
-            key_transposed,
+            key_heads,
+            value_heads,
+            key_mask,
+            position,
             shape_reference,
-            mode_i=5,
+            execution_status,
+            mode_i=8,
+            layer_index_i=layer_index,
             plugin_version_s=PLUGIN_VERSION,
             plugin_namespace_s=PLUGIN_NAMESPACE,
+            outputs=2,
         )
-        output.setType(shape_reference.type())
-        return output
-
-
-class _OracleMainActiveCacheSlice(torch.autograd.Function):
-    """Slice a fixed-capacity cache to the oracle's active prefix.
-
-    The NeMo incremental self-attention implementation slices K/V state before
-    the QK GEMM and softmax.  Masking a full-capacity score tensor afterwards
-    is not numerically equivalent: the CUDA softmax reduction changes with the
-    reduction width.  ``position`` remains a TensorRT shape input, so the
-    active prefix length is selected at runtime instead of being frozen at
-    export time.
-    """
-
-    @staticmethod
-    def forward(
-        ctx: torch.autograd.function.FunctionCtx,
-        value: torch.Tensor,
-        position: torch.Tensor,
-        axis: int,
-    ) -> torch.Tensor:
-        del ctx
-        active_length = int(position.item()) + 1
-        if active_length < PREFILL_LENGTH + 1:
-            raise ValueError(
-                "Main Decoder step position precedes the accepted prefix: "
-                f"{active_length - 1}"
-            )
-        if active_length > SELF_CACHE_CAPACITY:
-            raise ValueError(
-                "Main Decoder step position exceeds the cache capacity: "
-                f"{active_length - 1}"
-            )
-        return value.narrow(axis, 0, active_length)
-
-    @staticmethod
-    def symbolic(graph, value, position, axis):
-        active_length = graph.op(
-            "Add",
-            position,
-            _int64_constant(graph, (1,)),
-        )
-        return graph.op(
-            "Slice",
-            value,
-            _int64_constant(graph, (0,)),
-            active_length,
-            _int64_constant(graph, (axis,)),
-            _int64_constant(graph, (1,)),
-        )
+        context.setType(shape_reference.type())
+        status.setType(execution_status.type())
+        return context, status
 
 
 class _OracleMainCrossAttentionContext(torch.autograd.Function):
@@ -450,6 +385,7 @@ def step_input_names() -> list[str]:
     names = [
         "previous_codec_tokens",
         "position",
+        "execution_status_in",
         "alignment_prior",
         "condition_mask",
     ]
@@ -467,7 +403,7 @@ def step_input_names() -> list[str]:
 
 
 def step_output_names() -> list[str]:
-    names = ["decoder_hidden", "alignment"]
+    names = ["decoder_hidden", "alignment", "execution_status_out"]
     for layer_index in range(DECODER_LAYERS):
         names.extend(
             [
@@ -874,13 +810,19 @@ class MainDecoderStepWrapper(torch.nn.Module):
         return audio_embedding / (AUDIO_CODEBOOKS * FRAME_STACKING)
 
     def forward(self, *inputs: torch.Tensor) -> tuple[torch.Tensor, ...]:
-        expected_inputs = 4 + DECODER_LAYERS * 5
+        expected_inputs = 5 + DECODER_LAYERS * 5
         if len(inputs) != expected_inputs:
             raise ValueError(
                 f"Main Decoder step expects {expected_inputs} tensors, got {len(inputs)}"
             )
-        previous_codec_tokens, position, attention_prior, condition_mask = inputs[:4]
-        layer_inputs = inputs[4:]
+        (
+            previous_codec_tokens,
+            position,
+            execution_status,
+            attention_prior,
+            condition_mask,
+        ) = inputs[:5]
+        layer_inputs = inputs[5:]
 
         embedded = self._embed_codec_tokens(previous_codec_tokens)
         x = embedded.expand(CFG_BATCH, -1, -1)
@@ -922,41 +864,17 @@ class MainDecoderStepWrapper(torch.nn.Module):
             query_heads = query.transpose(1, 2)
             key_heads = updated_key.transpose(1, 2)
             value_heads = updated_value.transpose(1, 2)
-            key_transposed = key_heads.transpose(2, 3)
-            active_key_transposed = _OracleMainActiveCacheSlice.apply(
-                key_transposed,
-                position,
-                3,
-            )
-            active_mask = _OracleMainActiveCacheSlice.apply(
-                updated_mask,
-                position,
-                1,
-            )
-            self_scores_shape_reference = (
-                query_heads[..., :1]
-                + active_key_transposed[:, :, :1, :]
-            )
-            scores = (
-                _OracleMainSelfAttentionStepScores.apply(
+            self_output, execution_status = (
+                _OracleMainSelfAttentionDevicePosition.apply(
+                    query_heads.contiguous(),
+                    key_heads.contiguous(),
+                    value_heads.contiguous(),
+                    updated_mask,
+                    position,
                     query_heads,
-                    active_key_transposed,
-                    self_scores_shape_reference,
+                    execution_status,
+                    layer_index,
                 )
-                * layer.self_attention.scale
-            )
-            valid = x_mask[:, None, :, None] & active_mask[:, None, None, :]
-            scores = scores.masked_fill(~valid, float("-inf"))
-            probabilities = _OracleSoftmax.apply(scores)
-            probabilities = probabilities.masked_fill(~valid, 0.0)
-            self_context_shape_reference = (
-                probabilities[..., :1] + value_heads[:, :, :1, :]
-            )
-            self_output = _OracleMainSelfAttentionStepContext.apply(
-                probabilities,
-                value_heads,
-                position,
-                self_context_shape_reference,
             )
             self_output = self_output.transpose(1, 2).contiguous().view(
                 CFG_BATCH, 1, MODEL_WIDTH
@@ -985,7 +903,12 @@ class MainDecoderStepWrapper(torch.nn.Module):
 
         x = _oracle_layer_norm(self.decoder.norm_out, x)
         alignment = _OracleMainAlignmentMean.apply(*alignment_scores)
-        return (x[:, -1, :], alignment, *state_outputs)
+        return (
+            x[:, -1, :],
+            alignment,
+            execution_status,
+            *state_outputs,
+        )
 
 
 def prefill_dynamic_axes() -> dict[str, dict[int, str]]:
@@ -1055,6 +978,7 @@ def make_step_example(
             device=device,
         ),
         torch.tensor(position, dtype=torch.long, device=device),
+        torch.zeros((), dtype=torch.int32, device=device),
         torch.ones(
             (CFG_BATCH, 1, text_tokens),
             dtype=dtype,

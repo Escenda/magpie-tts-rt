@@ -11,19 +11,16 @@
 
 #include "manifest/manifest.hpp"
 #include "runtime/cuda_memory.hpp"
+#include "runtime/generation_diagnostics.hpp"
 #include "runtime/pipeline_constants.hpp"
 
 namespace magpie_tts_rt {
-
-inline constexpr std::size_t kMaximumDecoderStepsPerEmission = 4;
-inline constexpr std::size_t kDecoderPositionHostSlotCount = 4;
 
 enum class SessionWorkspaceErrorCode {
   invalid_memory_limit,
   missing_engine,
   missing_tensor,
   incompatible_tensor_contract,
-  cuda_event_failure,
 };
 
 [[nodiscard]] std::string_view to_string(
@@ -60,12 +57,6 @@ struct CodecStateWorkspace {
   std::array<void*, 2> state;
 };
 
-struct DecoderPositionInput {
-  std::int64_t* address;
-  cudaEvent_t input_consumed_event;
-  std::size_t slot;
-};
-
 // Per-session mutable device state. Every allocation is made once when a
 // session is created, is bounded by the authenticated device-memory limit,
 // and is reused only after the preceding request has reached a terminal state.
@@ -85,8 +76,9 @@ class SessionWorkspace final {
   [[nodiscard]] void* cfg_condition() const noexcept;
   [[nodiscard]] void* condition_mask() const noexcept;
   [[nodiscard]] void* decoder_hidden() const noexcept;
-  [[nodiscard]] DecoderPositionInput acquire_decoder_position(
-      std::int64_t position);
+  [[nodiscard]] std::int64_t* decoder_position() const noexcept;
+  [[nodiscard]] std::int32_t* main_decoder_execution_status(
+      std::size_t cache_index) const;
   [[nodiscard]] void* alignment_scores() const noexcept;
   [[nodiscard]] void* alignment_prior() const noexcept;
   [[nodiscard]] std::uint32_t* alignment_counters() const noexcept;
@@ -101,6 +93,10 @@ class SessionWorkspace final {
   [[nodiscard]] std::int64_t* rng_seed() const noexcept;
   [[nodiscard]] std::int64_t* rng_counter(std::size_t index) const;
   [[nodiscard]] void* local_codec_tokens() const noexcept;
+  [[nodiscard]] std::int32_t*
+  canonical_local_invalid_rows() const noexcept;
+  [[nodiscard]] std::int32_t*
+  canonical_local_end_frame_index() const noexcept;
   [[nodiscard]] std::int32_t* local_invalid_rows(
       std::size_t step_slot) const;
   [[nodiscard]] std::int32_t* local_end_frame_index(
@@ -113,13 +109,9 @@ class SessionWorkspace final {
   [[nodiscard]] float* pinned_pcm() const noexcept;
   [[nodiscard]] std::uint64_t pinned_pcm_capacity_samples() const noexcept;
   [[nodiscard]] std::int64_t* pinned_valid_sample_length() const noexcept;
-  [[nodiscard]] std::int64_t* pinned_attended_token_indices(
+  [[nodiscard]] GenerationBatchDiagnostics* generation_diagnostics(
       std::size_t batch_slot) const;
-  [[nodiscard]] std::int32_t* pinned_alignment_invalid_steps(
-      std::size_t batch_slot) const;
-  [[nodiscard]] std::int32_t* pinned_local_invalid_rows(
-      std::size_t batch_slot) const;
-  [[nodiscard]] std::int32_t* pinned_end_frame_indices(
+  [[nodiscard]] GenerationBatchDiagnostics* pinned_generation_diagnostics(
       std::size_t batch_slot) const;
   [[nodiscard]] std::int64_t* pinned_startup_codec_codes() const noexcept;
   [[nodiscard]] std::uint64_t
@@ -145,6 +137,8 @@ class SessionWorkspace final {
   void* cfg_condition_{nullptr};
   void* condition_mask_{nullptr};
   void* decoder_hidden_{nullptr};
+  std::int64_t* decoder_position_{nullptr};
+  std::array<std::int32_t*, 2> main_decoder_execution_status_{};
   void* alignment_scores_{nullptr};
   void* alignment_prior_{nullptr};
   std::uint32_t* alignment_counters_{nullptr};
@@ -160,6 +154,8 @@ class SessionWorkspace final {
   std::int64_t* rng_seed_{nullptr};
   std::array<std::int64_t*, 2> rng_counter_{};
   void* local_codec_tokens_{nullptr};
+  std::int32_t* canonical_local_invalid_rows_{nullptr};
+  std::int32_t* canonical_local_end_frame_index_{nullptr};
   std::array<std::int32_t*, kMaximumDecoderStepsPerEmission>
       local_invalid_rows_steps_{};
   std::array<std::int32_t*, kMaximumDecoderStepsPerEmission>
@@ -170,30 +166,13 @@ class SessionWorkspace final {
   void* codec_pcm_{nullptr};
   std::int64_t* codec_valid_sample_length_{nullptr};
   std::unique_ptr<PinnedAllocation> pinned_pcm_;
-  std::array<
-      std::unique_ptr<PinnedAllocation>,
-      kDecoderPositionHostSlotCount>
-      pinned_decoder_positions_{};
-  std::array<cudaEvent_t, kDecoderPositionHostSlotCount>
-      decoder_position_consumed_events_{};
-  std::size_t next_decoder_position_slot_{0};
   std::unique_ptr<PinnedAllocation> pinned_valid_sample_length_;
+  std::array<GenerationBatchDiagnostics*, kGenerationBatchSlotCount>
+      generation_diagnostics_{};
   std::array<
       std::unique_ptr<PinnedAllocation>,
       kGenerationBatchSlotCount>
-      pinned_attended_token_indices_{};
-  std::array<
-      std::unique_ptr<PinnedAllocation>,
-      kGenerationBatchSlotCount>
-      pinned_alignment_invalid_steps_{};
-  std::array<
-      std::unique_ptr<PinnedAllocation>,
-      kGenerationBatchSlotCount>
-      pinned_local_invalid_rows_{};
-  std::array<
-      std::unique_ptr<PinnedAllocation>,
-      kGenerationBatchSlotCount>
-      pinned_end_frame_indices_{};
+      pinned_generation_diagnostics_{};
   std::unique_ptr<PinnedAllocation> pinned_startup_codec_codes_;
   std::uint64_t pinned_startup_codec_code_capacity_{0};
   std::uint64_t pinned_pcm_capacity_samples_{0};

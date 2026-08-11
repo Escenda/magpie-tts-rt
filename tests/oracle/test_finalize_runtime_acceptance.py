@@ -45,6 +45,188 @@ def sha256(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def cublas_identity() -> dict[str, MODULE.JsonValue]:
+    return {
+        "api_version_integer": 130400,
+        "library": {
+            "soname": "libcublas.so.13",
+            "size_bytes": 67_751_616,
+            "sha256": (
+                "826486b8869144621e3a477cddcd28f56733c7c80c6f998b"
+                "898384fc09e10f91"
+            ),
+        },
+        "lt_library": {
+            "soname": "libcublasLt.so.13",
+            "size_bytes": 606_744_240,
+            "sha256": (
+                "b7aa42c190c2e7490abd6ea987883e05678e26222b7f9f1c9"
+                "b96374fcbddbf04"
+            ),
+        },
+    }
+
+
+def cuda_identity() -> dict[str, MODULE.JsonValue]:
+    return {
+        "cuda_driver_api_version_integer": 13020,
+        "cuda_runtime_version_integer": 13020,
+        "nvidia_driver_version": "595.78",
+    }
+
+
+def codec_restore() -> MODULE.AuthenticatedCodecRestore:
+    return MODULE.AuthenticatedCodecRestore(
+        embedded_codec_model_id="nvidia/locked-codec",
+        codec_model_sha256="9" * 64,
+        codec_model_size_bytes=123,
+    )
+
+
+def codec_restore_json() -> dict[str, MODULE.JsonValue]:
+    return {
+        "embedded_codec_model_id": "nvidia/locked-codec",
+        "codec_model_sha256": "9" * 64,
+        "codec_model_size_bytes": 123,
+        "codec_resolution": "authenticated_local_file",
+        "use_scl_loss": False,
+        "network_resolution": False,
+    }
+
+
+def write_sequence_receipt(
+    root: Path,
+    *,
+    include_cuda: bool,
+    include_cublas: bool,
+) -> tuple[
+    MODULE.AuthenticatedTextEncoderExport,
+    MODULE.AuthenticatedPlanExport,
+    MODULE.AuthenticatedLocalARExport,
+]:
+    restore_sha256 = MODULE.sha256_file(
+        (EXPORT_TOOLS / "locked_magpie_restore.py").resolve(strict=True)
+    )
+    text = MODULE.AuthenticatedTextEncoderExport(
+        root=root,
+        receipt_sha256="1" * 64,
+        oracle_lock_sha256="a" * 64,
+        locked_magpie_restore_sha256=restore_sha256,
+        codec_restore=codec_restore(),
+        source_fixture_manifest_sha256="b" * 64,
+        required_plugin_sha256="2" * 64,
+        plan=root / "text.plan",
+        plan_sha256="3" * 64,
+        tensorrt_version="10.16.2.10",
+        torch_cuda_build="13.0",
+        gpu_name="NVIDIA Thor",
+        gpu_compute_capability=(11, 0),
+    )
+    main = MODULE.AuthenticatedPlanExport(
+        root=root,
+        receipt_sha256="4" * 64,
+        oracle_lock_sha256="a" * 64,
+        locked_magpie_restore_sha256=restore_sha256,
+        codec_restore=codec_restore(),
+        prefill_plan=root / "prefill.plan",
+        prefill_plan_sha256="5" * 64,
+        step_plan=root / "step.plan",
+        step_plan_sha256="6" * 64,
+        source_fixture_manifest_sha256="b" * 64,
+        required_plugin_sha256="2" * 64,
+        mode8_validation_receipt_sha256="e" * 64,
+        mode8_class_table_sha256="f" * 64,
+        cuda_identity=MODULE.parse_cuda_runtime_identity(
+            cuda_identity(), "test.cuda"
+        ),
+        cublas_identity=MODULE.parse_cublas_runtime_identity(
+            cublas_identity(), "test.cublas"
+        ),
+        tensorrt_version="10.16.2.10",
+        torch_cuda_build="13.0",
+        gpu_name="NVIDIA Thor",
+        gpu_compute_capability=(11, 0),
+    )
+    local = MODULE.AuthenticatedLocalARExport(
+        root=root,
+        receipt_sha256="7" * 64,
+        oracle_lock_sha256="a" * 64,
+        locked_magpie_restore_sha256=restore_sha256,
+        codec_restore=codec_restore(),
+        source_fixture_manifest_sha256s=("b" * 64,),
+        plan=root / "local.plan",
+        plan_sha256="8" * 64,
+        plugin=root / "plugin.so",
+        plugin_sha256="2" * 64,
+        tensorrt_version="10.16.2.10",
+        torch_cuda_build="13.0",
+        gpu_name="NVIDIA Thor",
+        gpu_compute_capability=(11, 0),
+    )
+    fixture_sha256s = ("b" * 64, "c" * 64, "d" * 64)
+    runtime: dict[str, MODULE.JsonValue] = {
+        "tensorrt": "10.16.2.10",
+    }
+    if include_cublas:
+        runtime["cublas"] = cublas_identity()
+    if include_cuda:
+        runtime["cuda"] = cuda_identity()
+    runtime["mode8_class_table_sha256"] = main.mode8_class_table_sha256
+    receipt: dict[str, MODULE.JsonValue] = {
+        "schema_version": 1,
+        "artifact_role": "text_main_local_ar_sequence_validation",
+        "status": "accepted",
+        "fixture_count": 3,
+        "exact_code_case_count": 3,
+        "all_codes_exact": True,
+        "source": {
+            "oracle_lock_sha256": "a" * 64,
+            "locked_magpie_restore_sha256": restore_sha256,
+            "codec_restore": codec_restore_json(),
+            "text_encoder_export_receipt_sha256": text.receipt_sha256,
+            "text_encoder_plan_sha256": text.plan_sha256,
+            "main_export_receipt_sha256": main.receipt_sha256,
+            "main_mode8_validation_receipt_sha256": (
+                main.mode8_validation_receipt_sha256
+            ),
+            "main_prefill_plan_sha256": main.prefill_plan_sha256,
+            "main_step_plan_sha256": main.step_plan_sha256,
+            "local_ar_export_receipt_sha256": local.receipt_sha256,
+            "local_ar_plan_sha256": local.plan_sha256,
+            "local_ar_plugin_sha256": local.plugin_sha256,
+        },
+        "runtime": runtime,
+        "session_policy": {
+            "main_execution_status_recurrence": (
+                "int32-device-scalar-sticky-12-layer"
+            ),
+            "main_execution_status_checked_before_next_local_ar": True,
+        },
+        "fixtures": [
+            {
+                "fixture_manifest_sha256": manifest_sha256,
+                "code_exact": True,
+                "generated_codes_sha256": f"{index + 9:064x}",
+                "expected_codes_sha256": f"{index + 9:064x}",
+                "local_ar_invocations": 3,
+                "main_execution_status_check_count": 2,
+                "main_execution_status_all_zero": True,
+            }
+            for index, manifest_sha256 in enumerate(fixture_sha256s)
+        ],
+        "artifacts": [],
+    }
+    payload = (
+        json.dumps(receipt, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    (root / MODULE.SEQUENCE_RECEIPT).write_bytes(payload)
+    (root / MODULE.SEQUENCE_RECEIPT_CHECKSUM).write_text(
+        f"{sha256(payload)}  {MODULE.SEQUENCE_RECEIPT}\n",
+        encoding="ascii",
+    )
+    return text, main, local
+
+
 class CanonicalEncodingTests(unittest.TestCase):
     def test_decodes_little_endian_signed_int32(self) -> None:
         payload = b"".join(
@@ -305,6 +487,69 @@ class ReceiptAuthenticationTests(unittest.TestCase):
                 "differs from oracle lock",
             ):
                 MODULE.require_locked_source_receipt(path, lock)
+
+    def test_sequence_receipt_requires_exact_cublas_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            text, main, local = write_sequence_receipt(
+                root,
+                include_cuda=True,
+                include_cublas=True,
+            )
+            result = MODULE.authenticate_sequence_receipt(
+                root,
+                lock_sha256="a" * 64,
+                canonical_fixture_manifest_sha256="b" * 64,
+                text=text,
+                main=main,
+                local=local,
+            )
+            self.assertEqual(result.cublas_identity.to_json(), cublas_identity())
+            self.assertEqual(result.cuda_identity.to_json(), cuda_identity())
+
+    def test_sequence_receipt_without_cublas_identity_fails_closed(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            text, main, local = write_sequence_receipt(
+                root,
+                include_cuda=True,
+                include_cublas=False,
+            )
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "sequence.runtime.cublas",
+            ):
+                MODULE.authenticate_sequence_receipt(
+                    root,
+                    lock_sha256="a" * 64,
+                    canonical_fixture_manifest_sha256="b" * 64,
+                    text=text,
+                    main=main,
+                    local=local,
+                )
+
+    def test_sequence_receipt_without_cuda_identity_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            text, main, local = write_sequence_receipt(
+                root,
+                include_cuda=False,
+                include_cublas=True,
+            )
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "sequence.runtime.cuda",
+            ):
+                MODULE.authenticate_sequence_receipt(
+                    root,
+                    lock_sha256="a" * 64,
+                    canonical_fixture_manifest_sha256="b" * 64,
+                    text=text,
+                    main=main,
+                    local=local,
+                )
 
 
 if __name__ == "__main__":

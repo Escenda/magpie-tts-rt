@@ -60,32 +60,60 @@ Each session has at least two CUDA streams:
   sampling, and EOS;
 - codec stream: NanoCodec and PCM materialization.
 
+Local AR uses one immutable CUDA Graph per session. Its TensorRT context is
+bound once to fixed addresses: logical-step `unfinished` is staged into one
+canonical input, and canonical invalid-row/EOS outputs are committed to the
+logical step by one post-graph kernel. The same kernel advances the canonical
+RNG counter, appends codec codes, and latches EOS. Tensor addresses and context
+state are never modified after capture; a capture or launch failure closes the
+session instead of falling back to per-kernel enqueue.
+
+Main Decoder uses two TensorRT contexts and two CUDA Graphs, one for cache
+A-to-B and one for B-to-A. Unlike Local AR, these graphs are recreated for
+every request because `condition_mask`, the attention prior, and cross K/V
+retain that request's dynamic text length. Reusing a startup or preceding
+request graph for an equal-looking text length is not an accepted path. The
+request initializes one DEVICE `position` scalar to the value immediately
+before the first step; every eager or captured invocation increments it on the
+generation stream before TensorRT reads it. The host never dispatches an
+absolute position per decoder step.
+
 Two fixed generation slots hold codec codes and pinned generation diagnostics.
-For batch `n`, the codec stream waits on that slot's `codes-ready` event, packs
-the codes into its private input buffer, and records `codes-consumed`. The
-generation stream may then produce batch `n+1` in the other slot while
-NanoCodec decodes batch `n`. Reusing a slot requires an explicit generation
-stream wait on its `codes-consumed` event.
+For batch `n`, the host blocks on that slot's `codes-ready` event because it
+must inspect the copied execution status, EOS, and alignment diagnostics before
+the codes may enter NanoCodec. The codec stream therefore starts only after
+generation is known complete; adding another stream wait on `codes-ready`
+would be redundant. It packs the codes into its private input buffer and
+records `codes-consumed`. The generation stream may then produce batch `n+1`
+in the other slot while NanoCodec decodes batch `n`. Reusing a slot requires an
+explicit generation stream wait on its `codes-consumed` event.
 
 The first four-frame NanoCodec call is the exception: the runtime waits for and
 publishes its PCM before enqueueing the first steady generation batch, so GPU
 competition cannot lengthen the first-audio path. Cross-stream overlap starts
 with the second audio chunk.
 
-The host polls CUDA events only at the two boundaries where it needs host
-data: EOS/alignment diagnostics for terminal routing and PCM for publication.
-Healthy request execution does not call `cudaEventSynchronize` or
+The host synchronizes CUDA events only at the two boundaries where it needs
+host data: execution/EOS/alignment diagnostics for routing and PCM for
+publication. These events are created with `cudaEventBlockingSync`, so the
+waiting thread sleeps in the driver instead of repeatedly issuing
+`cudaEventQuery` and short host sleeps. Healthy request execution uses one
+`cudaEventSynchronize` per required host-data boundary and never calls
 `cudaDeviceSynchronize`. The single pinned PCM slot is not reused until the
 bounded ring and audio lease make it available. Cancellation and non-poisoning
 request failures drain every armed slot event before the session can be reused.
 Successful events advance text progress, codec state, and published audio
 state. Failed work never advances those counters.
 
-`cudaStreamSynchronize` is reserved for `SessionResources` teardown: the
-explicit teardown call and destructor failure-unwind path wait for both
-session streams before destroying TensorRT contexts, workspace storage, CUDA
-events, or streams. It is not part of the healthy per-request generation
-path.
+`cudaStreamSynchronize` is used at session startup and teardown, plus once per
+normal request after both request-specific Main Decoder graphs have launched.
+That post-first-audio wait makes the dynamic-text graph-memory measurement
+complete before the request continues; it is not on the first-audio path or
+the steady replay path. Startup also uses synchronization after discarded
+Local AR and fixed-shape NanoCodec warmup enqueues and after graph
+upload/execution. The explicit teardown call and destructor failure-unwind
+path wait for both session streams before destroying graph executables,
+TensorRT contexts, workspace storage, CUDA events, or streams.
 
 ## Session startup gate
 
@@ -94,6 +122,45 @@ the prepared token IDs and uint32 seed stored in the authenticated bundle. It
 uses the same execution contexts, CUDA streams, alignment controller, Local
 AR sampler, codec state, and bounded backpressure path as a normal request, so
 the successful run also warms the exact production path.
+
+The first valid Local AR and fixed NanoCodec input is enqueued once before
+capture to flush TensorRT deferred setup. Those eager results are discarded
+without advancing RNG, codec state ownership, or logical progress. Main
+Decoder is different because discarding recurrent cache output would change
+the sequence. Its first A-to-B eager result produces the second pair of frames
+in the initial four-frame audio. Only after that PCM is published does the
+first B-to-A eager execution run. The next A-to-B and B-to-A invocations are
+captured and immediately launched, and those launch results are used. Every
+later Main step is one graph replay. The dynamic NanoCodec tail-1..8 route
+remains a direct TensorRT enqueue and is not an eager fallback for a missing
+fixed-route graph.
+
+Main Decoder cache and NanoCodec state both alternate between buffers A and B.
+Each pair of graph directions owns two distinct TensorRT execution contexts; a
+graph never shares a context with its reverse route. Both extra contexts'
+`getDeviceMemorySizeV2()` values are charged to explicit context memory before
+the session workspace is allocated. Graph executable memory is separate:
+session creation records one immutable aggregate baseline before any graph,
+then measures aggregate current/high-water growth after the golden has replayed
+all routes. Every normal request destroys its preceding Main graphs, captures
+the current text shape, and measures Local AR plus NanoCodec plus the new Main
+graphs from that same baseline. Thus startup text length is never assumed to
+bound another request, and every observed total must fit the authenticated
+session device-memory limit.
+
+After the startup golden has discovered and replayed every mode-8 active-K
+bank, and before the session is published as ready, the runtime reads the
+class table from the authenticated plugin handle through the C ABI. It fully
+validates the 7-QK/14-PV classes and all 249 K records, serializes the table as
+the canonical ASCII JSON identity, and requires its SHA-256 to equal
+`artifacts.plugin.main_device_position_class_table.sha256` in the manifest.
+`NOT_READY`, `CONFLICT`, a malformed table, or a digest mismatch closes the
+startup gate; the runtime never substitutes a cached or reconstructed table.
+
+The session is not published unless every required graph is ready, all
+explicit context and observed graph memory is accounted, the graph-backed
+golden matches exactly, and this live plugin class-table identity is
+authenticated.
 
 The gate compares:
 

@@ -11,7 +11,8 @@ use crate::{
 
 const START_COMMAND_CAPACITY: usize = 1;
 const CONTROL_COMMAND_CAPACITY: usize = 8;
-const WORKER_POLL_INTERVAL: Duration = Duration::from_millis(2);
+const WAKE_CAPACITY: usize = 1;
+const WORKER_CONTROL_SLICE: Duration = Duration::from_millis(2);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WorkerConfig {
@@ -117,6 +118,7 @@ impl From<Error> for WorkerError {
 pub struct SynthesisStream {
     request_id: u64,
     controls: SyncSender<ControlCommand>,
+    wake: SyncSender<()>,
     events: Receiver<SynthesisEvent>,
 }
 
@@ -155,6 +157,7 @@ impl SynthesisStream {
                 reply: reply_sender,
             })
             .map_err(|_| WorkerError::CommandChannelClosed)?;
+        notify_worker(&self.wake)?;
         reply_receiver
             .recv()
             .map_err(|_| WorkerError::CommandChannelClosed)?
@@ -164,6 +167,7 @@ impl SynthesisStream {
 pub struct InferenceWorker {
     starts: SyncSender<StartCommand>,
     controls: SyncSender<ControlCommand>,
+    wake: SyncSender<()>,
     thread: Option<JoinHandle<std::result::Result<(), WorkerError>>>,
     model_info: ModelInfo,
 }
@@ -176,6 +180,13 @@ fn admit_start(
         Ok(()) => Ok(()),
         Err(TrySendError::Full(_)) => Err(WorkerError::Busy),
         Err(TrySendError::Disconnected(_)) => Err(WorkerError::CommandChannelClosed),
+    }
+}
+
+fn notify_worker(wake: &SyncSender<()>) -> std::result::Result<(), WorkerError> {
+    match wake.try_send(()) {
+        Ok(()) | Err(TrySendError::Full(())) => Ok(()),
+        Err(TrySendError::Disconnected(())) => Err(WorkerError::CommandChannelClosed),
     }
 }
 
@@ -194,6 +205,7 @@ impl InferenceWorker {
     ) -> std::result::Result<Self, WorkerError> {
         let (start_sender, start_receiver) = mpsc::sync_channel(START_COMMAND_CAPACITY);
         let (control_sender, control_receiver) = mpsc::sync_channel(CONTROL_COMMAND_CAPACITY);
+        let (wake_sender, wake_receiver) = mpsc::sync_channel(WAKE_CAPACITY);
         let (ready_sender, ready_receiver) = mpsc::sync_channel(1);
         let worker_thread = thread::Builder::new()
             .name("magpie-tts-rt-inference".to_owned())
@@ -202,7 +214,14 @@ impl InferenceWorker {
                 // owners remain inside this thread until explicit teardown.
                 let api = unsafe { Api::negotiate(get_api) };
                 let result = api.map_err(WorkerError::Runtime).and_then(|api| {
-                    initialize_and_run(api, config, start_receiver, control_receiver, &ready_sender)
+                    initialize_and_run(
+                        api,
+                        config,
+                        start_receiver,
+                        control_receiver,
+                        wake_receiver,
+                        &ready_sender,
+                    )
                 });
                 if let Err(error) = &result {
                     let _ = ready_sender.send(Err(error.clone()));
@@ -214,6 +233,7 @@ impl InferenceWorker {
             Ok(Ok(model_info)) => Ok(Self {
                 starts: start_sender,
                 controls: control_sender,
+                wake: wake_sender,
                 thread: Some(worker_thread),
                 model_info,
             }),
@@ -252,12 +272,14 @@ impl InferenceWorker {
                 reply: reply_sender,
             },
         )?;
+        notify_worker(&self.wake)?;
         let request_id = reply_receiver
             .recv()
             .map_err(|_| WorkerError::CommandChannelClosed)??;
         Ok(SynthesisStream {
             request_id,
             controls: self.controls.clone(),
+            wake: self.wake.clone(),
             events: event_receiver,
         })
     }
@@ -334,7 +356,8 @@ impl InferenceWorker {
         let shutdown_result = self
             .controls
             .send(ControlCommand::Shutdown)
-            .map_err(|_| WorkerError::CommandChannelClosed);
+            .map_err(|_| WorkerError::CommandChannelClosed)
+            .and_then(|()| notify_worker(&self.wake));
         let worker_result = worker_thread
             .join()
             .map_err(|_| WorkerError::WorkerPanicked)?;
@@ -405,8 +428,18 @@ struct ActiveRequest {
     request: Request,
     events: Option<SyncSender<SynthesisEvent>>,
     pending_event: Option<SynthesisEvent>,
+    observed_revision: u64,
+    known_available_audio: u32,
     terminal_snapshot: Option<crate::RequestSnapshot>,
     terminal_event_queued: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AdvanceOutcome {
+    Finished,
+    Progressed,
+    Waited,
+    Backpressured,
 }
 
 fn initialize_and_run(
@@ -414,6 +447,7 @@ fn initialize_and_run(
     config: WorkerConfig,
     starts: Receiver<StartCommand>,
     controls: Receiver<ControlCommand>,
+    wake: Receiver<()>,
     ready: &SyncSender<std::result::Result<ModelInfo, WorkerError>>,
 ) -> std::result::Result<(), WorkerError> {
     let mut runtime = Runtime::create(&api, config.runtime).map_err(WorkerError::Runtime)?;
@@ -426,7 +460,7 @@ fn initialize_and_run(
         .send(Ok(model_info))
         .map_err(|_| WorkerError::CommandChannelClosed)?;
 
-    let loop_result = worker_loop(&session, starts, controls);
+    let loop_result = worker_loop(&session, starts, controls, wake);
     session.close().map_err(WorkerError::Runtime)?;
     drop(session);
     model.close().map_err(WorkerError::Runtime)?;
@@ -439,6 +473,7 @@ fn worker_loop(
     session: &Session,
     starts: Receiver<StartCommand>,
     controls: Receiver<ControlCommand>,
+    wake: Receiver<()>,
 ) -> std::result::Result<(), WorkerError> {
     let mut active: Option<ActiveRequest> = None;
     let mut most_recent_terminal_identifier = None;
@@ -495,16 +530,18 @@ fn worker_loop(
             Some(AdmittedWorkerCommand::Start(_)) | None => {}
         }
 
+        let mut advance_outcome = None;
         if let Some(request) = active.as_mut() {
             match advance_request(request) {
-                Ok(true) => {
+                Ok(AdvanceOutcome::Finished) => {
+                    advance_outcome = Some(AdvanceOutcome::Finished);
                     most_recent_terminal_identifier = Some(request.identifier);
                     active = None;
                     if shutdown_requested {
                         return shutdown_error.map_or(Ok(()), Err);
                     }
                 }
-                Ok(false) => {}
+                Ok(outcome) => advance_outcome = Some(outcome),
                 Err(error) => {
                     return Err(drive_fatal_request(request, &starts, &controls, error));
                 }
@@ -535,6 +572,8 @@ fn worker_loop(
                             request,
                             events: Some(events),
                             pending_event: None,
+                            observed_revision: 0,
+                            known_available_audio: 0,
                             terminal_snapshot: None,
                             terminal_event_queued: false,
                         });
@@ -563,7 +602,13 @@ fn worker_loop(
         }
 
         if !handled_control && !handled_start {
-            thread::sleep(WORKER_POLL_INTERVAL);
+            match advance_outcome {
+                None => wake.recv().map_err(|_| WorkerError::CommandChannelClosed)?,
+                Some(AdvanceOutcome::Backpressured) => thread::sleep(WORKER_CONTROL_SLICE),
+                Some(
+                    AdvanceOutcome::Finished | AdvanceOutcome::Progressed | AdvanceOutcome::Waited,
+                ) => {}
+            }
         }
     }
 }
@@ -633,7 +678,7 @@ fn drive_fatal_request(
             request.events = None;
             return error;
         }
-        thread::sleep(WORKER_POLL_INTERVAL);
+        thread::sleep(WORKER_CONTROL_SLICE);
     }
 }
 
@@ -652,17 +697,26 @@ fn cancel_active_request(request: &mut ActiveRequest) -> std::result::Result<(),
     }
 
     match request.request.cancel() {
-        Ok(()) => Ok(()),
+        Ok(()) => {
+            // Accepted cancellation discards any native audio that has not
+            // been acquired. Only a newer revision may advertise new leases.
+            request.known_available_audio = 0;
+            Ok(())
+        }
         Err(cancel_error) if cancel_may_have_raced_terminal(&cancel_error) => {
             match request.request.poll() {
                 Ok(snapshot) if snapshot.state != RequestState::Running => {
-                    request.terminal_snapshot = Some(snapshot);
+                    observe_snapshot(request, snapshot);
                     Ok(())
                 }
                 // A running snapshot proves that cancellation did not race a
-                // terminal transition. Preserve the original typed cancel
-                // diagnostic instead of replacing it with a guessed outcome.
-                Ok(_) | Err(_) => Err(WorkerError::Runtime(cancel_error)),
+                // terminal transition. Retain that real revision for the next
+                // wait, but preserve the original typed cancel diagnostic.
+                Ok(snapshot) => {
+                    observe_snapshot(request, snapshot);
+                    Err(WorkerError::Runtime(cancel_error))
+                }
+                Err(_) => Err(WorkerError::Runtime(cancel_error)),
             }
         }
         Err(error) => Err(WorkerError::Runtime(error)),
@@ -678,40 +732,58 @@ fn cancel_may_have_raced_terminal(error: &Error) -> bool {
     )
 }
 
-fn advance_request(request: &mut ActiveRequest) -> std::result::Result<bool, WorkerError> {
+fn advance_request(
+    request: &mut ActiveRequest,
+) -> std::result::Result<AdvanceOutcome, WorkerError> {
     flush_pending_event(request);
     if request.pending_event.is_some() {
-        return Ok(false);
+        return Ok(AdvanceOutcome::Backpressured);
     }
 
     if request.events.is_none() && request.terminal_snapshot.is_none() {
-        let snapshot = request.request.poll().map_err(WorkerError::Runtime)?;
-        if snapshot.state == RequestState::Running {
-            cancel_active_request(request)?;
-        } else {
-            request.terminal_snapshot = Some(snapshot);
-        }
+        cancel_active_request(request)?;
     }
 
-    if request.events.is_some()
-        && !request.terminal_event_queued
-        && let Some(chunk) = acquire_owned_audio(&mut request.request)?
-    {
-        request.pending_event = Some(SynthesisEvent::Audio(chunk));
-        flush_pending_event(request);
-        return Ok(false);
+    if !request.terminal_event_queued && request.known_available_audio > 0 {
+        match acquire_owned_audio(&mut request.request)? {
+            Some(chunk) => {
+                request.known_available_audio -= 1;
+                if request.events.is_some() {
+                    request.pending_event = Some(SynthesisEvent::Audio(chunk));
+                    flush_pending_event(request);
+                    if request.pending_event.is_some() {
+                        return Ok(AdvanceOutcome::Backpressured);
+                    }
+                }
+                return Ok(AdvanceOutcome::Progressed);
+            }
+            None => {
+                // A cancellation or asynchronous failure may discard queued
+                // native audio after the observed snapshot. Do not invent a
+                // terminal result; wait for the revision that explains it.
+                request.known_available_audio = 0;
+            }
+        }
     }
 
     if request.terminal_snapshot.is_none() {
-        let snapshot = request.request.poll().map_err(WorkerError::Runtime)?;
-        if snapshot.state != RequestState::Running {
-            request.terminal_snapshot = Some(snapshot);
-            return Ok(false);
-        }
+        let snapshot = request
+            .request
+            .wait_after(request.observed_revision, WORKER_CONTROL_SLICE)
+            .map_err(WorkerError::Runtime)?;
+        let Some(snapshot) = snapshot else {
+            return Ok(AdvanceOutcome::Waited);
+        };
+        observe_snapshot(request, snapshot);
+        return Ok(AdvanceOutcome::Progressed);
     }
     let Some(snapshot) = request.terminal_snapshot.clone() else {
-        return Ok(false);
+        return Ok(AdvanceOutcome::Progressed);
     };
+
+    if request.known_available_audio > 0 {
+        return Ok(AdvanceOutcome::Progressed);
+    }
 
     if !request.terminal_event_queued {
         request.terminal_event_queued = true;
@@ -719,13 +791,21 @@ fn advance_request(request: &mut ActiveRequest) -> std::result::Result<bool, Wor
             request.pending_event = Some(terminal_event(snapshot)?);
             flush_pending_event(request);
             if request.pending_event.is_some() {
-                return Ok(false);
+                return Ok(AdvanceOutcome::Backpressured);
             }
         }
     }
 
     request.request.close().map_err(WorkerError::Runtime)?;
-    Ok(true)
+    Ok(AdvanceOutcome::Finished)
+}
+
+fn observe_snapshot(request: &mut ActiveRequest, snapshot: crate::RequestSnapshot) {
+    request.observed_revision = snapshot.revision;
+    request.known_available_audio = snapshot.available_audio_leases;
+    if snapshot.state != RequestState::Running {
+        request.terminal_snapshot = Some(snapshot);
+    }
 }
 
 fn acquire_owned_audio(request: &mut Request) -> crate::Result<Option<OwnedAudioChunk>> {
@@ -876,5 +956,49 @@ mod tests {
                 _ => panic!("saturated start was not retained after priority control"),
             }
         }
+    }
+
+    #[test]
+    fn one_slot_wake_coalesces_without_changing_control_priority() {
+        let (starts, start_receiver) = mpsc::sync_channel(START_COMMAND_CAPACITY);
+        let (controls, control_receiver) = mpsc::sync_channel(CONTROL_COMMAND_CAPACITY);
+        let (wake, wake_receiver) = mpsc::sync_channel(WAKE_CAPACITY);
+        let mut starts_connected = true;
+        let mut controls_connected = true;
+
+        admit_start(&starts, start_command(1)).expect("admit start payload");
+        notify_worker(&wake).expect("wake for start");
+        controls
+            .send(ControlCommand::Shutdown)
+            .expect("admit control payload");
+        notify_worker(&wake).expect("coalesce control wake");
+
+        wake_receiver.try_recv().expect("one coalesced wake");
+        assert_eq!(wake_receiver.try_recv(), Err(TryRecvError::Empty));
+        assert!(matches!(
+            try_receive_prioritized(
+                &start_receiver,
+                &control_receiver,
+                &mut starts_connected,
+                &mut controls_connected,
+            ),
+            Some(AdmittedWorkerCommand::Control(ControlCommand::Shutdown))
+        ));
+        assert!(matches!(
+            try_receive_prioritized(
+                &start_receiver,
+                &control_receiver,
+                &mut starts_connected,
+                &mut controls_connected,
+            ),
+            Some(AdmittedWorkerCommand::Start(_))
+        ));
+    }
+
+    #[test]
+    fn wake_disconnection_is_an_explicit_command_channel_error() {
+        let (wake, wake_receiver) = mpsc::sync_channel(WAKE_CAPACITY);
+        drop(wake_receiver);
+        assert_eq!(notify_worker(&wake), Err(WorkerError::CommandChannelClosed));
     }
 }

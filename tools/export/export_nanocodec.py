@@ -216,6 +216,7 @@ def verify_locked_inputs(args: argparse.Namespace) -> tuple[dict, str]:
         args.speech_root,
         source_lock["base_revision"],
         source_lock["files"],
+        source_lock["optimized_source_bundle_sha256"],
     )
     trtexec = args.trtexec.resolve(strict=True)
     if not os.access(trtexec, os.X_OK):

@@ -28,6 +28,17 @@ def sha256(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def codec_restore() -> dict[str, str | int | bool]:
+    return {
+        "embedded_codec_model_id": "nvidia/locked-codec",
+        "codec_model_sha256": "9" * 64,
+        "codec_model_size_bytes": 123,
+        "codec_resolution": "authenticated_local_file",
+        "use_scl_loss": False,
+        "network_resolution": False,
+    }
+
+
 def create_export(root: Path) -> None:
     artifact_payloads = {
         "local-ar.onnx": b"onnx",
@@ -50,6 +61,8 @@ def create_export(root: Path) -> None:
         "status": "measured-not-accepted",
         "source": {
             "oracle_lock_sha256": "1" * 64,
+            "locked_magpie_restore_sha256": "5" * 64,
+            "codec_restore": codec_restore(),
             "boundary_fixture_manifest_sha256s": [
                 "2" * 64,
                 "3" * 64,
@@ -96,6 +109,8 @@ def create_text_encoder_export(root: Path) -> None:
         "status": "measured-not-accepted",
         "source": {
             "oracle_lock_sha256": "1" * 64,
+            "locked_magpie_restore_sha256": "5" * 64,
+            "codec_restore": codec_restore(),
             "boundary_fixture_manifest_sha256": "2" * 64,
             "plugin_sha256": sha256(b"plugin"),
         },

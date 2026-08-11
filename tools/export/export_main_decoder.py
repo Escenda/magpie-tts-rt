@@ -29,6 +29,9 @@ import onnx
 import torch
 from nemo.collections.tts.models import MagpieTTSModel
 
+from cublas_runtime_identity import collect_cublas_runtime_identity
+from cuda_runtime_identity import collect_cuda_runtime_identity
+from locked_magpie_restore import LockedCodec, load_locked_magpie_model
 from main_decoder_wrapper import (
     AUDIO_CODEBOOKS,
     CROSS_HEADS,
@@ -49,6 +52,10 @@ from main_decoder_wrapper import (
     step_dynamic_axes,
     step_input_names,
     step_output_names,
+)
+from mode8_class_table_identity import (
+    authenticate_mode8_component_receipt,
+    collect_mode8_class_table_identity,
 )
 
 
@@ -110,6 +117,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fixture", type=Path, required=True)
     parser.add_argument("--plugin", type=Path, required=True)
     parser.add_argument(
+        "--mode8-validation",
+        type=Path,
+        required=True,
+        help=(
+            "Accepted component-validation directory for the exact mode-8 "
+            "plugin binary and CUDA/cuBLAS runtime."
+        ),
+    )
+    parser.add_argument(
         "--tensorrt-python-path",
         type=Path,
         required=True,
@@ -158,6 +174,7 @@ def verify_locked_inputs(args: argparse.Namespace) -> tuple[dict, str]:
         args.speech_root,
         source_lock["base_revision"],
         source_lock["files"],
+        source_lock["optimized_source_bundle_sha256"],
     )
     return lock, sha256_file(lock_path)
 
@@ -364,12 +381,16 @@ def fixture_inputs(
     step_values: list[torch.Tensor] = [
         tensor_from_fixture(fixture, "local_ar.step_000.codes"),
         torch.tensor(EXAMPLE_POSITION, dtype=torch.int64, device="cuda"),
+        torch.zeros((), dtype=torch.int32, device="cuda"),
         tensor_from_fixture(fixture, "step_000.next_prior"),
         condition_mask,
     ]
     step_expected: dict[str, torch.Tensor] = {
         "decoder_hidden": tensor_from_fixture(fixture, "step_001.hidden")[:, 0],
         "alignment": tensor_from_fixture(fixture, "step_001.alignment"),
+        "execution_status_out": torch.zeros(
+            (), dtype=torch.int32, device="cuda"
+        ),
     }
     for layer_index in range(DECODER_LAYERS):
         prefill_stem = f"prefill.state.layer_{layer_index:02d}"
@@ -417,7 +438,11 @@ def fixture_inputs(
     )
 
 
-def load_model(model_path: Path, speech_root: Path) -> MagpieTTSModel:
+def load_model(
+    model_path: Path,
+    codec: LockedCodec,
+    speech_root: Path,
+) -> MagpieTTSModel:
     require_imported_nemo_source(speech_root)
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is unavailable; CPU export is forbidden")
@@ -430,10 +455,7 @@ def load_model(model_path: Path, speech_root: Path) -> MagpieTTSModel:
         or torch.backends.cudnn.allow_tf32
     ):
         raise RuntimeError("failed to establish the locked no-TF32 runtime policy")
-    model = MagpieTTSModel.restore_from(
-        str(model_path.resolve(strict=True)),
-        map_location="cpu",
-    )
+    model = load_locked_magpie_model(model_path, codec)
     model.eval()
     model.to("cuda")
     for module in (
@@ -550,6 +572,7 @@ def export_graph(
         )
     custom_nodes: dict[str, int] = {}
     softmax_modes: dict[int, int] = {}
+    mode8_layer_indices: list[int] = []
     for node in graph.graph.node:
         if node.domain == "magpie_tts_rt":
             custom_nodes[node.op_type] = custom_nodes.get(node.op_type, 0) + 1
@@ -565,9 +588,8 @@ def export_graph(
                     2,
                     3,
                     4,
-                    5,
-                    6,
                     7,
+                    8,
                 ):
                     raise RuntimeError(
                         "Main Decoder Softmax node must declare exactly one "
@@ -580,9 +602,8 @@ def export_graph(
                     2: 3,
                     3: 3,
                     4: 2,
-                    5: 3,
-                    6: 3,
                     7: 4,
+                    8: 7,
                 }[mode]
                 if len(node.input) != expected_inputs:
                     raise RuntimeError(
@@ -591,6 +612,18 @@ def export_graph(
                         f"actual={len(node.input)}"
                     )
                 softmax_modes[mode] = softmax_modes.get(mode, 0) + 1
+                if mode == 8:
+                    layer_indices = [
+                        int(attribute.i)
+                        for attribute in node.attribute
+                        if attribute.name == "layer_index"
+                    ]
+                    if len(node.output) != 2 or len(layer_indices) != 1:
+                        raise RuntimeError(
+                            "Main Decoder mode-8 node must declare two "
+                            "outputs and exactly one layer_index"
+                        )
+                    mode8_layer_indices.append(layer_indices[0])
         elif node.domain:
             raise RuntimeError(
                 f"non-standard ONNX node domain is not accepted: "
@@ -614,17 +647,15 @@ def export_graph(
             "MagpieLayerNorm": DECODER_LAYERS * 3 + 1,
             "MagpieGeluTanh": DECODER_LAYERS,
             "MagpieSoftmax": (
-                DECODER_LAYERS * 5 + len(PRIOR_LAYERS) + 1
+                DECODER_LAYERS * 3 + len(PRIOR_LAYERS) + 1
             ),
         }
         expected_softmax_modes = {
-            0: DECODER_LAYERS,
             1: DECODER_LAYERS,
             3: DECODER_LAYERS,
             4: len(PRIOR_LAYERS),
-            5: DECODER_LAYERS,
-            6: DECODER_LAYERS,
             7: 1,
+            8: DECODER_LAYERS,
         }
     else:
         raise RuntimeError(
@@ -639,6 +670,13 @@ def export_graph(
         raise RuntimeError(
             "Main Decoder Softmax mode count mismatch: "
             f"expected={expected_softmax_modes}, got={softmax_modes}"
+        )
+    if isinstance(wrapper, MainDecoderStepWrapper) and (
+        mode8_layer_indices != list(range(DECODER_LAYERS))
+    ):
+        raise RuntimeError(
+            "Main Decoder mode-8 nodes do not thread canonical layer indices: "
+            f"{mode8_layer_indices}"
         )
     native_convolutions = [
         node.name for node in graph.graph.node if node.op_type == "Conv"
@@ -705,33 +743,9 @@ def build_plan(
         tensor = network.get_input(input_index)
         shape = tuple(tensor.shape)
         if role == "step" and tensor.name == "position":
-            if not tensor.is_shape_tensor:
+            if tensor.is_shape_tensor:
                 raise RuntimeError(
-                    "step position must be a TensorRT shape tensor"
-                )
-            position_values = (
-                (PREFILL_LENGTH,),
-                (
-                    (PREFILL_LENGTH + SELF_CACHE_CAPACITY - 1)
-                    // 2,
-                ),
-                (SELF_CACHE_CAPACITY - 1,),
-            )
-            profile.set_shape_input(
-                tensor.name,
-                position_values[0],
-                position_values[1],
-                position_values[2],
-            )
-            actual_position_values = tuple(
-                tuple(value)
-                for value in profile.get_shape_input(tensor.name)
-            )
-            if actual_position_values != position_values:
-                raise RuntimeError(
-                    "TensorRT step position profile readback mismatch: "
-                    f"expected={position_values}, "
-                    f"actual={actual_position_values}"
+                    "step position must be a TensorRT execution tensor"
                 )
             continue
         if -1 not in shape:
@@ -806,12 +820,12 @@ def build_plan(
         "tactic_sources": list(tactic_source_names),
     }
     if role == "step":
-        metadata["position_profile_min"] = PREFILL_LENGTH
-        metadata["position_profile_opt"] = (
-            PREFILL_LENGTH + SELF_CACHE_CAPACITY - 1
-        ) // 2
-        metadata["position_profile_max"] = (
-            SELF_CACHE_CAPACITY - 1
+        metadata["position_location"] = "device"
+        metadata["position_shape_inference_io"] = False
+        metadata["execution_status_location"] = "device"
+        metadata["execution_status_shape_inference_io"] = False
+        metadata["execution_status_recurrence"] = (
+            "sticky-first-error-12-layer"
         )
     report_path.write_bytes(canonical_json_bytes(metadata))
     return metadata
@@ -867,10 +881,12 @@ def expected_plan_contract(role: str) -> dict[str, tuple[str, tuple[int, ...], s
         "input",
     )
     result["position"] = ("int64", (), "input")
+    result["execution_status_in"] = ("int32", (), "input")
     result["alignment_prior"] = ("bf16", (2, 1, -1), "input")
     result["condition_mask"] = ("bool", (2, -1), "input")
     result["decoder_hidden"] = ("bf16", (2, MODEL_WIDTH), "output")
     result["alignment"] = ("bf16", (2, -1), "output")
+    result["execution_status_out"] = ("int32", (), "output")
     for layer_index in range(DECODER_LAYERS):
         for stem, dtype, shape in (
             (
@@ -905,7 +921,11 @@ def expected_plan_contract(role: str) -> dict[str, tuple[str, tuple[int, ...], s
     return result
 
 
-def inspect_plan(tensorrt, role: str, plan_path: Path) -> dict:
+def inspect_plan(
+    tensorrt,
+    role: str,
+    plan_path: Path,
+) -> dict:
     logger = tensorrt.Logger(tensorrt.Logger.ERROR)
     runtime = tensorrt.Runtime(logger)
     engine = runtime.deserialize_cuda_engine(plan_path.read_bytes())
@@ -929,6 +949,7 @@ def inspect_plan(tensorrt, role: str, plan_path: Path) -> dict:
     dtype_map = {
         tensorrt.DataType.BF16: "bf16",
         tensorrt.DataType.BOOL: "bool",
+        tensorrt.DataType.INT32: "int32",
         tensorrt.DataType.INT64: "int64",
     }
     location_map = {
@@ -950,14 +971,8 @@ def inspect_plan(tensorrt, role: str, plan_path: Path) -> dict:
         actual_shape_inference_io = bool(
             engine.is_shape_inference_io(name)
         )
-        expected_location = (
-            "host"
-            if role == "step" and name == "position"
-            else "device"
-        )
-        expected_shape_inference_io = (
-            role == "step" and name == "position"
-        )
+        expected_location = "device"
+        expected_shape_inference_io = False
         if (actual_dtype, actual_shape, actual_mode) != (
             expected_dtype,
             expected_shape,
@@ -993,33 +1008,6 @@ def inspect_plan(tensorrt, role: str, plan_path: Path) -> dict:
                 "min": list(profile[0]),
                 "opt": list(profile[1]),
                 "max": list(profile[2]),
-            }
-        if expected_shape_inference_io:
-            profile_values = tuple(
-                tuple(int(item) for item in values)
-                for values in engine.get_tensor_profile_values(0, name)
-            )
-            expected_values = (
-                (PREFILL_LENGTH,),
-                (
-                    (
-                        PREFILL_LENGTH
-                        + SELF_CACHE_CAPACITY
-                        - 1
-                    )
-                    // 2,
-                ),
-                (SELF_CACHE_CAPACITY - 1,),
-            )
-            if profile_values != expected_values:
-                raise RuntimeError(
-                    "step position engine profile mismatch: "
-                    f"expected={expected_values}, actual={profile_values}"
-                )
-            record["profile_values"] = {
-                "min": list(profile_values[0]),
-                "opt": list(profile_values[1]),
-                "max": list(profile_values[2]),
             }
         tensors.append(record)
     return {
@@ -1067,6 +1055,7 @@ def execute_plan(tensorrt, plan_path: Path, inputs: dict[str, torch.Tensor]):
         tensorrt.DataType.BF16: torch.bfloat16,
         tensorrt.DataType.BOOL: torch.bool,
         tensorrt.DataType.INT64: torch.int64,
+        tensorrt.DataType.INT32: torch.int32,
     }
     outputs: dict[str, torch.Tensor] = {}
     for index in range(engine.num_io_tensors):
@@ -1139,6 +1128,20 @@ def boolean_metrics(
     }
 
 
+def integer_metrics(
+    pairs: list[tuple[torch.Tensor, torch.Tensor]],
+) -> dict[str, int | float]:
+    mismatch_count = sum(
+        int(torch.count_nonzero(left != right)) for left, right in pairs
+    )
+    element_count = sum(left.numel() for left, _ in pairs)
+    return {
+        "elements": element_count,
+        "mismatch_count": mismatch_count,
+        "mismatch_ratio": mismatch_count / element_count,
+    }
+
+
 def grouped_parity(
     role: str,
     actual: dict[str, torch.Tensor],
@@ -1146,6 +1149,7 @@ def grouped_parity(
 ) -> dict[str, dict[str, int | float]]:
     groups: dict[str, list[tuple[torch.Tensor, torch.Tensor]]] = {}
     bool_groups: dict[str, list[tuple[torch.Tensor, torch.Tensor]]] = {}
+    integer_groups: dict[str, list[tuple[torch.Tensor, torch.Tensor]]] = {}
     for name, expected_value in expected.items():
         actual_value = actual[name]
         if "self_key" in name:
@@ -1160,6 +1164,8 @@ def grouped_parity(
             group = "cross_value"
         elif "alignment" in name:
             group = "alignment"
+        elif "execution_status" in name:
+            group = "execution_status"
         else:
             group = "hidden"
         if group.startswith("self_"):
@@ -1168,11 +1174,35 @@ def grouped_parity(
             expected_value = expected_value[:, :valid]
         if actual_value.dtype == torch.bool:
             bool_groups.setdefault(group, []).append((actual_value, expected_value))
+        elif actual_value.dtype in (torch.int32, torch.int64):
+            if (
+                actual_value.dtype != expected_value.dtype
+                or actual_value.shape != expected_value.shape
+            ):
+                raise RuntimeError(
+                    f"{role} integer parity contract mismatch for {name}: "
+                    f"actual={actual_value.dtype}/{tuple(actual_value.shape)}, "
+                    f"expected={expected_value.dtype}/"
+                    f"{tuple(expected_value.shape)}"
+                )
+            if group == "execution_status" and (
+                int(torch.count_nonzero(expected_value)) != 0
+                or not torch.equal(actual_value, expected_value)
+            ):
+                raise RuntimeError(
+                    f"{role} execution status must be the exact zero scalar"
+                )
+            integer_groups.setdefault(group, []).append(
+                (actual_value, expected_value)
+            )
         else:
             groups.setdefault(group, []).append((actual_value, expected_value))
     result = {name: numerical_metrics(values) for name, values in groups.items()}
     result.update(
         {name: boolean_metrics(values) for name, values in bool_groups.items()}
+    )
+    result.update(
+        {name: integer_metrics(values) for name, values in integer_groups.items()}
     )
     return result
 
@@ -1299,13 +1329,36 @@ def main() -> int:
     args = parse_args()
     lock, lock_sha256 = verify_locked_inputs(args)
     fixture = load_fixture(args.fixture, args.lock)
+    mode8_validation = authenticate_mode8_component_receipt(
+        args.mode8_validation
+    )
+    plugin_path = args.plugin.resolve(strict=True)
+    if (
+        sha256_file(plugin_path) != mode8_validation.plugin_sha256
+        or plugin_path.stat().st_size != mode8_validation.plugin_size_bytes
+    ):
+        raise RuntimeError(
+            "Main Decoder plugin does not match the accepted mode-8 "
+            "component receipt"
+        )
     output = args.output.resolve()
     if output.exists():
         raise FileExistsError(f"output already exists: {output}")
     output.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{output.name}.", dir=output.parent))
     try:
-        model = load_model(args.model, args.speech_root)
+        codec_lock = lock["codec"]
+        locked_codec = LockedCodec(
+            path=args.codec_model,
+            model_id=codec_lock["model_id"],
+            sha256=codec_lock["sha256"],
+            size_bytes=codec_lock["size_bytes"],
+        )
+        model = load_model(
+            args.model,
+            locked_codec,
+            args.speech_root,
+        )
         prefill = MainDecoderPrefillWrapper(model).eval()
         step = MainDecoderStepWrapper(model).eval()
         (
@@ -1346,6 +1399,18 @@ def main() -> int:
 
         tensorrt = import_tensorrt(args.tensorrt_python_path)
         plugin_library, plugin_metadata = register_plugin(args.plugin)
+        cuda_identity = collect_cuda_runtime_identity()
+        cublas_identity = collect_cublas_runtime_identity(plugin_library)
+        if cuda_identity != mode8_validation.cuda_identity:
+            raise RuntimeError(
+                "live CUDA identity differs from the accepted mode-8 "
+                "component receipt"
+            )
+        if cublas_identity != mode8_validation.cublas_identity:
+            raise RuntimeError(
+                "live cuBLAS identity differs from the accepted mode-8 "
+                "component receipt"
+            )
 
         prefill_plan = staging / PREFILL_PLAN
         step_plan = staging / STEP_PLAN
@@ -1365,7 +1430,6 @@ def main() -> int:
             plan_path=step_plan,
             report_path=step_report,
         )
-
         prefill_inspection = inspect_plan(tensorrt, "prefill", prefill_plan)
         step_inspection = inspect_plan(tensorrt, "step", step_plan)
         plan_parity = measure_plan_parity(
@@ -1378,6 +1442,15 @@ def main() -> int:
             prefill_expected,
             step_expected,
         )
+        # Mode-8 publishes its immutable class table when the first step
+        # execution discovers all accepted K variants. Plan construction and
+        # deserialization alone cannot authenticate this runtime state.
+        mode8_class_table = collect_mode8_class_table_identity(plugin_library)
+        if mode8_class_table != mode8_validation.class_table:
+            raise RuntimeError(
+                "Main Decoder execution discovered a different mode-8 "
+                "kernel class table than the accepted component receipt"
+            )
         del model
 
         artifact_paths = [
@@ -1388,6 +1461,32 @@ def main() -> int:
             prefill_report,
             step_report,
         ]
+        export_metadata = {
+            "frontend": "torch.onnx legacy TorchScript exporter",
+            "opset": ONNX_OPSET,
+            "constant_folding": False,
+            "external_data": False,
+            "pytorch_fixture_parity": "bit-exact-all-declared-outputs",
+            "pointwise_ffn_projection": "kernel1-bf16-matmul-v1",
+            "cross_attention_qk_softmax": (
+                "deterministic-k128-plugin-mode-1"
+            ),
+            "prefill_onnx": prefill_onnx_metadata,
+            "step_onnx": step_onnx_metadata,
+        }
+        export_metadata.update(
+            {
+                "one_step_self_attention": (
+                    "fixed-io-device-position-plugin-mode-8"
+                ),
+                "position_location": "device",
+                "position_shape_inference_io": False,
+                "execution_status_contract": (
+                    "int32-device-scalar-sticky-12-layer-recurrence"
+                ),
+                "mode8_class_table_sha256": mode8_class_table.sha256,
+            }
+        )
         receipt = {
             "schema_version": 1,
             "artifact_role": "main_decoder_prefill_and_step",
@@ -1400,6 +1499,12 @@ def main() -> int:
                         strict=True
                     )
                 ),
+                "locked_magpie_restore_sha256": sha256_file(
+                    (Path(__file__).parent / "locked_magpie_restore.py").resolve(
+                        strict=True
+                    )
+                ),
+                "codec_restore": locked_codec.restore_receipt().to_json(),
                 "oracle_lock_sha256": lock_sha256,
                 "oracle_source_revision": lock["oracle_source"]["base_revision"],
                 "oracle_source_bundle_sha256": lock["oracle_source"][
@@ -1411,8 +1516,11 @@ def main() -> int:
                     "receipt_sha256"
                 ],
                 "boundary_fixture_manifest_sha256": fixture.manifest_sha256,
+                "mode8_validation_receipt_sha256": (
+                    mode8_validation.receipt_sha256
+                ),
                 "plugin_sha256": sha256_file(
-                    args.plugin.resolve(strict=True)
+                    plugin_path
                 ),
             },
             "runtime": {
@@ -1420,6 +1528,9 @@ def main() -> int:
                 "torch": torch.__version__,
                 "torch_cuda_build": torch.version.cuda,
                 "cudnn": torch.backends.cudnn.version(),
+                "cuda": cuda_identity.to_json(),
+                "cublas": cublas_identity.to_json(),
+                "mode8_class_table_sha256": mode8_class_table.sha256,
                 "onnx": onnx.__version__,
                 "tensorrt": tensorrt.__version__,
                 "gpu_name": torch.cuda.get_device_name(0),
@@ -1430,26 +1541,7 @@ def main() -> int:
                 "cuda_matmul_allow_tf32": torch.backends.cuda.matmul.allow_tf32,
                 "cudnn_allow_tf32": torch.backends.cudnn.allow_tf32,
             },
-            "export": {
-                "frontend": "torch.onnx legacy TorchScript exporter",
-                "opset": ONNX_OPSET,
-                "constant_folding": False,
-                "external_data": False,
-                "pytorch_fixture_parity": "bit-exact-all-declared-outputs",
-                "pointwise_ffn_projection": "kernel1-bf16-matmul-v1",
-                "cross_attention_qk_softmax": (
-                    "deterministic-k128-plugin-mode-1"
-                ),
-                "one_step_self_attention_qk": (
-                    "cublas-bf16-compute32f-plugin-mode-5"
-                ),
-                "one_step_self_attention_context": (
-                    "position-derived-active-cache-cublas-bf16-"
-                    "compute32f-plugin-mode-6"
-                ),
-                "prefill_onnx": prefill_onnx_metadata,
-                "step_onnx": step_onnx_metadata,
-            },
+            "export": export_metadata,
             "build": {
                 "network_flags": ["strongly_typed"],
                 "tf32": False,

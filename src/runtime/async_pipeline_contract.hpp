@@ -9,12 +9,6 @@
 
 namespace magpie_tts_rt {
 
-enum class EventPollStatus {
-  complete,
-  pending,
-  failed,
-};
-
 enum class HostWaitBoundary {
   terminal_diagnostics,
   pcm_publication,
@@ -23,43 +17,13 @@ enum class HostWaitBoundary {
 struct PipelineSynchronizationMetrics {
   std::uint64_t generation_batches{0};
   std::uint64_t codec_batches{0};
-  std::uint64_t generation_to_codec_stream_waits{0};
+  std::uint64_t generation_to_codec_dependencies{0};
   std::uint64_t codec_to_generation_reuse_waits{0};
   std::uint64_t generation_codec_overlap_opportunities{0};
   std::uint64_t host_terminal_waits{0};
   std::uint64_t host_pcm_waits{0};
-  std::uint64_t host_event_queries{0};
-  std::uint64_t host_event_pending_observations{0};
-  // Healthy request execution must leave this at zero. Teardown stream
-  // synchronization is outside this per-request contract.
   std::uint64_t host_cuda_event_synchronizations{0};
 };
-
-template <typename Query, typename Backoff>
-[[nodiscard]] bool await_event_completion(
-    Query&& query,
-    Backoff&& backoff,
-    const HostWaitBoundary boundary,
-    PipelineSynchronizationMetrics& metrics) {
-  if (boundary == HostWaitBoundary::terminal_diagnostics) {
-    ++metrics.host_terminal_waits;
-  } else {
-    ++metrics.host_pcm_waits;
-  }
-  while (true) {
-    ++metrics.host_event_queries;
-    switch (query()) {
-      case EventPollStatus::complete:
-        return true;
-      case EventPollStatus::pending:
-        ++metrics.host_event_pending_observations;
-        backoff();
-        break;
-      case EventPollStatus::failed:
-        return false;
-    }
-  }
-}
 
 template <
     typename CanPublish,
@@ -127,7 +91,17 @@ class AsyncPipelineContract final {
     }
     state = BatchSlotState::codec_pending;
     ++metrics_.codec_batches;
-    ++metrics_.generation_to_codec_stream_waits;
+    ++metrics_.generation_to_codec_dependencies;
+  }
+
+  void record_host_event_synchronization(
+      const HostWaitBoundary boundary) noexcept {
+    if (boundary == HostWaitBoundary::terminal_diagnostics) {
+      ++metrics_.host_terminal_waits;
+    } else {
+      ++metrics_.host_pcm_waits;
+    }
+    ++metrics_.host_cuda_event_synchronizations;
   }
 
   void queue_reuse_dependency(const std::size_t slot) {

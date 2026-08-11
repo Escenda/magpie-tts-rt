@@ -113,11 +113,28 @@ enum class EngineRole {
 [[nodiscard]] std::string_view to_string(EngineRole value) noexcept;
 
 struct RuntimeFingerprint {
+  struct LoadedLibraryIdentity {
+    std::string soname;
+    std::uint64_t size_bytes;
+    std::string sha256;
+
+    bool operator==(const LoadedLibraryIdentity&) const = default;
+  };
+
+  struct CublasIdentity {
+    std::uint32_t api_version_integer;
+    LoadedLibraryIdentity library;
+    LoadedLibraryIdentity lt_library;
+
+    bool operator==(const CublasIdentity&) const = default;
+  };
+
   std::string os_name;
   std::string os_version;
   std::string architecture;
   Endianness endianness;
   std::string cuda_version;
+  CublasIdentity cublas;
   std::string tensorrt_version;
   std::string driver_version;
   std::string gpu_name;
@@ -166,10 +183,18 @@ struct TokenizerArtifact {
 };
 
 struct PluginArtifact {
+  struct MainDevicePositionClassTable {
+    std::uint32_t schema_version;
+    std::uint32_t class_count;
+    std::uint32_t k_count;
+    std::string sha256;
+  };
+
   std::string name;
   std::uint32_t abi_version;
   FileArtifact file;
   FileArtifact build_receipt;
+  MainDevicePositionClassTable main_device_position_class_table;
 };
 
 struct ArtifactsManifest {

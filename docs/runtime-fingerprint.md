@@ -14,15 +14,24 @@ fixed sources:
 | `architecture` | `uname(2)` machine value, restricted to `aarch64` or `x86_64` |
 | `endianness` | `std::endian::native` |
 | `cuda_version` | the loaded CUDA Runtime through `cudaRuntimeGetVersion` |
+| `cublas.api_version_integer` | `cublasGetVersion_v2` and `cublasLtGetVersion`, resolved through the authenticated plugin; both must return the same positive integer |
+| `cublas.library` | fixed SONAME `libcublas.so.13`, byte size, and SHA-256 of the exact mapped regular file that provides `cublasGetVersion_v2` |
+| `cublas.lt_library` | fixed SONAME `libcublasLt.so.13`, byte size, and SHA-256 of the exact mapped regular file that provides `cublasLtGetVersion` |
 | `tensorrt_version` | the loaded TensorRT library's major, minor, patch, and build accessors |
 | `driver_version` | the exact NVML system driver string |
 | `gpu_name` | the CUDA device name for the selected runtime device |
 | `gpu_compute_capability` | CUDA device major and minor capability |
 | `plugin_abi_version` | the ABI constant exported by the verified plugin |
 
-The deterministic parser tests and the live AGX Thor collector test both pass.
-The live collector resolves Ubuntu 24.04, aarch64, CUDA 13.2,
-TensorRT 10.16.2.10, driver 595.78, and NVIDIA Thor compute capability 11.0.
+The cuBLAS collector does not perform a second loader search. It resolves the
+four required API symbols through the already authenticated plugin handle,
+uses `dladdr` to identify their providers, and matches each provider mapping
+from `/proc/self/maps` to an `O_NOFOLLOW` descriptor by device and inode. It
+hashes that descriptor and requires stable `fstat` identity before and after
+the read. A missing symbol, unexpected provider name, non-file mapping,
+device/inode mismatch, unstable file, API-version mismatch, or receipt/hash
+mismatch fails model loading. Paths are deliberately excluded from the
+fingerprint because installation paths are not runtime identities.
 
 `model_load` first verifies the externally anchored manifest and creates sealed
 snapshots of every artifact, including the plugin build receipt. It then loads
@@ -32,9 +41,10 @@ then deserializes the seven verified plans. A mismatch prevents model
 creation.
 
 The fingerprint proves compatibility with the values recorded by the accepted
-bundle. It does not authenticate the publisher and is not a cryptographic
-measurement of every host library; the external manifest trust anchor and the
-deployment's trusted host remain separate requirements.
+bundle. It cryptographically measures the loaded cuBLAS and cuBLASLt files,
+but it does not authenticate the publisher or measure every host library; the
+external manifest trust anchor and the deployment's trusted host remain
+separate requirements.
 
 ## Required release evidence
 
@@ -55,7 +65,7 @@ An engine-bearing release additionally records and authenticates:
 - TensorRT builder version, builder flags, profiles, and plan hashes;
 - CUDA architecture targets and tactic sources;
 - plugin source, compiler/linker/CUDA settings, dynamic dependency contract,
-  and library hash;
+  library hash, and loaded cuBLAS/cuBLASLt API and file identities;
 - the source-model and tokenizer identities;
 - the exact runtime, CUDA Runtime, and NVML library hashes used by the Thor
   acceptance runner; and

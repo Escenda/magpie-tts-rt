@@ -14,6 +14,11 @@ constexpr std::uint32_t kFramesPerDecoderStep = 2;
 constexpr std::uint32_t kSteadyFrames = 8;
 constexpr std::uint32_t kThreads = 256;
 
+__global__ void advance_decoder_position_kernel(
+    std::int64_t* decoder_position) {
+  ++decoder_position[0];
+}
+
 __global__ void prepare_cfg_inputs_kernel(
     const __nv_bfloat16* text_condition,
     const bool* text_mask,
@@ -45,22 +50,39 @@ __global__ void prepare_cfg_inputs_kernel(
   }
 }
 
-__global__ void append_codec_step_kernel(
+__global__ void finalize_local_step_kernel(
     const std::int64_t* step_codec_tokens,
     std::int64_t* aggregate_codec_tokens,
-    const std::uint32_t frame_offset) {
+    const std::uint32_t frame_offset,
+    const std::int32_t* canonical_invalid_rows,
+    const std::int32_t* canonical_end_frame_index,
+    std::int32_t* step_invalid_rows,
+    std::int32_t* step_end_frame_index,
+    const std::int64_t* updated_rng_counter,
+    std::int64_t* rng_counter,
+    bool* generation_finished) {
   const std::uint32_t index =
       static_cast<std::uint32_t>(threadIdx.x);
-  if (index >= kCodebooks * kFramesPerDecoderStep) {
-    return;
+  if (index < kCodebooks * kFramesPerDecoderStep) {
+    const std::uint32_t codebook =
+        index / kFramesPerDecoderStep;
+    const std::uint32_t frame =
+        index % kFramesPerDecoderStep;
+    aggregate_codec_tokens[
+        codebook * kSteadyFrames + frame_offset + frame] =
+        step_codec_tokens[index];
   }
-  const std::uint32_t codebook =
-      index / kFramesPerDecoderStep;
-  const std::uint32_t frame =
-      index % kFramesPerDecoderStep;
-  aggregate_codec_tokens[
-      codebook * kSteadyFrames + frame_offset + frame] =
-      step_codec_tokens[index];
+  if (index == 0) {
+    const std::int32_t invalid_rows = canonical_invalid_rows[0];
+    const std::int32_t end_frame_index =
+        canonical_end_frame_index[0];
+    step_invalid_rows[0] = invalid_rows;
+    step_end_frame_index[0] = end_frame_index;
+    rng_counter[0] = updated_rng_counter[0];
+    if (end_frame_index == 0 || end_frame_index == 1) {
+      generation_finished[0] = true;
+    }
+  }
 }
 
 __global__ void pack_codec_frames_kernel(
@@ -80,15 +102,51 @@ __global__ void pack_codec_frames_kernel(
           codebook * kSteadyFrames + frame];
 }
 
-__global__ void latch_generation_finished_kernel(
-    const std::int32_t* end_frame_index,
-    bool* generation_finished) {
-  if (end_frame_index[0] == 0 || end_frame_index[0] == 1) {
-    generation_finished[0] = true;
+__global__ void pack_generation_diagnostics_kernel(
+    const GenerationDiagnosticSources sources,
+    const std::uint32_t step_count,
+    GenerationBatchDiagnostics* const output) {
+  const std::uint32_t step =
+      static_cast<std::uint32_t>(threadIdx.x);
+  if (step == 0U) {
+    output->step_count = step_count;
+    output->main_decoder_execution_status =
+        sources.main_decoder_execution_status[0];
   }
+  if (step >= kMaximumDecoderStepsPerEmission) {
+    return;
+  }
+  GenerationStepDiagnostics& destination = output->steps[step];
+  if (step < step_count) {
+    destination.attended_token_index =
+        sources.attended_token_indices[step][0];
+    destination.alignment_invalid =
+        sources.alignment_invalid_steps[step][0];
+    destination.local_invalid_rows =
+        sources.local_invalid_rows[step][0];
+    destination.end_frame_index =
+        sources.end_frame_indices[step][0];
+  } else {
+    destination.attended_token_index = -1;
+    destination.alignment_invalid = 0;
+    destination.local_invalid_rows = 0;
+    destination.end_frame_index = -1;
+  }
+  destination.reserved = 0;
 }
 
 }  // namespace
+
+cudaError_t launch_advance_decoder_position(
+    std::int64_t* const decoder_position,
+    const cudaStream_t stream) noexcept {
+  if (decoder_position == nullptr) {
+    return cudaErrorInvalidValue;
+  }
+  advance_decoder_position_kernel<<<1, 1, 0, stream>>>(
+      decoder_position);
+  return cudaPeekAtLastError();
+}
 
 cudaError_t launch_prepare_cfg_inputs(
     const void* text_condition_bf16,
@@ -116,32 +174,42 @@ cudaError_t launch_prepare_cfg_inputs(
   return cudaPeekAtLastError();
 }
 
-cudaError_t launch_append_codec_step(
+cudaError_t launch_finalize_local_step(
     const std::int64_t* step_codec_tokens,
     std::int64_t* aggregate_codec_tokens,
     const std::uint32_t frame_offset,
+    const std::int32_t* canonical_invalid_rows,
+    const std::int32_t* canonical_end_frame_index,
+    std::int32_t* step_invalid_rows,
+    std::int32_t* step_end_frame_index,
+    const std::int64_t* updated_rng_counter,
+    std::int64_t* rng_counter,
+    bool* generation_finished,
     const cudaStream_t stream) noexcept {
   if (step_codec_tokens == nullptr ||
       aggregate_codec_tokens == nullptr ||
       frame_offset > kSteadyFrames - kFramesPerDecoderStep ||
-      frame_offset % kFramesPerDecoderStep != 0) {
+      frame_offset % kFramesPerDecoderStep != 0 ||
+      canonical_invalid_rows == nullptr ||
+      canonical_end_frame_index == nullptr ||
+      step_invalid_rows == nullptr ||
+      step_end_frame_index == nullptr ||
+      updated_rng_counter == nullptr || rng_counter == nullptr ||
+      generation_finished == nullptr) {
     return cudaErrorInvalidValue;
   }
-  append_codec_step_kernel<<<
+  finalize_local_step_kernel<<<
       1, kCodebooks * kFramesPerDecoderStep, 0, stream>>>(
-      step_codec_tokens, aggregate_codec_tokens, frame_offset);
-  return cudaPeekAtLastError();
-}
-
-cudaError_t launch_latch_generation_finished(
-    const std::int32_t* end_frame_index,
-    bool* generation_finished,
-    const cudaStream_t stream) noexcept {
-  if (end_frame_index == nullptr || generation_finished == nullptr) {
-    return cudaErrorInvalidValue;
-  }
-  latch_generation_finished_kernel<<<1, 1, 0, stream>>>(
-      end_frame_index, generation_finished);
+      step_codec_tokens,
+      aggregate_codec_tokens,
+      frame_offset,
+      canonical_invalid_rows,
+      canonical_end_frame_index,
+      step_invalid_rows,
+      step_end_frame_index,
+      updated_rng_counter,
+      rng_counter,
+      generation_finished);
   return cudaPeekAtLastError();
 }
 
@@ -158,6 +226,22 @@ cudaError_t launch_pack_codec_frames(
   pack_codec_frames_kernel<<<
       1, kCodebooks * frame_count, 0, stream>>>(
       aggregate_codec_tokens, packed_codec_tokens, frame_count);
+  return cudaPeekAtLastError();
+}
+
+cudaError_t launch_pack_generation_diagnostics(
+    const GenerationDiagnosticSources& sources,
+    const std::uint32_t step_count,
+    GenerationBatchDiagnostics* const output,
+    const cudaStream_t stream) noexcept {
+  if (validate_generation_diagnostic_pack_arguments(
+          sources, step_count, output) !=
+      GenerationDiagnosticPackArgumentError::none) {
+    return cudaErrorInvalidValue;
+  }
+  pack_generation_diagnostics_kernel<<<
+      1, kMaximumDecoderStepsPerEmission, 0, stream>>>(
+      sources, step_count, output);
   return cudaPeekAtLastError();
 }
 

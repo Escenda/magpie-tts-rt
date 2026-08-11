@@ -91,6 +91,22 @@ void test_valid_manifest(const std::string& valid_text) {
           manifest.licenses.back().role == "nvidia_model_notice",
       "canonical license role order");
   require(manifest.engines.size() == 7, "engine count");
+  require(
+      manifest.runtime.cublas.api_version_integer == 130400,
+      "cuBLAS API version");
+  require(
+      manifest.runtime.cublas.library.soname == "libcublas.so.13" &&
+          manifest.runtime.cublas.library.size_bytes == 67751616U &&
+          manifest.runtime.cublas.library.sha256 ==
+              "826486b8869144621e3a477cddcd28f56733c7c80c6f998b898384fc09e10f91",
+      "cuBLAS loaded artifact identity");
+  require(
+      manifest.runtime.cublas.lt_library.soname ==
+              "libcublasLt.so.13" &&
+          manifest.runtime.cublas.lt_library.size_bytes == 606744240U &&
+          manifest.runtime.cublas.lt_library.sha256 ==
+              "b7aa42c190c2e7490abd6ea987883e05678e26222b7f9f1c9b96374fcbddbf04",
+      "cuBLASLt loaded artifact identity");
   require(manifest.kv_cache.layer_bindings.size() == 12, "KV layer count");
   require(manifest.local_ar.positions.size() == 16, "Local AR positions");
   require(
@@ -568,6 +584,22 @@ void test_character_validation_boundaries(const json& valid) {
   }
   {
     json candidate = valid;
+    candidate["runtime"]["cublas"]["lt_library"]["soname"] =
+        "libcublasLt.so.12";
+    expect_manifest_error(
+        "cuBLASLt SONAME is fixed",
+        ManifestStage::runtime_fingerprint,
+        ManifestErrorCode::invalid_value,
+        "/runtime/cublas/lt_library/soname",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(
+                  candidate.dump()));
+        },
+        "loaded library SONAME must be 'libcublasLt.so.13'");
+  }
+  {
+    json candidate = valid;
     candidate["runtime"]["gpu_compute_capability"] = "11.0.0";
     expect_manifest_error(
         "compute capability parser preserves error contract",
@@ -871,6 +903,15 @@ void test_rejected_cfg_row_contract(const json& valid) {
 }
 
 void test_rejected_step_position_contract(const json& valid) {
+  const auto find_step = [](json& candidate) -> json& {
+    json& engines = candidate.at("engines");
+    const auto step = std::find_if(
+        engines.begin(), engines.end(), [](const json& engine) {
+          return engine.at("role") == "main_decoder_step";
+        });
+    require(step != engines.end(), "step position fixture engine");
+    return *step;
+  };
   {
     json candidate = valid;
     candidate.at("kv_cache").at("position_semantics") = "relative";
@@ -905,6 +946,92 @@ void test_rejected_step_position_contract(const json& valid) {
         ManifestStage::kv_cache,
         ManifestErrorCode::invariant_violation,
         "/kv_cache/step_position_upper_bound_exclusive",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+  {
+    json candidate = valid;
+    json& step = find_step(candidate);
+    step.at("inputs").at(1).at("location") = "host";
+    expect_manifest_error(
+        "HOST step position",
+        ManifestStage::tensor,
+        ManifestErrorCode::invariant_violation,
+        "/engines/2/inputs/1",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+  {
+    json candidate = valid;
+    json& step = find_step(candidate);
+    step.at("inputs").at(1).at("shape_inference_io") = true;
+    expect_manifest_error(
+        "shape-inference step position",
+        ManifestStage::tensor,
+        ManifestErrorCode::invariant_violation,
+        "/engines/2/inputs/1",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+  {
+    json candidate = valid;
+    json& step = find_step(candidate);
+    step.at("profiles").at(0).at("input_values") = json::array(
+        {{{"tensor_name", "position"},
+          {"min", json::array({218})},
+          {"opt", json::array({342})},
+          {"max", json::array({466})}}});
+    expect_manifest_error(
+        "legacy position value profile",
+        ManifestStage::tensor,
+        ManifestErrorCode::invariant_violation,
+        "/engines/2/profiles/0/input_values",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+  {
+    json candidate = valid;
+    json& step = find_step(candidate);
+    json& inputs = step.at("inputs");
+    const auto status = std::find_if(
+        inputs.begin(), inputs.end(), [](const json& input) {
+          return input.at("name") == "execution_status_in";
+        });
+    require(status != inputs.end(), "step status fixture input");
+    inputs.erase(status);
+    expect_manifest_error(
+        "missing step execution status input",
+        ManifestStage::tensor,
+        ManifestErrorCode::invariant_violation,
+        "/engines/2",
+        [&candidate] {
+          static_cast<void>(
+              magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
+        });
+  }
+  {
+    json candidate = valid;
+    json& step = find_step(candidate);
+    json& outputs = step.at("outputs");
+    const auto status = std::find_if(
+        outputs.begin(), outputs.end(), [](const json& output) {
+          return output.at("name") == "execution_status_out";
+        });
+    require(status != outputs.end(), "step status fixture output");
+    status->at("dtype") = "int64";
+    expect_manifest_error(
+        "wrong step execution status output dtype",
+        ManifestStage::tensor,
+        ManifestErrorCode::invariant_violation,
+        "/engines/2/outputs/2",
         [&candidate] {
           static_cast<void>(
               magpie_tts_rt::parse_runtime_bundle_manifest(candidate.dump()));
@@ -1764,6 +1891,18 @@ void test_rejected_runtime_fingerprint(const std::string& valid_text) {
       ManifestStage::runtime_compatibility,
       ManifestErrorCode::fingerprint_mismatch,
       "/runtime/driver_version",
+      [&manifest, &actual] {
+        magpie_tts_rt::require_exact_runtime_fingerprint(
+            manifest.runtime, actual);
+      });
+
+  actual = manifest.runtime;
+  actual.cublas.lt_library.sha256 = std::string(64U, 'f');
+  expect_manifest_error(
+      "cuBLASLt runtime fingerprint mismatch",
+      ManifestStage::runtime_compatibility,
+      ManifestErrorCode::fingerprint_mismatch,
+      "/runtime/cublas/lt_library/sha256",
       [&manifest, &actual] {
         magpie_tts_rt::require_exact_runtime_fingerprint(
             manifest.runtime, actual);

@@ -174,8 +174,8 @@ closed before plan deserialization.
 
 Before that first `dlopen`, the packager also inspects the staged ELF dynamic
 section. It requires SONAME `libmagpie_tts_rt_plugins.so.0`, the exact fixed
-dependency set (`libcublas.so.13`, `libcudart.so.13`, `libnvinfer.so.10`,
-`libstdc++.so.6`, `libgcc_s.so.1`, `libc.so.6`, and
+dependency set (`libcublas.so.13`, `libcuda.so.1`, `libcudart.so.13`,
+`libnvinfer.so.10`, `libstdc++.so.6`, `libgcc_s.so.1`, `libc.so.6`, and
 `ld-linux-aarch64.so.1`), and rejects `RPATH`, `RUNPATH`, loader-audit,
 filter, and auxiliary-object tags. A changed dependency closure is a
 packaging failure rather than an accepted host fallback.
@@ -196,15 +196,46 @@ receipt's SHA-256 and size, and the receipt itself is copied into the
 immutable bundle. A matching plugin without matching build provenance is
 rejected.
 
+The build receipt also records one mandatory `runtime_dependencies.cublas`
+identity. It contains the common positive API version returned by cuBLAS and
+cuBLASLt and, for both `libcublas.so.13` and `libcublasLt.so.13`, the fixed
+SONAME, file size, and SHA-256. The sequence acceptance receipt records the
+same identity, and final acceptance copies it into the consolidated export
+receipt. The packager then loads the staged authenticated plugin, resolves the
+cuBLAS symbols through that plugin's dependency scope, authenticates the exact
+mapped files, and requires equality with both receipts before emitting the
+manifest. An older receipt without these fields is invalid; there is no v1
+compatibility fallback.
+
 The runtime fingerprint is collected live rather than copied from the
 specification:
 
 - Ubuntu release and architecture;
 - endianness;
 - CUDA runtime and TensorRT versions;
+- exact cuBLAS/cuBLASLt API version, fixed SONAMEs, sizes, and SHA-256 hashes;
 - NVIDIA driver version;
 - CUDA device name and compute capability;
 - authenticated plugin ABI.
+
+Plan introspection also treats Main Decoder `position` as a fixed execution
+contract. The only accepted form is a scalar INT64 DEVICE input with
+`shape_inference_io=false`; the step profile contains an empty `input_values`
+array and therefore no value range.
+The packager fails closed on the former HOST shape-input plan and does not
+rewrite or copy it into a bundle.
+
+The same introspection requires `execution_status_in` and
+`execution_status_out` as scalar INT32 DEVICE execution bindings with
+`shape_inference_io=false`. A status-less plan or a plan that lowers either
+binding into a HOST/shape-input contract is rejected rather than rewritten.
+
+The consolidated receipt additionally binds the CUDA driver/runtime identity
+and the mode-8 class-table SHA-256 carried from component validation through
+Main export and sequence acceptance. The manifest records that digest together
+with class-table schema version `1`, class count `21`, and K-record count
+`249`. Missing or changed values invalidate the package; they are not inferred
+from a compatible-looking engine.
 
 P2 v1 packaging is restricted to AGX Thor (`NVIDIA Thor`, `sm_110`). The same
 fingerprint is checked again when a bundle is loaded.

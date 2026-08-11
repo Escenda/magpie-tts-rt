@@ -438,6 +438,7 @@
         "architecture",
         "endianness",
         "cuda_version",
+        "cublas",
         "tensorrt_version",
         "driver_version",
         "gpu_name",
@@ -467,6 +468,9 @@
         "cuda_version": {
           "$ref": "#/$defs/numericVersion"
         },
+        "cublas": {
+          "$ref": "#/$defs/cublasRuntimeIdentity"
+        },
         "tensorrt_version": {
           "$ref": "#/$defs/numericVersion"
         },
@@ -483,6 +487,69 @@
         },
         "plugin_abi_version": {
           "$ref": "#/$defs/positiveUint32"
+        }
+      }
+    },
+    "cublasRuntimeIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version_integer",
+        "library",
+        "lt_library"
+      ],
+      "properties": {
+        "api_version_integer": {
+          "$ref": "#/$defs/positiveUint32"
+        },
+        "library": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/loadedRuntimeLibraryIdentity"
+            },
+            {
+              "properties": {
+                "soname": {
+                  "const": "libcublas.so.13"
+                }
+              }
+            }
+          ]
+        },
+        "lt_library": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/loadedRuntimeLibraryIdentity"
+            },
+            {
+              "properties": {
+                "soname": {
+                  "const": "libcublasLt.so.13"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "loadedRuntimeLibraryIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "soname",
+        "size_bytes",
+        "sha256"
+      ],
+      "properties": {
+        "soname": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size_bytes": {
+          "$ref": "#/$defs/positiveUint64"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
         }
       }
     },
@@ -623,7 +690,8 @@
             "name",
             "abi_version",
             "file",
-            "build_receipt"
+            "build_receipt",
+            "main_device_position_class_table"
           ],
           "properties": {
             "name": {
@@ -638,6 +706,31 @@
             "build_receipt": {
               "description": "Immutable provenance for the exact plugin binary, source hashes, toolchain, deterministic compile flags, and link contract.",
               "$ref": "#/$defs/fileArtifact"
+            },
+            "main_device_position_class_table": {
+              "description": "Canonical mode-8 cuBLAS launch-class table identity. The digest covers compact ASCII JSON with lexicographically sorted object keys and no trailing newline.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "schema_version",
+                "class_count",
+                "k_count",
+                "sha256"
+              ],
+              "properties": {
+                "schema_version": {
+                  "const": 1
+                },
+                "class_count": {
+                  "const": 21
+                },
+                "k_count": {
+                  "const": 249
+                },
+                "sha256": {
+                  "$ref": "#/$defs/sha256"
+                }
+              }
             }
           }
         }
@@ -752,10 +845,10 @@
                 "const": []
               },
               "location": {
-                "const": "host"
+                "const": "device"
               },
               "shape_inference_io": {
-                "const": true
+                "const": false
               }
             }
           },
@@ -1083,20 +1176,7 @@
           }
         },
         "input_values": {
-          "const": [
-            {
-              "tensor_name": "position",
-              "min": [
-                218
-              ],
-              "opt": [
-                342
-              ],
-              "max": [
-                466
-              ]
-            }
-          ]
+          "const": []
         }
       }
     },
@@ -1457,8 +1537,8 @@
           "then": {
             "properties": {
               "inputs": {
-                "minItems": 64,
-                "maxItems": 64,
+                "minItems": 65,
+                "maxItems": 65,
                 "allOf": [
                   {
                     "contains": {
@@ -1489,6 +1569,34 @@
                       "required": [
                         "name",
                         "dtype",
+                        "shape",
+                        "location",
+                        "shape_inference_io"
+                      ],
+                      "properties": {
+                        "name": {
+                          "const": "execution_status_in"
+                        },
+                        "dtype": {
+                          "const": "int32"
+                        },
+                        "shape": {
+                          "const": []
+                        },
+                        "location": {
+                          "const": "device"
+                        },
+                        "shape_inference_io": {
+                          "const": false
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "contains": {
+                      "required": [
+                        "name",
+                        "dtype",
                         "shape"
                       ],
                       "properties": {
@@ -1502,10 +1610,10 @@
                           "const": []
                         },
                         "location": {
-                          "const": "host"
+                          "const": "device"
                         },
                         "shape_inference_io": {
-                          "const": true
+                          "const": false
                         }
                       }
                     }
@@ -1560,8 +1668,8 @@
                 ]
               },
               "outputs": {
-                "minItems": 38,
-                "maxItems": 38,
+                "minItems": 39,
+                "maxItems": 39,
                 "allOf": [
                   {
                     "contains": {
@@ -1605,6 +1713,34 @@
                             2,
                             -1
                           ]
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "contains": {
+                      "required": [
+                        "name",
+                        "dtype",
+                        "shape",
+                        "location",
+                        "shape_inference_io"
+                      ],
+                      "properties": {
+                        "name": {
+                          "const": "execution_status_out"
+                        },
+                        "dtype": {
+                          "const": "int32"
+                        },
+                        "shape": {
+                          "const": []
+                        },
+                        "location": {
+                          "const": "device"
+                        },
+                        "shape_inference_io": {
+                          "const": false
                         }
                       }
                     }

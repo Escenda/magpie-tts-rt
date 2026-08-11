@@ -26,6 +26,14 @@ import torch
 
 from alignment_controller import SofiaAlignmentController
 from build_text_encoder_plan import register_plugin
+from cublas_runtime_identity import (
+    CublasRuntimeIdentity,
+    parse_cublas_runtime_identity,
+)
+from cuda_runtime_identity import (
+    CudaRuntimeIdentity,
+    parse_cuda_runtime_identity,
+)
 from export_main_decoder import (
     DECODER_LAYERS,
     PREFILL_PLAN,
@@ -63,16 +71,77 @@ MINIMUM_DISTINCT_FIXTURES = 2
 
 
 @dataclass(frozen=True)
+class AuthenticatedCodecRestore:
+    embedded_codec_model_id: str
+    codec_model_sha256: str
+    codec_model_size_bytes: int
+
+
+def authenticate_codec_restore(
+    source: dict[str, JsonValue],
+    label: str,
+) -> AuthenticatedCodecRestore:
+    restore = require_mapping(source.get("codec_restore"), f"{label}.codec_restore")
+    if (
+        require_string(
+            restore.get("codec_resolution"),
+            f"{label}.codec_restore.codec_resolution",
+        )
+        != "authenticated_local_file"
+        or require_boolean(
+            restore.get("use_scl_loss"),
+            f"{label}.codec_restore.use_scl_loss",
+        )
+        or require_boolean(
+            restore.get("network_resolution"),
+            f"{label}.codec_restore.network_resolution",
+        )
+    ):
+        raise RuntimeError(
+            f"{label}.codec_restore is not the authenticated offline contract"
+        )
+    if set(restore) != {
+        "embedded_codec_model_id",
+        "codec_model_sha256",
+        "codec_model_size_bytes",
+        "codec_resolution",
+        "use_scl_loss",
+        "network_resolution",
+    }:
+        raise RuntimeError(f"{label}.codec_restore has an unexpected field set")
+    return AuthenticatedCodecRestore(
+        embedded_codec_model_id=require_string(
+            restore.get("embedded_codec_model_id"),
+            f"{label}.codec_restore.embedded_codec_model_id",
+        ),
+        codec_model_sha256=require_sha256(
+            restore.get("codec_model_sha256"),
+            f"{label}.codec_restore.codec_model_sha256",
+        ),
+        codec_model_size_bytes=require_nonnegative_integer(
+            restore.get("codec_model_size_bytes"),
+            f"{label}.codec_restore.codec_model_size_bytes",
+        ),
+    )
+
+
+@dataclass(frozen=True)
 class AuthenticatedPlanExport:
     root: Path
     receipt_sha256: str
     oracle_lock_sha256: str
+    locked_magpie_restore_sha256: str
+    codec_restore: AuthenticatedCodecRestore
     prefill_plan: Path
     prefill_plan_sha256: str
     step_plan: Path
     step_plan_sha256: str
     source_fixture_manifest_sha256: str
     required_plugin_sha256: str
+    mode8_validation_receipt_sha256: str
+    mode8_class_table_sha256: str
+    cuda_identity: CudaRuntimeIdentity
+    cublas_identity: CublasRuntimeIdentity
     tensorrt_version: str
     torch_cuda_build: str
     gpu_name: str
@@ -165,6 +234,12 @@ def require_integer(value: JsonValue | None, label: str) -> int:
     return value
 
 
+def require_boolean(value: JsonValue | None, label: str) -> bool:
+    if not isinstance(value, bool):
+        raise RuntimeError(f"{label} must be a boolean")
+    return value
+
+
 def require_nonnegative_integer(value: JsonValue | None, label: str) -> int:
     result = require_integer(value, label)
     if result < 0:
@@ -221,6 +296,115 @@ def authenticate_plan_export(path: Path) -> AuthenticatedPlanExport:
         != "measured-not-accepted"
     ):
         raise RuntimeError("only an explicitly measured-not-accepted export is valid")
+
+    plan_inspection = require_mapping(
+        receipt.get("plan_inspection"),
+        "receipt.plan_inspection",
+    )
+    step_inspection = require_mapping(
+        plan_inspection.get("step"),
+        "receipt.plan_inspection.step",
+    )
+    step_tensors = require_list(
+        step_inspection.get("tensors"),
+        "receipt.plan_inspection.step.tensors",
+    )
+    position_records = [
+        require_mapping(
+            value,
+            f"receipt.plan_inspection.step.tensors[{index}]",
+        )
+        for index, value in enumerate(step_tensors)
+        if isinstance(value, dict) and value.get("name") == "position"
+    ]
+    if len(position_records) != 1:
+        raise RuntimeError(
+            "plan export must inspect exactly one step position tensor"
+        )
+    position = position_records[0]
+    position_shape = require_list(
+        position.get("shape"),
+        "receipt.plan_inspection.step.position.shape",
+    )
+    if (
+        require_string(
+            position.get("dtype"),
+            "receipt.plan_inspection.step.position.dtype",
+        )
+        != "int64"
+        or position_shape
+        or require_string(
+            position.get("mode"),
+            "receipt.plan_inspection.step.position.mode",
+        )
+        != "input"
+        or require_string(
+            position.get("location"),
+            "receipt.plan_inspection.step.position.location",
+        )
+        != "device"
+        or require_boolean(
+            position.get("shape_inference_io"),
+            "receipt.plan_inspection.step.position.shape_inference_io",
+        )
+        or "profile_values" in position
+    ):
+        raise RuntimeError(
+            "plan export step position must be a scalar int64 DEVICE "
+            "execution input without profile values"
+        )
+
+    status_records = {
+        name: [
+            require_mapping(
+                value,
+                f"receipt.plan_inspection.step.tensors[{index}]",
+            )
+            for index, value in enumerate(step_tensors)
+            if isinstance(value, dict) and value.get("name") == name
+        ]
+        for name in ("execution_status_in", "execution_status_out")
+    }
+    for name, expected_mode in (
+        ("execution_status_in", "input"),
+        ("execution_status_out", "output"),
+    ):
+        records = status_records[name]
+        if len(records) != 1:
+            raise RuntimeError(
+                f"plan export must inspect exactly one step {name} tensor"
+            )
+        record = records[0]
+        if (
+            require_string(
+                record.get("dtype"),
+                f"receipt.plan_inspection.step.{name}.dtype",
+            )
+            != "int32"
+            or require_list(
+                record.get("shape"),
+                f"receipt.plan_inspection.step.{name}.shape",
+            )
+            or require_string(
+                record.get("mode"),
+                f"receipt.plan_inspection.step.{name}.mode",
+            )
+            != expected_mode
+            or require_string(
+                record.get("location"),
+                f"receipt.plan_inspection.step.{name}.location",
+            )
+            != "device"
+            or require_boolean(
+                record.get("shape_inference_io"),
+                f"receipt.plan_inspection.step.{name}.shape_inference_io",
+            )
+            or "profile_values" in record
+        ):
+            raise RuntimeError(
+                f"plan export step {name} must be a scalar int32 DEVICE "
+                f"{expected_mode} without profile values"
+            )
 
     artifact_values = require_list(receipt.get("artifacts"), "receipt.artifacts")
     authenticated: dict[str, tuple[Path, str]] = {}
@@ -282,6 +466,39 @@ def authenticate_plan_export(path: Path) -> AuthenticatedPlanExport:
         raise RuntimeError(f"plan export is missing required plan: {error.args[0]}") from error
     source = require_mapping(receipt.get("source"), "receipt.source")
     runtime = require_mapping(receipt.get("runtime"), "receipt.runtime")
+    export = require_mapping(receipt.get("export"), "receipt.export")
+    if (
+        require_string(
+            export.get("execution_status_contract"),
+            "receipt.export.execution_status_contract",
+        )
+        != "int32-device-scalar-sticky-12-layer-recurrence"
+    ):
+        raise RuntimeError(
+            "plan export has no canonical Main execution-status recurrence"
+        )
+    mode8_class_table_sha256 = require_sha256(
+        runtime.get("mode8_class_table_sha256"),
+        "receipt.runtime.mode8_class_table_sha256",
+    )
+    if (
+        require_sha256(
+            export.get("mode8_class_table_sha256"),
+            "receipt.export.mode8_class_table_sha256",
+        )
+        != mode8_class_table_sha256
+    ):
+        raise RuntimeError(
+            "plan export mode-8 class-table digests do not match"
+        )
+    cuda_identity = parse_cuda_runtime_identity(
+        runtime.get("cuda"),
+        "receipt.runtime.cuda",
+    )
+    cublas_identity = parse_cublas_runtime_identity(
+        runtime.get("cublas"),
+        "receipt.runtime.cublas",
+    )
     capability_values = require_list(
         runtime.get("gpu_compute_capability"),
         "receipt.runtime.gpu_compute_capability",
@@ -302,6 +519,11 @@ def authenticate_plan_export(path: Path) -> AuthenticatedPlanExport:
             source.get("oracle_lock_sha256"),
             "receipt.source.oracle_lock_sha256",
         ),
+        locked_magpie_restore_sha256=require_sha256(
+            source.get("locked_magpie_restore_sha256"),
+            "receipt.source.locked_magpie_restore_sha256",
+        ),
+        codec_restore=authenticate_codec_restore(source, "receipt.source"),
         prefill_plan=prefill_plan,
         prefill_plan_sha256=prefill_digest,
         step_plan=step_plan,
@@ -314,6 +536,13 @@ def authenticate_plan_export(path: Path) -> AuthenticatedPlanExport:
             source.get("plugin_sha256"),
             "receipt.source.plugin_sha256",
         ),
+        mode8_validation_receipt_sha256=require_sha256(
+            source.get("mode8_validation_receipt_sha256"),
+            "receipt.source.mode8_validation_receipt_sha256",
+        ),
+        mode8_class_table_sha256=mode8_class_table_sha256,
+        cuda_identity=cuda_identity,
+        cublas_identity=cublas_identity,
         tensorrt_version=require_string(
             runtime.get("tensorrt"),
             "receipt.runtime.tensorrt",

@@ -2,6 +2,7 @@
 #include "runtime/eos_contract.hpp"
 #include "runtime/startup_gate_drain.hpp"
 
+#include <array>
 #include <atomic>
 #include <barrier>
 #include <chrono>
@@ -278,6 +279,58 @@ void test_invalid_chunks_fail_without_advancing_state() {
             {{2048, 11}})));
       },
       RequestStateErrorCode::invalid_audio_chunk);
+}
+
+void test_rejected_alignment_chunk_reports_reproduction_context() {
+  LeaseIdSequence ids;
+  StreamingRequestState state(10, 8, ids);
+  AudioChunk rejected = chunk(
+      0,
+      0,
+      4,
+      true,
+      false,
+      {{1024, 1}, {5120, 2}});
+  const std::array<std::int64_t, 2> attended{3, 7};
+  try {
+    static_cast<void>(state.publish(std::move(rejected)));
+  } catch (const RequestStateError& error) {
+    require(
+        error.code() == RequestStateErrorCode::invalid_audio_chunk,
+        "unexpected diagnostic error code");
+    require(
+        error.alignment_event_index() == 1,
+        "rejected alignment event index was not retained");
+    const std::string diagnostic =
+        magpie_tts_rt::describe_audio_chunk_validation_failure(
+            error,
+            rejected,
+            magpie_tts_rt::AudioChunkOrigin{
+                .random_seed = 4'294'967'295U,
+                .eos_step = 1,
+                .eos_frame_index = 1,
+                .attended_token_indices = attended,
+            });
+    for (const char* const required : {
+             "seed=4294967295",
+             "event_index=1",
+             "chunk=[0,4096)",
+             "frames=4",
+             "eos_step=1",
+             "eos_frame=1",
+             "attended=[3,7]",
+             "event_sample=5120",
+             "event_tokens=2",
+             "outside its lease or not frame-aligned",
+         }) {
+      require(
+          diagnostic.find(required) != std::string::npos,
+          "audio chunk diagnostic omitted " + std::string(required));
+    }
+    return;
+  }
+  throw std::runtime_error(
+      "invalid alignment chunk did not fail closed");
 }
 
 void test_zero_frame_final_control_marker() {
@@ -719,6 +772,7 @@ int main() {
     test_exact_eight_frame_ring_blocks_pinned_slot_reuse();
     test_eos_frame_is_excluded_from_audio();
     test_invalid_chunks_fail_without_advancing_state();
+    test_rejected_alignment_chunk_reports_reproduction_context();
     test_zero_frame_final_control_marker();
     test_cancellation_discards_only_unleased_audio();
     test_cancellation_closes_publication_gate();

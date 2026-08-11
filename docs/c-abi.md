@@ -45,9 +45,18 @@ lease, and then call `Request::close`.
 the shutdown command and joins the inference thread. Start admission uses a
 capacity-one bounded channel and `synthesize` returns typed `Busy` immediately
 when that channel is full. Cancel and shutdown use a separate bounded control
-channel. The inference thread polls that control channel before start
-admission, so a start flood cannot delay cancellation or shutdown behind
-queued synthesis work. Dropping
+channel. After enqueueing either payload, the sender issues a nonblocking wake
+through a separate capacity-one channel; a full wake channel means an existing
+wake already covers the payload, while a disconnected wake channel is an
+explicit command-channel failure. The idle inference thread blocks on that wake
+instead of periodically polling. After waking, and before every active-request
+wait, it checks the control channel before start admission, so a start flood
+cannot delay cancellation or shutdown behind queued synthesis work. Active
+requests use `request_wait` with a two-millisecond control-service slice and
+call `audio_acquire` only when the returned revision advertises an available
+lease. A full capacity-one synthesis event channel remains nonblocking
+backpressure: the worker retains at most one pending event and continues its
+bounded control checks without overlapping native request operations. Dropping
 `InferenceWorker` itself only detaches its `JoinHandle`; it does not
 synchronously cancel a request, join, or call native code. After the last
 control sender, including senders owned by live `SynthesisStream` values, and

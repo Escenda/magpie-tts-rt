@@ -40,6 +40,10 @@ from verify_oracle_lock import (  # noqa: E402
     sha256_file,
 )
 from validate_boundary_fixture import validate_boundary_fixture  # noqa: E402
+from locked_magpie_restore import (  # noqa: E402
+    LockedCodec,
+    load_locked_magpie_model,
+)
 
 
 ONNX_OPSET = 20
@@ -128,6 +132,7 @@ def verify_locked_inputs(args: argparse.Namespace) -> tuple[dict, str]:
         args.speech_root,
         source_lock["base_revision"],
         source_lock["files"],
+        source_lock["optimized_source_bundle_sha256"],
     )
     return lock, sha256_file(lock_path)
 
@@ -318,15 +323,18 @@ def tensor_from_fixture(torch, tensor: FixtureTensor):
     return value
 
 
-def load_text_encoder(torch, model_path: Path, speech_root: Path, lock: dict):
+def load_text_encoder(
+    torch,
+    model_path: Path,
+    codec: LockedCodec,
+    speech_root: Path,
+    lock: dict,
+):
     from nemo.collections.tts.models import MagpieTTSModel
     from text_encoder_wrapper import TextEncoderWrapper
 
     require_imported_nemo_source(speech_root, MagpieTTSModel)
-    model = MagpieTTSModel.restore_from(
-        str(model_path.resolve(strict=True)),
-        map_location="cpu",
-    )
+    model = load_locked_magpie_model(model_path, codec)
     model.eval()
     if model.model_type != "decoder_ce":
         raise RuntimeError(f"expected decoder_ce model, got {model.model_type}")
@@ -574,6 +582,7 @@ def publish_directory_no_replace(staging: Path, output: Path) -> None:
 def build_receipt(
     lock: dict,
     lock_sha256: str,
+    locked_codec: LockedCodec,
     fixture: TextEncoderFixture,
     onnx_path: Path,
     onnx_metadata: dict[str, int],
@@ -593,6 +602,12 @@ def build_receipt(
                     Path(__file__).parent / "text_encoder_wrapper.py"
                 ).resolve(strict=True)
             ),
+            "locked_magpie_restore_sha256": sha256_file(
+                (Path(__file__).parent / "locked_magpie_restore.py").resolve(
+                    strict=True
+                )
+            ),
+            "codec_restore": locked_codec.restore_receipt().to_json(),
             "oracle_lock_sha256": lock_sha256,
             "oracle_source_revision": lock["oracle_source"]["base_revision"],
             "oracle_source_bundle_sha256": lock["oracle_source"][
@@ -730,7 +745,20 @@ def main() -> int:
         )
     )
     try:
-        module = load_text_encoder(torch, args.model, speech_root, lock)
+        codec_lock = lock["codec"]
+        locked_codec = LockedCodec(
+            path=args.codec_model,
+            model_id=codec_lock["model_id"],
+            sha256=codec_lock["sha256"],
+            size_bytes=codec_lock["size_bytes"],
+        )
+        module = load_text_encoder(
+            torch,
+            args.model,
+            locked_codec,
+            speech_root,
+            lock,
+        )
         token_ids, mask = require_pytorch_fixture_parity(torch, module, fixture)
         onnx_path = staging / ONNX_FILE_NAME
         export_legacy_onnx(torch, module, token_ids, mask, onnx_path)
@@ -743,6 +771,7 @@ def main() -> int:
         receipt = build_receipt(
             lock,
             lock_sha256,
+            locked_codec,
             fixture,
             onnx_path,
             onnx_metadata,

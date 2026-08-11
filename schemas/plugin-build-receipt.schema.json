@@ -4,7 +4,7 @@
   "title": "MagpieTTS-RT plugin build receipt",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "status", "artifact", "source", "toolchain", "build"],
+  "required": ["schema_version", "status", "artifact", "source", "toolchain", "build", "runtime_dependencies"],
   "properties": {
     "schema_version": {"const": "magpie-tts-rt.plugin-build.v1"},
     "status": {"const": "recorded"},
@@ -91,9 +91,49 @@
           ]
         }
       }
+    },
+    "runtime_dependencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cublas"],
+      "properties": {
+        "cublas": {
+          "$ref": "#/$defs/cublasRuntimeIdentity"
+        }
+      }
     }
   },
   "$defs": {
+    "loadedLibraryIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["soname", "size_bytes", "sha256"],
+      "properties": {
+        "soname": {"type": "string", "minLength": 1},
+        "size_bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "cublasRuntimeIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_version_integer", "library", "lt_library"],
+      "properties": {
+        "api_version_integer": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+        "library": {
+          "allOf": [
+            {"$ref": "#/$defs/loadedLibraryIdentity"},
+            {"properties": {"soname": {"const": "libcublas.so.13"}}}
+          ]
+        },
+        "lt_library": {
+          "allOf": [
+            {"$ref": "#/$defs/loadedLibraryIdentity"},
+            {"properties": {"soname": {"const": "libcublasLt.so.13"}}}
+          ]
+        }
+      }
+    },
     "sourceArtifact": {
       "type": "object",
       "additionalProperties": false,

@@ -157,6 +157,51 @@ Measure cold and warm runs separately. Report median, p95, and maximum for:
 - CUDA allocated/reserved memory;
 - kernel launches, host submissions, and blocking synchronizations.
 
+The Main Decoder, Local AR, and fixed-shape NanoCodec CUDA Graphs are also a
+release gate:
+
+- the mandatory startup golden must execute both graph-backed Main Decoder
+  cache directions, Local AR, NanoCodec initial-4, steady A-to-B, and steady
+  B-to-A paths and retain the exact decoder-token, codec-code, and PCM digests;
+- Main Decoder `position` must inspect as scalar INT64 DEVICE execution I/O,
+  with `shape_inference_io=false` and no optimization-profile value range;
+  the packager and runtime manifest parser must reject the former HOST
+  shape-input contract;
+- Main Decoder `execution_status_in` and `execution_status_out` must inspect as
+  scalar INT32 DEVICE execution I/O with `shape_inference_io=false`; all 12
+  mode-8 layers must participate in the sticky A/B recurrence, and the runtime
+  must observe zero before every following Local AR invocation in the accepted
+  sequence;
+- the mode-8 component gate must be bit-exact for all 2,241 declared direct
+  cases and four captured-graph replays, then bind the exact NVIDIA driver,
+  CUDA runtime, cuBLAS/cuBLASLt identity, and 7-QK/14-PV class-table digest;
+  Main export, sequence acceptance, finalization, and packaging must preserve
+  that identity without an optional or legacy path;
+- for every request, Main Decoder A-to-B and B-to-A each admit exactly one
+  eager production result, the first A-to-B result precedes first audio, and
+  each direction's next result comes from capture plus immediate launch;
+- requests with different predeclared text lengths must each destroy and
+  recapture both Main graphs; a startup graph or same-length graph must not be
+  reused;
+- graph capture, instantiation, upload, memory accounting, or launch failure
+  must prevent session publication, with no eager-enqueue fallback;
+- startup must charge the second Main Decoder and second steady NanoCodec
+  contexts before workspace allocation, then charge observed aggregate graph
+  device-memory growth to `maximum_device_memory_bytes` after every route has
+  replayed;
+- every later Main capture must remeasure aggregate Local AR, NanoCodec, and
+  current Main graph memory from the immutable pre-graph session baseline;
+  startup text length is not a memory bound for another request;
+- Nsight Systems must show Main Decoder replay, Local AR, and fixed NanoCodec
+  kernels with non-null graph identifiers and one graph launch per routed
+  invocation after Main's two eager steps; healthy request execution must use
+  blocking `cudaEventSynchronize` only where host diagnostics or PCM are
+  consumed, issue no `cudaEventQuery` polling loop, retain zero
+  `cudaDeviceSynchronize` calls, and add no redundant codec-stream wait after
+  the host has synchronized `codes-ready`;
+- against the pinned pre-graph trace, individual host kernel submissions must
+  fall by at least 55 percent without changing generation/codec overlap.
+
 The initial PyTorch oracle measured four cases with:
 
 - raw first-audio median `136.03 ms`, p95 `152.39 ms`;

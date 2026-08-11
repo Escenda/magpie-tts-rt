@@ -290,6 +290,41 @@ std::size_t TensorAddressSet::size() const noexcept {
   return addresses_.size();
 }
 
+PreparedTensorAddressSet::PreparedTensorAddressSet(
+    const EngineManifest& manifest,
+    const TensorAddressSet& addresses) {
+  const std::size_t expected_address_count =
+      manifest.inputs.size() + manifest.outputs.size();
+  if (addresses.size() != expected_address_count) {
+    fail(
+        addresses.size() < expected_address_count
+            ? EngineExecutionErrorCode::missing_tensor_address
+            : EngineExecutionErrorCode::unknown_tensor_address,
+        manifest.name,
+        "",
+        "expected exactly " +
+            std::to_string(expected_address_count) +
+            " tensor addresses, got " +
+            std::to_string(addresses.size()));
+  }
+  inputs_.reserve(manifest.inputs.size());
+  outputs_.reserve(manifest.outputs.size());
+  for (const TensorSpec& input : manifest.inputs) {
+    inputs_.push_back(addresses.require(input.name));
+  }
+  for (const TensorSpec& output : manifest.outputs) {
+    outputs_.push_back(addresses.require(output.name));
+  }
+}
+
+void* PreparedTensorAddressSet::input(const std::size_t index) const {
+  return inputs_.at(index);
+}
+
+void* PreparedTensorAddressSet::output(const std::size_t index) const {
+  return outputs_.at(index);
+}
+
 std::vector<std::int64_t> resolve_tensor_shape(
     const EngineRole role,
     const TensorSpec& tensor,
@@ -348,28 +383,14 @@ std::uint64_t tensor_storage_bytes(
   return elements * bytes_per_element;
 }
 
-void enqueue_engine(
+template <typename AddressProvider>
+void enqueue_engine_with_addresses(
     const EngineManifest& manifest,
     nvinfer1::IExecutionContext& context,
     const EngineShapeParameters& parameters,
-    const TensorAddressSet& addresses,
+    AddressProvider&& address,
     const cudaStream_t stream,
     const cudaEvent_t input_consumed_event) {
-  const std::size_t expected_address_count =
-      manifest.inputs.size() + manifest.outputs.size();
-  if (addresses.size() != expected_address_count) {
-    fail(
-        addresses.size() < expected_address_count
-            ? EngineExecutionErrorCode::missing_tensor_address
-            : EngineExecutionErrorCode::unknown_tensor_address,
-        manifest.name,
-        "",
-        "expected exactly " +
-            std::to_string(expected_address_count) +
-            " tensor addresses, got " +
-            std::to_string(addresses.size()));
-  }
-
   for (const TensorSpec& input : manifest.inputs) {
     const std::vector<std::int64_t> resolved =
         resolve_tensor_shape(manifest.role, input, parameters);
@@ -406,9 +427,11 @@ void enqueue_engine(
               ", got " + dimensions_string(actual));
     }
   };
-  const auto bind = [&](const TensorSpec& tensor) {
+  const auto bind = [&context, &manifest](
+                        const TensorSpec& tensor,
+                        void* const tensor_address) {
     if (!context.setTensorAddress(
-            tensor.name.c_str(), addresses.require(tensor.name))) {
+            tensor.name.c_str(), tensor_address)) {
       fail(
           EngineExecutionErrorCode::tensor_address_rejected,
           manifest.name,
@@ -419,9 +442,12 @@ void enqueue_engine(
   // TensorRT shape inference reads HOST shape-input values through their
   // bound addresses. All input addresses therefore have to be present before
   // inferShapes(); the caller owns those buffers through enqueue completion.
-  for (const TensorSpec& input : manifest.inputs) {
+  for (std::size_t index = 0;
+       index < manifest.inputs.size();
+       ++index) {
+    const TensorSpec& input = manifest.inputs[index];
     validate_shape(input);
-    bind(input);
+    bind(input, address(true, index, input));
   }
 
   const std::int32_t unresolved = context.inferShapes(0, nullptr);
@@ -436,9 +462,12 @@ void enqueue_engine(
                   " input shapes remain unresolved");
   }
 
-  for (const TensorSpec& output : manifest.outputs) {
+  for (std::size_t index = 0;
+       index < manifest.outputs.size();
+       ++index) {
+    const TensorSpec& output = manifest.outputs[index];
     validate_shape(output);
-    bind(output);
+    bind(output, address(false, index, output));
   }
   if (!context.setInputConsumedEvent(input_consumed_event)) {
     fail(
@@ -454,6 +483,62 @@ void enqueue_engine(
         "",
         "enqueueV3 returned false");
   }
+}
+
+void enqueue_engine(
+    const EngineManifest& manifest,
+    nvinfer1::IExecutionContext& context,
+    const EngineShapeParameters& parameters,
+    const TensorAddressSet& addresses,
+    const cudaStream_t stream,
+    const cudaEvent_t input_consumed_event) {
+  const std::size_t expected_address_count =
+      manifest.inputs.size() + manifest.outputs.size();
+  if (addresses.size() != expected_address_count) {
+    fail(
+        addresses.size() < expected_address_count
+            ? EngineExecutionErrorCode::missing_tensor_address
+            : EngineExecutionErrorCode::unknown_tensor_address,
+        manifest.name,
+        "",
+        "expected exactly " +
+            std::to_string(expected_address_count) +
+            " tensor addresses, got " +
+            std::to_string(addresses.size()));
+  }
+  enqueue_engine_with_addresses(
+      manifest,
+      context,
+      parameters,
+      [&addresses](
+          const bool,
+          const std::size_t,
+          const TensorSpec& tensor) {
+        return addresses.require(tensor.name);
+      },
+      stream,
+      input_consumed_event);
+}
+
+void enqueue_engine(
+    const EngineManifest& manifest,
+    nvinfer1::IExecutionContext& context,
+    const EngineShapeParameters& parameters,
+    const PreparedTensorAddressSet& addresses,
+    const cudaStream_t stream,
+    const cudaEvent_t input_consumed_event) {
+  enqueue_engine_with_addresses(
+      manifest,
+      context,
+      parameters,
+      [&addresses](
+          const bool input,
+          const std::size_t index,
+          const TensorSpec&) {
+        return input ? addresses.input(index) : addresses.output(index);
+      },
+      stream,
+      input_consumed_event);
 }
 
 }  // namespace magpie_tts_rt

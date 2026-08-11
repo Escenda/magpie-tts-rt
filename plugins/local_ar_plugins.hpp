@@ -96,24 +96,22 @@ main_cross_attention_softmax_workspace_size() noexcept;
     std::int32_t key_length,
     cudaStream_t stream) noexcept;
 
+// Candidate fixed-I/O Main Decoder self-attention route. `position` is a
+// CUDA-resident scalar execution input; it never participates in TensorRT
+// shape inference. The caller owns fixed-capacity K/V/mask storage for the
+// entire session. This route is not accepted until the all-K component and
+// closed-loop sequence gates have both passed.
 [[nodiscard]] std::size_t
-main_self_attention_step_context_workspace_size() noexcept;
+main_self_attention_device_position_workspace_size() noexcept;
 
-[[nodiscard]] int launch_main_self_attention_step_context(
-    cublasHandle_t cublas_handle,
-    const void* probabilities_bf16,
+[[nodiscard]] int launch_main_self_attention_device_position(
+    const void* query_bf16,
+    const void* key_bf16,
     const void* value_bf16,
+    const bool* key_mask,
+    const std::int64_t* position,
     void* workspace,
     void* output_bf16,
-    std::int32_t active_length,
-    cudaStream_t stream) noexcept;
-
-[[nodiscard]] int launch_main_self_attention_step_scores(
-    cublasHandle_t cublas_handle,
-    const void* query_bf16,
-    const void* key_transposed_bf16,
-    void* output_bf16,
-    std::int32_t active_length,
     cudaStream_t stream) noexcept;
 
 [[nodiscard]] int launch_main_cross_attention_context(
@@ -142,6 +140,37 @@ main_self_attention_step_context_workspace_size() noexcept;
     cudaStream_t stream) noexcept;
 
 #if defined(MAGPIE_TTS_RT_PLUGIN_TESTING)
+struct MainDevicePositionBankTestState;
+
+[[nodiscard]] MainDevicePositionBankTestState*
+create_main_device_position_bank_test_state(
+    std::int32_t layer_index) noexcept;
+
+void destroy_main_device_position_bank_test_state(
+    MainDevicePositionBankTestState* state) noexcept;
+
+[[nodiscard]] int enqueue_main_device_position_bank_test_state(
+    MainDevicePositionBankTestState* state,
+    const void* query_bf16,
+    const void* key_bf16,
+    const void* value_bf16,
+    const bool* key_mask,
+    const std::int64_t* position,
+    const std::int32_t* status_input,
+    std::int32_t* status_output,
+    void* workspace,
+    void* output_bf16,
+    cudaStream_t stream) noexcept;
+
+[[nodiscard]] bool invalidate_main_device_position_qk_node_test_state(
+    MainDevicePositionBankTestState* state,
+    std::size_t class_index) noexcept;
+
+// Exercises the mode-8 IPluginV3 runtime callback with both TensorRT's 0D
+// scalar representation and Myelin's equivalent one-element [1] lowering.
+[[nodiscard]] bool
+validate_main_device_position_scalar_callback_shapes_test() noexcept;
+
 [[nodiscard]] int launch_test_clamped_gumbel(
     const float* uniform,
     float* gumbel,

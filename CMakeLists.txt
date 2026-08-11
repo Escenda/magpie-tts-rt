@@ -236,10 +236,14 @@ if(MAGPIE_TTS_RT_BUILD_RUNTIME)
     SHARED
       src/api/magpie_tts_rt.cpp
       src/runtime/alignment_kernel.cu
+      src/runtime/cuda_graph.cpp
       src/runtime/cuda_memory.cpp
       src/runtime/engine_execution.cpp
       src/runtime/fingerprint.cpp
+      src/runtime/main_decoder_cuda_graph.cpp
+      src/runtime/main_device_position_class_table.cpp
       src/runtime/model_loader.cpp
+      src/runtime/nanocodec_cuda_graph.cpp
       src/runtime/session_resources.cpp
       src/runtime/session_workspace.cpp
       src/runtime/startup_gate.cpp
@@ -277,6 +281,7 @@ if(MAGPIE_TTS_RT_BUILD_RUNTIME)
     PRIVATE
       MagpieTTSRT_cuda_cublas
       MagpieTTSRT_cuda_cudart
+      CUDA::cuda_driver
       MagpieTTSRT_tensorrt_nvinfer
   )
   target_compile_options(
@@ -508,6 +513,72 @@ if(MAGPIE_TTS_RT_BUILD_TESTS)
   )
 
   add_executable(
+    mtt_cuda_graph_memory_accounting_tests
+    tests/runtime/cuda_graph_memory_accounting_tests.cpp
+  )
+  target_compile_features(
+    mtt_cuda_graph_memory_accounting_tests PRIVATE cxx_std_20
+  )
+  target_include_directories(
+    mtt_cuda_graph_memory_accounting_tests
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+  )
+  mtt_enable_strict_warnings(
+    mtt_cuda_graph_memory_accounting_tests
+  )
+  add_test(
+    NAME cuda_graph_memory_accounting
+    COMMAND mtt_cuda_graph_memory_accounting_tests
+  )
+
+  add_executable(
+    mtt_main_device_position_status_tests
+    tests/runtime/main_device_position_status_tests.cpp
+  )
+  target_compile_features(
+    mtt_main_device_position_status_tests PRIVATE cxx_std_20
+  )
+  target_include_directories(
+    mtt_main_device_position_status_tests
+    PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/include"
+      "${CMAKE_CURRENT_SOURCE_DIR}/src"
+  )
+  mtt_enable_strict_warnings(
+    mtt_main_device_position_status_tests
+  )
+  add_test(
+    NAME main_device_position_status
+    COMMAND mtt_main_device_position_status_tests
+  )
+
+  add_executable(
+    mtt_main_device_position_class_table_tests
+    tests/runtime/main_device_position_class_table_tests.cpp
+    src/runtime/main_device_position_class_table.cpp
+  )
+  target_compile_features(
+    mtt_main_device_position_class_table_tests PRIVATE cxx_std_20
+  )
+  target_include_directories(
+    mtt_main_device_position_class_table_tests
+    PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/include"
+      "${CMAKE_CURRENT_SOURCE_DIR}/src"
+  )
+  target_link_libraries(
+    mtt_main_device_position_class_table_tests
+    PRIVATE nlohmann_json::nlohmann_json OpenSSL::Crypto
+  )
+  mtt_enable_strict_warnings(
+    mtt_main_device_position_class_table_tests
+  )
+  add_test(
+    NAME main_device_position_class_table
+    COMMAND mtt_main_device_position_class_table_tests
+  )
+
+  add_executable(
     mtt_startup_golden_tests
     tests/runtime/startup_golden_tests.cpp
   )
@@ -713,6 +784,7 @@ if(MAGPIE_TTS_RT_BUILD_TESTS)
     add_executable(
       mtt_plugin_owner_gpu_tests
       tests/runtime/plugin_owner_gpu_tests.cpp
+      src/runtime/main_device_position_class_table.cpp
       src/runtime/model_loader.cpp
       src/runtime/fingerprint.cpp
     )
@@ -786,6 +858,7 @@ if(MAGPIE_TTS_RT_BUILD_TESTS)
       mtt_local_ar_plugin_gpu_tests
       PRIVATE
         CUDA::cublas
+        CUDA::cuda_driver
         MagpieTTSRT_cuda_cudart
         MagpieTTSRT_tensorrt_nvinfer
     )
@@ -939,6 +1012,154 @@ if(MAGPIE_TTS_RT_BUILD_TESTS)
     )
     set_tests_properties(
       synthesis_kernels_gpu
+      PROPERTIES LABELS "gpu;thor"
+    )
+
+    add_executable(
+      mtt_cuda_graph_gpu_tests
+      tests/runtime/cuda_graph_gpu_tests.cu
+      src/runtime/cuda_graph.cpp
+    )
+    target_compile_features(
+      mtt_cuda_graph_gpu_tests
+      PRIVATE cxx_std_20
+    )
+    target_include_directories(
+      mtt_cuda_graph_gpu_tests
+      PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_compile_definitions(
+      mtt_cuda_graph_gpu_tests
+      PRIVATE MAGPIE_TTS_RT_CUDA_GRAPH_TESTING
+    )
+    target_link_libraries(
+      mtt_cuda_graph_gpu_tests
+      PRIVATE MagpieTTSRT_cuda_cudart
+    )
+    target_compile_options(
+      mtt_cuda_graph_gpu_tests
+      PRIVATE
+        "$<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-Wall,-Wextra>"
+    )
+    if(MAGPIE_TTS_RT_WARNINGS_AS_ERRORS)
+      target_compile_options(
+        mtt_cuda_graph_gpu_tests
+        PRIVATE
+          "$<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-Werror>"
+      )
+    endif()
+    set_target_properties(
+      mtt_cuda_graph_gpu_tests
+      PROPERTIES
+        CUDA_ARCHITECTURES 110
+        CUDA_STANDARD 20
+        CUDA_STANDARD_REQUIRED YES
+    )
+    add_test(
+      NAME cuda_graph_gpu
+      COMMAND mtt_cuda_graph_gpu_tests
+    )
+    set_tests_properties(
+      cuda_graph_gpu
+      PROPERTIES LABELS "gpu;thor"
+    )
+
+    add_executable(
+      mtt_nanocodec_cuda_graph_gpu_tests
+      tests/runtime/nanocodec_cuda_graph_gpu_tests.cu
+      src/runtime/cuda_graph.cpp
+      src/runtime/nanocodec_cuda_graph.cpp
+    )
+    target_compile_features(
+      mtt_nanocodec_cuda_graph_gpu_tests
+      PRIVATE cxx_std_20
+    )
+    target_include_directories(
+      mtt_nanocodec_cuda_graph_gpu_tests
+      PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    mtt_enable_strict_warnings(
+      mtt_nanocodec_cuda_graph_gpu_tests
+    )
+    target_link_libraries(
+      mtt_nanocodec_cuda_graph_gpu_tests
+      PRIVATE MagpieTTSRT_cuda_cudart
+    )
+    target_compile_options(
+      mtt_nanocodec_cuda_graph_gpu_tests
+      PRIVATE
+        "$<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-Wall,-Wextra>"
+    )
+    if(MAGPIE_TTS_RT_WARNINGS_AS_ERRORS)
+      target_compile_options(
+        mtt_nanocodec_cuda_graph_gpu_tests
+        PRIVATE
+          "$<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-Werror>"
+      )
+    endif()
+    set_target_properties(
+      mtt_nanocodec_cuda_graph_gpu_tests
+      PROPERTIES
+        CUDA_ARCHITECTURES 110
+        CUDA_STANDARD 20
+        CUDA_STANDARD_REQUIRED YES
+    )
+    add_test(
+      NAME nanocodec_cuda_graph_gpu
+      COMMAND mtt_nanocodec_cuda_graph_gpu_tests
+    )
+    set_tests_properties(
+      nanocodec_cuda_graph_gpu
+      PROPERTIES LABELS "gpu;thor"
+    )
+
+    add_executable(
+      mtt_main_decoder_cuda_graph_gpu_tests
+      tests/runtime/main_decoder_cuda_graph_gpu_tests.cu
+      src/runtime/cuda_graph.cpp
+      src/runtime/main_decoder_cuda_graph.cpp
+      src/runtime/synthesis_kernels.cu
+    )
+    target_compile_features(
+      mtt_main_decoder_cuda_graph_gpu_tests
+      PRIVATE cxx_std_20
+    )
+    target_include_directories(
+      mtt_main_decoder_cuda_graph_gpu_tests
+      PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    mtt_enable_strict_warnings(
+      mtt_main_decoder_cuda_graph_gpu_tests
+    )
+    target_link_libraries(
+      mtt_main_decoder_cuda_graph_gpu_tests
+      PRIVATE MagpieTTSRT_cuda_cudart
+    )
+    target_compile_options(
+      mtt_main_decoder_cuda_graph_gpu_tests
+      PRIVATE
+        "$<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-Wall,-Wextra>"
+    )
+    if(MAGPIE_TTS_RT_WARNINGS_AS_ERRORS)
+      target_compile_options(
+        mtt_main_decoder_cuda_graph_gpu_tests
+        PRIVATE
+          "$<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-Werror>"
+      )
+    endif()
+    set_target_properties(
+      mtt_main_decoder_cuda_graph_gpu_tests
+      PROPERTIES
+        CUDA_ARCHITECTURES 110
+        CUDA_STANDARD 20
+        CUDA_STANDARD_REQUIRED YES
+    )
+    add_test(
+      NAME main_decoder_cuda_graph_gpu
+      COMMAND mtt_main_decoder_cuda_graph_gpu_tests
+    )
+    set_tests_properties(
+      main_decoder_cuda_graph_gpu
       PROPERTIES LABELS "gpu;thor"
     )
 

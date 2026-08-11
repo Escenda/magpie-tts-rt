@@ -12,6 +12,8 @@
 namespace {
 
 using GetApiFunction = mtt_plugin_status_t (*)(mtt_plugin_api_v1_t*);
+using GetClassTableFunction = mtt_plugin_status_t (*)(
+    mtt_main_device_position_class_table_v1_t*);
 
 void require(const bool condition, const std::string& message) {
   if (!condition) {
@@ -26,6 +28,19 @@ void require(const bool condition, const std::string& message) {
   require(error == nullptr, error == nullptr ? "" : error);
   require(symbol != nullptr, "plugin API symbol is null");
   GetApiFunction function = nullptr;
+  static_assert(sizeof(function) == sizeof(symbol));
+  std::memcpy(&function, &symbol, sizeof(function));
+  return function;
+}
+
+[[nodiscard]] GetClassTableFunction load_get_class_table(void* handle) {
+  static_cast<void>(dlerror());
+  void* symbol = dlsym(
+      handle, "mtt_plugin_get_main_device_position_class_table_v1");
+  const char* error = dlerror();
+  require(error == nullptr, error == nullptr ? "" : error);
+  require(symbol != nullptr, "plugin class-table symbol is null");
+  GetClassTableFunction function = nullptr;
   static_assert(sizeof(function) == sizeof(symbol));
   std::memcpy(&function, &symbol, sizeof(function));
   return function;
@@ -138,6 +153,23 @@ void test_dlopen_and_api() {
   require(
       api.register_plugins() == MTT_PLUGIN_STATUS_ALREADY_REGISTERED,
       "second explicit registration must report already registered");
+
+  GetClassTableFunction get_class_table = load_get_class_table(handle);
+  require(
+      get_class_table(nullptr) == MTT_PLUGIN_STATUS_INVALID_ARGUMENT,
+      "null class-table pointer must be rejected");
+  mtt_main_device_position_class_table_v1_t wrong_table{};
+  wrong_table.struct_size = sizeof(wrong_table) - 1U;
+  wrong_table.abi_version = MTT_PLUGIN_ABI_VERSION_1;
+  require(
+      get_class_table(&wrong_table) == MTT_PLUGIN_STATUS_ABI_MISMATCH,
+      "wrong class-table size must be rejected");
+  mtt_main_device_position_class_table_v1_t table{};
+  table.struct_size = sizeof(table);
+  table.abi_version = MTT_PLUGIN_ABI_VERSION_1;
+  require(
+      get_class_table(&table) == MTT_PLUGIN_STATUS_NOT_READY,
+      "class table must be unavailable before mode-8 discovery");
   require(dlclose(handle) == 0, "dlclose failed");
 }
 

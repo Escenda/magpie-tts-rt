@@ -15,6 +15,7 @@ enum class RuntimeFingerprintStage {
   operating_system,
   architecture,
   cuda_runtime,
+  cublas_runtime,
   tensorrt_runtime,
   nvidia_driver,
   cuda_device,
@@ -44,11 +45,20 @@ class RuntimeFingerprintError final : public std::runtime_error {
 collect_linux_distribution_fingerprint(
     const std::filesystem::path& os_release_path);
 
+// Resolves cuBLAS and cuBLASLt only through the authenticated plugin's dynamic
+// dependency scope. Each provider symbol must belong to a file-backed mapping
+// whose device/inode still matches a stable descriptor. The returned hashes
+// cover those exact mapped artifacts; a loader-search candidate is never used
+// as a substitute.
+[[nodiscard]] RuntimeFingerprint::CublasIdentity
+collect_cublas_runtime_identity(void* authenticated_plugin_handle);
+
 // Collects the active process/runtime values for one CUDA device. The plugin
 // ABI is supplied only after the authenticated plugin has reported its exact
 // ABI version; it is never guessed by this collector.
 [[nodiscard]] RuntimeFingerprint collect_runtime_fingerprint(
     std::int32_t cuda_device_index,
-    std::uint32_t plugin_abi_version);
+    std::uint32_t plugin_abi_version,
+    const RuntimeFingerprint::CublasIdentity& cublas_identity);
 
 }  // namespace magpie_tts_rt

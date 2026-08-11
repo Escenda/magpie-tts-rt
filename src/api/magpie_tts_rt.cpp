@@ -295,6 +295,10 @@ void clear_error(mtt_error_v1_t* error) noexcept {
       magpie_tts_rt::PluginLoadErrorCode::conflicting_artifact) {
     return MTT_STATUS_RUNTIME_MISMATCH;
   }
+  if (error.code() ==
+      magpie_tts_rt::PluginLoadErrorCode::class_table_digest_mismatch) {
+    return MTT_STATUS_HASH_MISMATCH;
+  }
   return MTT_STATUS_ENGINE_ERROR;
 }
 
@@ -882,6 +886,9 @@ void clear_error(mtt_error_v1_t* error) noexcept {
             model->engines, model->manifest);
     magpie_tts_rt::run_startup_golden_gate(
         model->manifest, model->golden_fixture, *resources);
+    model->runtime->plugin
+        .require_main_device_position_class_table_identity(
+            model->manifest);
     auto* created = new (std::nothrow)
         mtt_session(model, std::move(resources));
     if (created == nullptr) {
@@ -908,16 +915,27 @@ void clear_error(mtt_error_v1_t* error) noexcept {
     if (!restore_cuda_device(previous_cuda_device, error)) {
       return MTT_STATUS_CUDA_ERROR;
     }
-    const mtt_status_t status =
+    const bool manifest_limit =
         caught.code() ==
-                magpie_tts_rt::SessionResourceErrorCode::
-                    device_memory_limit_exceeded
+        magpie_tts_rt::SessionResourceErrorCode::
+            device_memory_limit_exceeded;
+    const bool cuda_failure =
+        caught.code() ==
+        magpie_tts_rt::SessionResourceErrorCode::
+            cuda_graph_memory_query_failed ||
+        caught.code() ==
+        magpie_tts_rt::SessionResourceErrorCode::
+            cuda_stream_synchronization_failed;
+    const mtt_status_t status =
+        manifest_limit
             ? MTT_STATUS_MANIFEST_ERROR
-            : MTT_STATUS_ENGINE_ERROR;
+            : (cuda_failure ? MTT_STATUS_CUDA_ERROR
+                            : MTT_STATUS_ENGINE_ERROR);
     const mtt_error_stage_t stage =
-        status == MTT_STATUS_MANIFEST_ERROR
+        manifest_limit
             ? MTT_ERROR_STAGE_MANIFEST
-            : MTT_ERROR_STAGE_TENSORRT;
+            : (cuda_failure ? MTT_ERROR_STAGE_CUDA
+                            : MTT_ERROR_STAGE_TENSORRT);
     write_error(error, status, stage, caught.what());
     return status;
   } catch (const magpie_tts_rt::StartupGoldenError& caught) {
@@ -945,6 +963,14 @@ void clear_error(mtt_error_v1_t* error) noexcept {
                         : MTT_ERROR_STAGE_SESSION,
         caught.what());
     return status;
+  } catch (const magpie_tts_rt::PluginLoadError& caught) {
+    model->live_sessions.fetch_sub(1, std::memory_order_release);
+    if (!restore_cuda_device(previous_cuda_device, error)) {
+      return MTT_STATUS_CUDA_ERROR;
+    }
+    const mtt_status_t status = plugin_status(caught);
+    write_error(error, status, MTT_ERROR_STAGE_PLUGIN, caught.what());
+    return status;
   } catch (const magpie_tts_rt::SynthesisPipelineError& caught) {
     model->live_sessions.fetch_sub(1, std::memory_order_release);
     if (!restore_cuda_device(previous_cuda_device, error)) {
@@ -958,6 +984,10 @@ void clear_error(mtt_error_v1_t* error) noexcept {
         stage = MTT_ERROR_STAGE_CUDA;
         break;
       case magpie_tts_rt::SynthesisPipelineErrorCode::engine_failure:
+        break;
+      case magpie_tts_rt::SynthesisPipelineErrorCode::
+          main_decoder_failure:
+        stage = MTT_ERROR_STAGE_PLUGIN;
         break;
       case magpie_tts_rt::SynthesisPipelineErrorCode::alignment_failure:
         stage = MTT_ERROR_STAGE_ALIGNMENT;
@@ -1195,6 +1225,10 @@ void run_request_worker(
       case magpie_tts_rt::SynthesisPipelineErrorCode::
           engine_failure:
         stage = MTT_ERROR_STAGE_TENSORRT;
+        break;
+      case magpie_tts_rt::SynthesisPipelineErrorCode::
+          main_decoder_failure:
+        stage = MTT_ERROR_STAGE_PLUGIN;
         break;
       case magpie_tts_rt::SynthesisPipelineErrorCode::
           alignment_failure:

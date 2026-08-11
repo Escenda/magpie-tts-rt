@@ -29,6 +29,23 @@ from pathlib import Path, PurePosixPath
 from typing import TypeAlias
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+EXPORT_TOOLS = PROJECT_ROOT / "tools" / "export"
+if str(EXPORT_TOOLS) not in sys.path:
+    sys.path.insert(0, str(EXPORT_TOOLS))
+
+from cublas_runtime_identity import (  # noqa: E402
+    CublasRuntimeIdentity,
+    collect_cublas_runtime_identity,
+    parse_cublas_runtime_identity,
+)
+from cuda_runtime_identity import (  # noqa: E402
+    CudaRuntimeIdentity,
+    collect_cuda_runtime_identity,
+    parse_cuda_runtime_identity,
+)
+
+
 JsonScalar: TypeAlias = None | bool | int | float | str
 JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
 JsonObject: TypeAlias = dict[str, JsonValue]
@@ -61,6 +78,7 @@ EXPECTED_PLUGIN_SOURCE_PATHS = (
 EXPECTED_PLUGIN_NEEDED = frozenset(
     {
         "libcublas.so.13",
+        "libcuda.so.1",
         "libcudart.so.13",
         "libnvinfer.so.10",
         "libstdc++.so.6",
@@ -203,6 +221,7 @@ class RuntimeFingerprint:
     architecture: str
     endianness: str
     cuda_version: str
+    cublas: CublasRuntimeIdentity
     tensorrt_version: str
     driver_version: str
     gpu_name: str
@@ -216,6 +235,7 @@ class RuntimeFingerprint:
             "architecture": self.architecture,
             "endianness": self.endianness,
             "cuda_version": self.cuda_version,
+            "cublas": self.cublas.to_json(),
             "tensorrt_version": self.tensorrt_version,
             "driver_version": self.driver_version,
             "gpu_name": self.gpu_name,
@@ -689,6 +709,9 @@ class GoldenFixture:
 @dataclass(frozen=True)
 class ExportReceiptEvidence:
     oracle_lock_sha256: str
+    cuda_identity: CudaRuntimeIdentity
+    cublas_identity: CublasRuntimeIdentity
+    mode8_class_table_sha256: str
 
 
 @dataclass(frozen=True)
@@ -705,6 +728,7 @@ class PluginBuildReceiptEvidence:
     plugin_sha256: str
     plugin_size_bytes: int
     sources: tuple[PluginSourceEvidence, ...]
+    cublas_identity: CublasRuntimeIdentity
 
 
 @dataclass(frozen=True)
@@ -2290,6 +2314,7 @@ def validate_plugin_build_receipt(
             "source",
             "toolchain",
             "build",
+            "runtime_dependencies",
         ),
         "/",
     )
@@ -2505,12 +2530,26 @@ def validate_plugin_build_receipt(
             "/build/cmake_definitions: unexpected plugin build configuration"
         )
 
+    runtime_dependencies = require_object(
+        document["runtime_dependencies"],
+        ("cublas",),
+        "/runtime_dependencies",
+    )
+    try:
+        cublas_identity = parse_cublas_runtime_identity(
+            runtime_dependencies["cublas"],
+            "plugin build receipt.runtime_dependencies.cublas",
+        )
+    except RuntimeError as error:
+        raise PackageError(str(error)) from error
+
     return PluginBuildReceiptEvidence(
         receipt_sha256=sha256_bytes(receipt_payload),
         receipt_size_bytes=len(receipt_payload),
         plugin_sha256=plugin_sha256,
         plugin_size_bytes=plugin_size_bytes,
         sources=tuple(sources),
+        cublas_identity=cublas_identity,
     )
 
 
@@ -2589,8 +2628,30 @@ def validate_export_receipt(
         require_member(source_value, "oracle_lock_sha256", "/source"),
         "/source/oracle_lock_sha256",
     )
+    runtime_dependencies = require_object(
+        require_member(value, "runtime_dependencies", ""),
+        ("cuda", "cublas", "mode8_class_table_sha256"),
+        "/runtime_dependencies",
+    )
+    try:
+        cuda_identity = parse_cuda_runtime_identity(
+            runtime_dependencies["cuda"],
+            "consolidated receipt.runtime_dependencies.cuda",
+        )
+        cublas_identity = parse_cublas_runtime_identity(
+            runtime_dependencies["cublas"],
+            "consolidated receipt.runtime_dependencies.cublas",
+        )
+    except RuntimeError as error:
+        raise PackageError(str(error)) from error
     return ExportReceiptEvidence(
-        oracle_lock_sha256=oracle_lock_sha256
+        oracle_lock_sha256=oracle_lock_sha256,
+        cuda_identity=cuda_identity,
+        cublas_identity=cublas_identity,
+        mode8_class_table_sha256=require_sha256(
+            runtime_dependencies["mode8_class_table_sha256"],
+            "/runtime_dependencies/mode8_class_table_sha256",
+        ),
     )
 
 
@@ -2611,6 +2672,7 @@ def validate_consolidated_export_receipt(
             "status",
             "created_at_utc",
             "source",
+            "runtime_dependencies",
             "component_receipts",
             "sequence_receipt_sha256",
             "complete_generation_receipt_sha256",
@@ -2650,9 +2712,58 @@ def validate_consolidated_export_receipt(
             "source_model_acceptance_receipt_sha256",
             "tokenizer_identity_sha256",
             "tokenizer_identity_receipt_sha256",
+            "locked_magpie_restore_sha256",
+            "codec_restore",
         ),
         "/source",
     )
+    require_sha256(
+        source["locked_magpie_restore_sha256"],
+        "/source/locked_magpie_restore_sha256",
+    )
+    codec_restore = require_object(
+        source["codec_restore"],
+        (
+            "embedded_codec_model_id",
+            "codec_model_sha256",
+            "codec_model_size_bytes",
+            "codec_resolution",
+            "use_scl_loss",
+            "network_resolution",
+        ),
+        "/source/codec_restore",
+    )
+    require_string(
+        codec_restore["embedded_codec_model_id"],
+        "/source/codec_restore/embedded_codec_model_id",
+    )
+    require_sha256(
+        codec_restore["codec_model_sha256"],
+        "/source/codec_restore/codec_model_sha256",
+    )
+    require_int(
+        codec_restore["codec_model_size_bytes"],
+        "/source/codec_restore/codec_model_size_bytes",
+    )
+    if (
+        require_identifier(
+            codec_restore["codec_resolution"],
+            "/source/codec_restore/codec_resolution",
+        )
+        != "authenticated_local_file"
+        or require_bool(
+            codec_restore["use_scl_loss"],
+            "/source/codec_restore/use_scl_loss",
+        )
+        or require_bool(
+            codec_restore["network_resolution"],
+            "/source/codec_restore/network_resolution",
+        )
+    ):
+        raise PackageError(
+            "/source/codec_restore: expected the authenticated offline codec "
+            "restore contract"
+        )
     source_comparisons = (
         (
             require_string(source["model_id"], "/source/model_id"),
@@ -3605,6 +3716,7 @@ def collect_runtime_fingerprint(
     tensorrt_version: str,
     plugin_abi_version: int,
     device_ordinal: int,
+    cublas_identity: CublasRuntimeIdentity,
 ) -> RuntimeFingerprint:
     os_name, os_version = parse_os_release()
     architecture = platform.machine()
@@ -3624,6 +3736,7 @@ def collect_runtime_fingerprint(
         architecture=architecture,
         endianness=sys.byteorder,
         cuda_version=cuda_runtime_version(),
+        cublas=cublas_identity,
         tensorrt_version=tensorrt_version,
         driver_version=nvidia_driver_version(),
         gpu_name=gpu_name,
@@ -3662,7 +3775,6 @@ def inspect_engine(
     inputs: list[TensorSpec] = []
     outputs: list[TensorSpec] = []
     dynamic_input_names: list[str] = []
-    shape_input_names: list[str] = []
     names: set[str] = set()
     for index in range(engine.num_io_tensors):
         name = engine.get_tensor_name(index)
@@ -3681,28 +3793,42 @@ def inspect_engine(
             )
         location = engine.get_tensor_location(name)
         shape_inference_io = bool(engine.is_shape_inference_io(name))
-        is_position_shape_input = (
+        is_step_position = (
             role == "main_decoder_step"
             and name == "position"
             and mode == tensorrt_module.TensorIOMode.INPUT
         )
-        if is_position_shape_input:
+        is_step_status_input = (
+            role == "main_decoder_step" and name == "execution_status_in"
+        )
+        is_step_status_output = (
+            role == "main_decoder_step" and name == "execution_status_out"
+        )
+        if is_step_status_input and mode != tensorrt_module.TensorIOMode.INPUT:
+            raise PackageError(
+                "main_decoder_step: execution_status_in must be an input"
+            )
+        if is_step_status_output and mode != tensorrt_module.TensorIOMode.OUTPUT:
+            raise PackageError(
+                "main_decoder_step: execution_status_out must be an output"
+            )
+        if is_step_position:
             if (
-                location != tensorrt_module.TensorLocation.HOST
-                or not shape_inference_io
+                location != tensorrt_module.TensorLocation.DEVICE
+                or shape_inference_io
             ):
                 raise PackageError(
                     "main_decoder_step: position must be the authenticated "
-                    "HOST shape input"
+                    "DEVICE execution input"
                 )
-            location_name = "host"
+            location_name = "device"
         elif (
             location != tensorrt_module.TensorLocation.DEVICE
             or shape_inference_io
         ):
             raise PackageError(
-                f"{role}: only main_decoder_step/position may be a HOST "
-                f"shape input: {name}"
+                f"{role}: every tensor must be an ordinary DEVICE "
+                f"execution tensor: {name}"
             )
         else:
             location_name = "device"
@@ -3714,10 +3840,17 @@ def inspect_engine(
         dtype = tensor_dtype_name(
             tensorrt_module, engine.get_tensor_dtype(name)
         )
-        if is_position_shape_input and (dtype != "int64" or shape != ()):
+        if is_step_position and (dtype != "int64" or shape != ()):
             raise PackageError(
                 "main_decoder_step: position must be a scalar int64 "
-                "shape input"
+                "DEVICE execution input"
+            )
+        if (is_step_status_input or is_step_status_output) and (
+            dtype != "int32" or shape != ()
+        ):
+            raise PackageError(
+                "main_decoder_step: execution status must be scalar int32 "
+                "DEVICE execution I/O"
             )
         spec = TensorSpec(
             name=name,
@@ -3730,12 +3863,20 @@ def inspect_engine(
             inputs.append(spec)
             if -1 in shape:
                 dynamic_input_names.append(name)
-            if shape_inference_io:
-                shape_input_names.append(name)
         elif mode == tensorrt_module.TensorIOMode.OUTPUT:
             outputs.append(spec)
     if not inputs or not outputs:
         raise PackageError(f"{role}: plan must expose inputs and outputs")
+    if role == "main_decoder_step" and (
+        {item.name for item in inputs}
+        .intersection({"position", "execution_status_in"})
+        != {"position", "execution_status_in"}
+        or "execution_status_out" not in {item.name for item in outputs}
+    ):
+        raise PackageError(
+            "main_decoder_step: position and execution_status_in/out are "
+            "mandatory recurrence bindings"
+        )
     ranges: list[TensorShapeRange] = []
     for name in dynamic_input_names:
         minimum, optimum, maximum = engine.get_tensor_profile_shape(name, 0)
@@ -3773,55 +3914,6 @@ def inspect_engine(
         ):
             raise PackageError(f"{role}: non-monotonic profile for {name}")
         ranges.append(shape_range)
-    value_ranges: list[TensorValueRange] = []
-    for name in shape_input_names:
-        raw_values = engine.get_tensor_profile_values(0, name)
-        if raw_values is None or len(raw_values) != 3:
-            raise PackageError(
-                f"{role}: missing shape-input profile values for {name}"
-            )
-        value_range = TensorValueRange(
-            tensor_name=name,
-            minimum=tuple(int(value) for value in raw_values[0]),
-            optimum=tuple(int(value) for value in raw_values[1]),
-            maximum=tuple(int(value) for value in raw_values[2]),
-        )
-        declared = next(item.shape for item in inputs if item.name == name)
-        value_count = math.prod(declared) if declared else 1
-        if any(
-            len(values) != value_count
-            for values in (
-                value_range.minimum,
-                value_range.optimum,
-                value_range.maximum,
-            )
-        ):
-            raise PackageError(
-                f"{role}: invalid profile value count for {name}"
-            )
-        if not all(
-            low <= middle <= high
-            for low, middle, high in zip(
-                value_range.minimum,
-                value_range.optimum,
-                value_range.maximum,
-                strict=True,
-            )
-        ):
-            raise PackageError(
-                f"{role}: non-monotonic shape-input profile for {name}"
-            )
-        if (
-            role != "main_decoder_step"
-            or name != "position"
-            or value_range.minimum != (218,)
-            or value_range.optimum != (342,)
-            or value_range.maximum != (466,)
-        ):
-            raise PackageError(
-                f"{role}: unauthenticated shape-input profile for {name}"
-            )
-        value_ranges.append(value_range)
     return InspectedEngine(
         inputs=tuple(inputs),
         outputs=tuple(outputs),
@@ -3829,7 +3921,7 @@ def inspect_engine(
             OptimizationProfile(
                 name=PROFILE_NAMES_BY_ROLE[role],
                 input_shapes=tuple(ranges),
-                input_values=tuple(value_ranges),
+                input_values=(),
             ),
         ),
     )
@@ -4168,6 +4260,7 @@ def build_manifest(
     engines: dict[str, InspectedEngine],
     golden_receipt: GoldenReceipt,
     plugin_identity: PluginIdentity,
+    export_evidence: ExportReceiptEvidence,
 ) -> JsonObject:
     sampling_creator_name = plugin_identity.creators[0][0]
     if spec.local_ar.sampling_plugin_name != sampling_creator_name:
@@ -4270,6 +4363,12 @@ def build_manifest(
                 "abi_version": plugin_identity.abi_version,
                 "file": plugin_file.to_json(),
                 "build_receipt": files["plugin_build_receipt"].to_json(),
+                "main_device_position_class_table": {
+                    "schema_version": 1,
+                    "class_count": 21,
+                    "k_count": 249,
+                    "sha256": export_evidence.mode8_class_table_sha256,
+                },
             },
         },
         "classifier_free_guidance": spec.classifier_free_guidance.to_json(),
@@ -4696,7 +4795,7 @@ def package_runtime_bundle(
         validate_tokenizer_identity_receipt(
             staged_tokenizer_receipt, spec.tokenizer
         )
-        validate_plugin_build_receipt(
+        plugin_build_evidence = validate_plugin_build_receipt(
             staged_plugin_build_receipt,
             files["plugin"],
         )
@@ -4713,6 +4812,28 @@ def package_runtime_bundle(
             *PurePosixPath(spec.destinations.plugin).parts
         )
         plugin_identity = load_and_register_plugin(staged_plugin)
+        live_cublas_identity = collect_cublas_runtime_identity(
+            plugin_identity.library
+        )
+        try:
+            live_cuda_identity = collect_cuda_runtime_identity()
+        except RuntimeError as error:
+            raise PackageError(str(error)) from error
+        if live_cublas_identity != plugin_build_evidence.cublas_identity:
+            raise PackageError(
+                "loaded cuBLAS identity differs from the authenticated "
+                "plugin build receipt"
+            )
+        if live_cublas_identity != export_evidence.cublas_identity:
+            raise PackageError(
+                "loaded cuBLAS identity differs from the authenticated "
+                "consolidated export receipt"
+            )
+        if live_cuda_identity != export_evidence.cuda_identity:
+            raise PackageError(
+                "loaded CUDA/driver identity differs from the authenticated "
+                "consolidated export receipt"
+            )
         staged_plans = tuple(
             (
                 role,
@@ -4727,7 +4848,21 @@ def package_runtime_bundle(
             tensorrt_version,
             plugin_identity.abi_version,
             device_ordinal,
+            live_cublas_identity,
         )
+        expected_cuda_version = (
+            f"{live_cuda_identity.cuda_runtime_version_integer // 1000}."
+            f"{(live_cuda_identity.cuda_runtime_version_integer % 1000) // 10}"
+        )
+        if (
+            runtime.cuda_version != expected_cuda_version
+            or runtime.driver_version
+            != live_cuda_identity.nvidia_driver_version
+        ):
+            raise PackageError(
+                "runtime fingerprint changed while authenticating the "
+                "accepted CUDA/driver identity"
+            )
         manifest = build_manifest(
             spec,
             runtime,
@@ -4735,6 +4870,7 @@ def package_runtime_bundle(
             inspected_engines,
             golden_receipt,
             plugin_identity,
+            export_evidence,
         )
         manifest_payload = pretty_json_bytes(manifest)
         if len(manifest_payload) > MAX_MANIFEST_BYTES:

@@ -70,6 +70,24 @@ class TensorAddressSet final {
   std::vector<TensorAddress> addresses_;
 };
 
+// Resolves a complete named address set into manifest order once. Reusing this
+// object avoids rebuilding strings and repeating O(N) name lookups on every
+// invocation of a recurrent engine. The manifest remains the authority for
+// tensor order; positional bindings are never accepted at the public edge.
+class PreparedTensorAddressSet final {
+ public:
+  PreparedTensorAddressSet(
+      const EngineManifest& manifest,
+      const TensorAddressSet& addresses);
+
+  [[nodiscard]] void* input(std::size_t index) const;
+  [[nodiscard]] void* output(std::size_t index) const;
+
+ private:
+  std::vector<void*> inputs_;
+  std::vector<void*> outputs_;
+};
+
 // Resolves only the dynamic dimensions admitted by the authenticated v1
 // engine role. A dynamic dimension in any other position fails closed.
 [[nodiscard]] std::vector<std::int64_t> resolve_tensor_shape(
@@ -89,6 +107,16 @@ void enqueue_engine(
     nvinfer1::IExecutionContext& context,
     const EngineShapeParameters& parameters,
     const TensorAddressSet& addresses,
+    cudaStream_t stream,
+    cudaEvent_t input_consumed_event);
+
+// Identical TensorRT validation and enqueue semantics with addresses already
+// authenticated and flattened into manifest order.
+void enqueue_engine(
+    const EngineManifest& manifest,
+    nvinfer1::IExecutionContext& context,
+    const EngineShapeParameters& parameters,
+    const PreparedTensorAddressSet& addresses,
     cudaStream_t stream,
     cudaEvent_t input_consumed_event);
 

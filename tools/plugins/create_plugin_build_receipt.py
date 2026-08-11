@@ -4,13 +4,25 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import hashlib
 import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+EXPORT_TOOLS = PROJECT_ROOT / "tools" / "export"
+if str(EXPORT_TOOLS) not in sys.path:
+    sys.path.insert(0, str(EXPORT_TOOLS))
+
+from cublas_runtime_identity import (  # noqa: E402
+    collect_cublas_runtime_identity,
+)
 
 SCHEMA_VERSION = "magpie-tts-rt.plugin-build.v1"
 PLUGIN_FILENAME = "libmagpie_tts_rt_plugins.so.0.1.0"
@@ -293,6 +305,8 @@ def main() -> int:
         raise RuntimeError(f"plugin filename must be exactly {PLUGIN_FILENAME}")
     if soname != PLUGIN_SONAME:
         raise RuntimeError("plugin has the wrong SONAME")
+    plugin_library = ctypes.CDLL(str(plugin), mode=ctypes.RTLD_LOCAL)
+    cublas_identity = collect_cublas_runtime_identity(plugin_library)
     receipt = {
         "schema_version": SCHEMA_VERSION,
         "status": "recorded",
@@ -329,6 +343,9 @@ def main() -> int:
                 "CMAKE_CUDA_ARCHITECTURES=110",
                 "MAGPIE_TTS_RT_WARNINGS_AS_ERRORS=ON",
             ],
+        },
+        "runtime_dependencies": {
+            "cublas": cublas_identity.to_json(),
         },
     }
     payload = (

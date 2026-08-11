@@ -1,4 +1,5 @@
 #include "local_ar_plugins.hpp"
+#include "magpie_tts_rt/magpie_tts_rt_plugin.h"
 
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
@@ -8,6 +9,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -606,112 +608,6 @@ void test_main_self_attention_context() {
       "prefill mode accepted a one-step self-attention shape");
 }
 
-void test_main_self_attention_step_context() {
-  constexpr std::int32_t head_width =
-      kMainDecoderCrossAttentionWidth / 2;
-  constexpr std::int32_t batch_heads =
-      kMainDecoderBatch * kAttentionHeads;
-  ManagedBuffer<__nv_bfloat16> value{
-      static_cast<std::size_t>(batch_heads) *
-      static_cast<std::size_t>(kMainDecoderCacheCapacity) *
-      static_cast<std::size_t>(head_width)};
-  ManagedBuffer<__nv_bfloat16> context{
-      static_cast<std::size_t>(batch_heads) *
-      static_cast<std::size_t>(head_width)};
-  DeviceBuffer<std::byte> workspace{
-      magpie_tts_rt::plugins::
-          main_self_attention_step_context_workspace_size()};
-  fill_bf16(value, 0.0F);
-  fill_bf16(context, -9.0F);
-  for (std::int32_t batch_head = 0; batch_head < batch_heads;
-       ++batch_head) {
-    const std::size_t value_base =
-        static_cast<std::size_t>(batch_head) *
-        static_cast<std::size_t>(kMainDecoderCacheCapacity) *
-        static_cast<std::size_t>(head_width);
-    for (std::int32_t column = 0; column < head_width; ++column) {
-      value[value_base + static_cast<std::size_t>(column)] =
-          __float2bfloat16_rn(
-              static_cast<float>((batch_head + column) % 17) / 16.0F);
-    }
-  }
-  cublasHandle_t cublas_handle = nullptr;
-  require(
-      cublasCreate(&cublas_handle) == CUBLAS_STATUS_SUCCESS,
-      "Main self-attention step context cuBLAS handle creation failed");
-  for (std::int32_t active_length =
-           kMainDecoderPrefillLength + 1;
-       active_length <= kMainDecoderCacheCapacity;
-       ++active_length) {
-    ManagedBuffer<__nv_bfloat16> probabilities{
-        static_cast<std::size_t>(batch_heads) *
-        static_cast<std::size_t>(active_length)};
-    fill_bf16(probabilities, 0.0F);
-    for (std::int32_t batch_head = 0; batch_head < batch_heads;
-         ++batch_head) {
-      probabilities[
-          static_cast<std::size_t>(batch_head) *
-          static_cast<std::size_t>(active_length)] =
-          __float2bfloat16_rn(1.0F);
-    }
-    fill_bf16(context, -9.0F);
-    require(
-        magpie_tts_rt::plugins::
-            launch_main_self_attention_step_context(
-                cublas_handle,
-                probabilities.data(),
-                value.data(),
-                workspace.data(),
-                context.data(),
-                active_length,
-                nullptr) == 0,
-        "Main self-attention step context launch failed");
-    require_cuda(
-        cudaDeviceSynchronize(),
-        "Main self-attention step context synchronize");
-    for (std::int32_t batch_head = 0; batch_head < batch_heads;
-         ++batch_head) {
-      const std::size_t context_base =
-          static_cast<std::size_t>(batch_head) *
-          static_cast<std::size_t>(head_width);
-      for (std::int32_t column = 0; column < head_width; ++column) {
-        const __nv_bfloat16 expected = __float2bfloat16_rn(
-            static_cast<float>((batch_head + column) % 17) / 16.0F);
-        require(
-            __bfloat16_as_ushort(
-                context[
-                    context_base +
-                    static_cast<std::size_t>(column)]) ==
-                __bfloat16_as_ushort(expected),
-            "Main self-attention step context value mismatch");
-      }
-    }
-  }
-  require(
-      magpie_tts_rt::plugins::launch_main_self_attention_step_context(
-          cublas_handle,
-          value.data(),
-          value.data(),
-          workspace.data(),
-          context.data(),
-          kMainDecoderPrefillLength,
-          nullptr) == -1,
-      "Main self-attention step context accepted a pre-prefix position");
-  require(
-      magpie_tts_rt::plugins::launch_main_self_attention_step_context(
-          cublas_handle,
-          value.data(),
-          value.data(),
-          workspace.data(),
-          context.data(),
-          kMainDecoderCacheCapacity + 1,
-          nullptr) == -1,
-      "Main self-attention step context accepted a cache overflow");
-  require(
-      cublasDestroy(cublas_handle) == CUBLAS_STATUS_SUCCESS,
-      "Main self-attention step context cuBLAS handle destruction failed");
-}
-
 void test_main_cross_attention_context() {
   constexpr std::int32_t memory_length = 3;
   constexpr std::int32_t output_width =
@@ -815,100 +711,452 @@ void test_main_cross_attention_context() {
       "Main cross-attention context cuBLAS handle destruction failed");
 }
 
-void test_main_self_attention_step_scores() {
-  constexpr std::int32_t head_width =
+struct MainDevicePositionBuffers final {
+  static constexpr std::int32_t head_width =
       kMainDecoderCrossAttentionWidth / 2;
-  constexpr std::int32_t batch_heads =
+  static constexpr std::int32_t batch_heads =
       kMainDecoderBatch * kAttentionHeads;
-  constexpr std::int32_t selected_key_column = 3;
-  ManagedBuffer<__nv_bfloat16> query{
+  static constexpr std::size_t cache_elements =
       static_cast<std::size_t>(batch_heads) *
-      static_cast<std::size_t>(head_width)};
-  fill_bf16(query, 0.0F);
-  for (std::int32_t batch_head = 0;
-       batch_head < batch_heads;
-       ++batch_head) {
-    query[
-        static_cast<std::size_t>(batch_head) * head_width +
-        selected_key_column] = __float2bfloat16_rn(1.0F);
+      static_cast<std::size_t>(kMainDecoderCacheCapacity) *
+      static_cast<std::size_t>(head_width);
+  static constexpr std::size_t output_elements =
+      static_cast<std::size_t>(batch_heads) *
+      static_cast<std::size_t>(head_width);
+  static constexpr std::size_t mask_elements =
+      static_cast<std::size_t>(kMainDecoderBatch) *
+      static_cast<std::size_t>(kMainDecoderCacheCapacity);
+
+  ManagedBuffer<__nv_bfloat16> query{output_elements};
+  ManagedBuffer<__nv_bfloat16> key{cache_elements};
+  ManagedBuffer<__nv_bfloat16> value{cache_elements};
+  ManagedBuffer<bool> mask_a{mask_elements};
+  ManagedBuffer<bool> mask_b{mask_elements};
+  ManagedBuffer<std::int64_t> position_a{1};
+  ManagedBuffer<std::int64_t> position_b{1};
+  ManagedBuffer<std::int32_t> execution_status_input{1};
+  ManagedBuffer<std::int32_t> execution_status_output{1};
+  DeviceBuffer<std::byte> bank_workspace{
+      magpie_tts_rt::plugins::
+          main_self_attention_device_position_workspace_size()};
+  DeviceBuffer<std::byte> reference_workspace{
+      magpie_tts_rt::plugins::
+          main_self_attention_device_position_workspace_size()};
+  ManagedBuffer<__nv_bfloat16> bank_output{output_elements};
+  ManagedBuffer<__nv_bfloat16> reference_output{output_elements};
+};
+
+[[nodiscard]] constexpr std::int32_t main_device_position_status(
+    const std::uint32_t category,
+    const std::uint32_t layer_index,
+    const std::uint32_t operation,
+    const std::uint32_t detail) noexcept {
+  return static_cast<std::int32_t>(
+      (category << MTT_MAIN_DEVICE_POSITION_STATUS_CATEGORY_SHIFT) |
+      (layer_index << MTT_MAIN_DEVICE_POSITION_STATUS_LAYER_SHIFT) |
+      (operation << MTT_MAIN_DEVICE_POSITION_STATUS_OPERATION_SHIFT) |
+      (detail & MTT_MAIN_DEVICE_POSITION_STATUS_DETAIL_MASK));
+}
+
+void initialize_main_device_position_buffers(
+    MainDevicePositionBuffers& buffers,
+    const std::int32_t salt) {
+  for (std::size_t index = 0; index < buffers.query.size(); ++index) {
+    buffers.query[index] = __float2bfloat16_rn(
+        static_cast<float>(
+            static_cast<std::int32_t>((index * 17U + salt) % 41U) - 20) /
+        32.0F);
+  }
+  for (std::size_t index = 0; index < buffers.key.size(); ++index) {
+    buffers.key[index] = __float2bfloat16_rn(
+        static_cast<float>(
+            static_cast<std::int32_t>((index * 13U + salt) % 37U) - 18) /
+        64.0F);
+    buffers.value[index] = __float2bfloat16_rn(
+        static_cast<float>(
+            static_cast<std::int32_t>((index * 19U + salt) % 43U) - 21) /
+        64.0F);
+  }
+}
+
+void set_main_device_position_case(
+    MainDevicePositionBuffers& buffers,
+    const std::int32_t position,
+    const bool use_second_inputs) {
+  ManagedBuffer<bool>& mask =
+      use_second_inputs ? buffers.mask_b : buffers.mask_a;
+  std::fill(mask.data(), mask.data() + mask.size(), false);
+  const std::int32_t active_k = position + 1;
+  for (std::int32_t batch = 0; batch < kMainDecoderBatch; ++batch) {
+    for (std::int32_t cache = 0; cache < active_k; ++cache) {
+      const bool hole =
+          use_second_inputs && cache > 0 &&
+          ((cache + batch * 3) % 29 == 0);
+      mask[
+          static_cast<std::size_t>(batch) *
+              static_cast<std::size_t>(kMainDecoderCacheCapacity) +
+          static_cast<std::size_t>(cache)] = !hole;
+    }
+  }
+  mask[0] = true;
+  mask[static_cast<std::size_t>(kMainDecoderCacheCapacity)] = true;
+  ManagedBuffer<std::int64_t>& position_buffer =
+      use_second_inputs ? buffers.position_b : buffers.position_a;
+  position_buffer[0] = position;
+}
+
+[[nodiscard]] const bool* selected_main_device_position_mask(
+    const MainDevicePositionBuffers& buffers,
+    const bool use_second_inputs) {
+  return use_second_inputs ? buffers.mask_b.data() : buffers.mask_a.data();
+}
+
+[[nodiscard]] const std::int64_t* selected_main_device_position(
+    const MainDevicePositionBuffers& buffers,
+    const bool use_second_inputs) {
+  return use_second_inputs ? buffers.position_b.data()
+                           : buffers.position_a.data();
+}
+
+void compare_main_device_position_output(
+    const MainDevicePositionBuffers& buffers,
+    const std::string& stage) {
+  for (std::size_t index = 0; index < buffers.bank_output.size(); ++index) {
+    require(
+        __bfloat16_as_ushort(buffers.bank_output[index]) ==
+            __bfloat16_as_ushort(buffers.reference_output[index]),
+        stage + " output mismatch at " + std::to_string(index));
+  }
+}
+
+void run_main_device_position_reference(
+    MainDevicePositionBuffers& buffers,
+    const bool use_second_inputs,
+    cudaStream_t stream) {
+  require(
+      magpie_tts_rt::plugins::launch_main_self_attention_device_position(
+          buffers.query.data(),
+          buffers.key.data(),
+          buffers.value.data(),
+          selected_main_device_position_mask(buffers, use_second_inputs),
+          selected_main_device_position(buffers, use_second_inputs),
+          buffers.reference_workspace.data(),
+          buffers.reference_output.data(),
+          stream) == 0,
+      "Main device-position reference launch failed");
+}
+
+void run_main_device_position_standalone_case(
+    magpie_tts_rt::plugins::MainDevicePositionBankTestState* state,
+    MainDevicePositionBuffers& buffers,
+    const std::int32_t position,
+    const bool use_second_inputs,
+    cudaStream_t stream) {
+  set_main_device_position_case(buffers, position, use_second_inputs);
+  buffers.execution_status_input[0] = 0;
+  buffers.execution_status_output[0] = -1;
+  fill_bf16(buffers.bank_output, -9.0F);
+  fill_bf16(buffers.reference_output, 9.0F);
+  require(
+      magpie_tts_rt::plugins::enqueue_main_device_position_bank_test_state(
+          state,
+          buffers.query.data(),
+          buffers.key.data(),
+          buffers.value.data(),
+          selected_main_device_position_mask(buffers, use_second_inputs),
+          selected_main_device_position(buffers, use_second_inputs),
+          buffers.execution_status_input.data(),
+          buffers.execution_status_output.data(),
+          buffers.bank_workspace.data(),
+          buffers.bank_output.data(),
+          stream) == 0,
+      "Main device-position standalone enqueue failed");
+  run_main_device_position_reference(buffers, use_second_inputs, stream);
+  require_cuda(
+      cudaStreamSynchronize(stream),
+      "Main device-position standalone synchronize");
+  require(
+      buffers.execution_status_output[0] == 0,
+      "Main device-position standalone returned non-zero status");
+  compare_main_device_position_output(
+      buffers, "Main device-position standalone");
+}
+
+cudaGraphExec_t capture_main_device_position_outer_graph(
+    magpie_tts_rt::plugins::MainDevicePositionBankTestState* state,
+    MainDevicePositionBuffers& buffers,
+    const bool use_second_inputs,
+    cudaStream_t stream) {
+  buffers.execution_status_input[0] = 0;
+  buffers.execution_status_output[0] = -1;
+  require_cuda(
+      cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+      "begin Main device-position outer capture");
+  require(
+      magpie_tts_rt::plugins::enqueue_main_device_position_bank_test_state(
+          state,
+          buffers.query.data(),
+          buffers.key.data(),
+          buffers.value.data(),
+          selected_main_device_position_mask(buffers, use_second_inputs),
+          selected_main_device_position(buffers, use_second_inputs),
+          buffers.execution_status_input.data(),
+          buffers.execution_status_output.data(),
+          buffers.bank_workspace.data(),
+          buffers.bank_output.data(),
+          stream) == 0,
+      "inject Main device-position bank into outer capture");
+  cudaGraph_t graph = nullptr;
+  require_cuda(
+      cudaStreamEndCapture(stream, &graph),
+      "end Main device-position outer capture");
+  require(graph != nullptr, "Main device-position source graph is null");
+  cudaGraphExec_t executable = nullptr;
+  require_cuda(
+      cudaGraphInstantiate(&executable, graph, nullptr, nullptr, 0),
+      "instantiate Main device-position outer graph");
+  require_cuda(
+      cudaGraphDestroy(graph),
+      "destroy Main device-position source graph");
+  require(executable != nullptr, "Main device-position executable is null");
+  return executable;
+}
+
+void run_main_device_position_outer_case(
+    const cudaGraphExec_t executable,
+    MainDevicePositionBuffers& buffers,
+    const std::int32_t position,
+    const bool use_second_inputs,
+    cudaStream_t stream) {
+  set_main_device_position_case(buffers, position, use_second_inputs);
+  buffers.execution_status_input[0] = 0;
+  buffers.execution_status_output[0] = -1;
+  fill_bf16(buffers.bank_output, -9.0F);
+  fill_bf16(buffers.reference_output, 9.0F);
+  require_cuda(
+      cudaGraphLaunch(executable, stream),
+      "launch Main device-position outer graph");
+  run_main_device_position_reference(buffers, use_second_inputs, stream);
+  require_cuda(
+      cudaStreamSynchronize(stream),
+      "Main device-position outer synchronize");
+  require(
+      buffers.execution_status_output[0] == 0,
+      "Main device-position outer returned non-zero status");
+  compare_main_device_position_output(buffers, "Main device-position outer");
+}
+
+void test_main_device_position_production_bank() {
+  mtt_main_device_position_class_table_v1_t before{};
+  before.struct_size = sizeof(before);
+  before.abi_version = MTT_PLUGIN_ABI_VERSION_1;
+  require(
+      mtt_plugin_get_main_device_position_class_table_v1(&before) ==
+          MTT_PLUGIN_STATUS_NOT_READY,
+      "Main device-position class table was ready before bank discovery");
+
+  cudaStream_t stream = nullptr;
+  require_cuda(
+      cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
+      "create Main device-position test stream");
+  MainDevicePositionBuffers first;
+  MainDevicePositionBuffers second;
+  initialize_main_device_position_buffers(first, 3);
+  initialize_main_device_position_buffers(second, 11);
+  auto* first_state =
+      magpie_tts_rt::plugins::create_main_device_position_bank_test_state(0);
+  auto* second_state =
+      magpie_tts_rt::plugins::create_main_device_position_bank_test_state(7);
+  require(first_state != nullptr && second_state != nullptr,
+          "create Main device-position test state");
+
+  constexpr std::array<std::int32_t, 6> positions{
+      218, 219, 255, 256, 300, 466};
+  for (std::size_t index = 0; index < positions.size(); ++index) {
+    run_main_device_position_standalone_case(
+        first_state,
+        first,
+        positions[index],
+        index % 2U != 0U,
+        stream);
   }
 
-  cublasHandle_t cublas_handle = nullptr;
+  mtt_main_device_position_class_table_v1_t first_table{};
+  first_table.struct_size = sizeof(first_table);
+  first_table.abi_version = MTT_PLUGIN_ABI_VERSION_1;
   require(
-      cublasCreate(&cublas_handle) == CUBLAS_STATUS_SUCCESS,
-      "Main self-attention step scores cuBLAS handle creation failed");
-  for (std::int32_t active_length =
-           kMainDecoderPrefillLength + 1;
-       active_length <= kMainDecoderCacheCapacity;
-       ++active_length) {
-    ManagedBuffer<__nv_bfloat16> key_transposed{
-        static_cast<std::size_t>(batch_heads) *
-        static_cast<std::size_t>(head_width) *
-        static_cast<std::size_t>(active_length)};
-    fill_bf16(key_transposed, 0.0F);
-    for (std::int32_t batch_head = 0;
-         batch_head < batch_heads;
-         ++batch_head) {
-      const std::size_t key_base =
-          static_cast<std::size_t>(batch_head) *
-          static_cast<std::size_t>(head_width) *
-          static_cast<std::size_t>(active_length) +
-          static_cast<std::size_t>(selected_key_column) *
-          static_cast<std::size_t>(active_length);
-      for (std::int32_t cache_position = 0;
-           cache_position < active_length;
-           ++cache_position) {
-        key_transposed[
-            key_base + static_cast<std::size_t>(cache_position)] =
-            __float2bfloat16_rn(
-                static_cast<float>(
-                    (batch_head + cache_position) % 31) /
-                30.0F);
-      }
-    }
-    ManagedBuffer<__nv_bfloat16> scores{
-        static_cast<std::size_t>(batch_heads) *
-        static_cast<std::size_t>(active_length)};
-    fill_bf16(scores, -9.0F);
+      mtt_plugin_get_main_device_position_class_table_v1(&first_table) ==
+          MTT_PLUGIN_STATUS_OK,
+      "Main device-position class table unavailable after discovery");
+  require(
+      first_table.class_count ==
+          MTT_MAIN_DEVICE_POSITION_CLASS_COUNT_V1 &&
+          first_table.k_count == MTT_MAIN_DEVICE_POSITION_K_COUNT_V1,
+      "Main device-position class table counts mismatch");
+  for (std::size_t index = 0; index < first_table.class_count; ++index) {
     require(
-        magpie_tts_rt::plugins::
-            launch_main_self_attention_step_scores(
-                cublas_handle,
-                query.data(),
-                key_transposed.data(),
-                scores.data(),
-                active_length,
-                nullptr) == 0,
-        "Main self-attention step scores launch failed");
-    require_cuda(
-        cudaDeviceSynchronize(),
-        "Main self-attention step scores synchronize");
-    for (std::int32_t batch_head = 0;
-         batch_head < batch_heads;
-         ++batch_head) {
-      const std::size_t score_base =
-          static_cast<std::size_t>(batch_head) *
-          static_cast<std::size_t>(active_length);
-      for (std::int32_t cache_position = 0;
-           cache_position < active_length;
-           ++cache_position) {
-        const __nv_bfloat16 expected = __float2bfloat16_rn(
-            static_cast<float>(
-                (batch_head + cache_position) % 31) /
-            30.0F);
-        require(
-            __bfloat16_as_ushort(
-                scores[
-                    score_base +
-                    static_cast<std::size_t>(cache_position)]) ==
-                __bfloat16_as_ushort(expected),
-            "Main self-attention step scores value mismatch");
-      }
-    }
+        first_table.classes[index].function_name[0] != '\0',
+        "Main device-position class has no stable function name");
   }
+
+  run_main_device_position_standalone_case(
+      second_state, second, 300, true, stream);
+  mtt_main_device_position_class_table_v1_t second_table{};
+  second_table.struct_size = sizeof(second_table);
+  second_table.abi_version = MTT_PLUGIN_ABI_VERSION_1;
   require(
-      cublasDestroy(cublas_handle) == CUBLAS_STATUS_SUCCESS,
-      "Main self-attention step scores cuBLAS handle destruction failed");
+      mtt_plugin_get_main_device_position_class_table_v1(&second_table) ==
+          MTT_PLUGIN_STATUS_OK &&
+          std::memcmp(&first_table, &second_table, sizeof(first_table)) == 0,
+      "independent Main device-position state changed the class table");
+
+  set_main_device_position_case(first, 218, false);
+  cudaGraphExec_t outer = capture_main_device_position_outer_graph(
+      first_state, first, false, stream);
+  for (const std::int32_t position : positions) {
+    run_main_device_position_outer_case(
+        outer, first, position, false, stream);
+  }
+  require_cuda(
+      cudaGraphExecDestroy(outer),
+      "destroy first Main device-position outer executable");
+
+  set_main_device_position_case(first, 218, true);
+  outer = capture_main_device_position_outer_graph(
+      first_state, first, true, stream);
+  run_main_device_position_outer_case(
+      outer, first, 466, true, stream);
+  require_cuda(
+      cudaGraphExecDestroy(outer),
+      "destroy recaptured Main device-position outer executable");
+
+  magpie_tts_rt::plugins::destroy_main_device_position_bank_test_state(
+      second_state);
+
+  // A prior layer's first error is immutable. Every variant is disabled and
+  // the context output remains untouched instead of doing speculative work.
+  constexpr std::int32_t sticky_status = main_device_position_status(
+      MTT_MAIN_DEVICE_POSITION_STATUS_CUDA_GRAPH_UPDATE,
+      5,
+      MTT_MAIN_DEVICE_POSITION_STATUS_OPERATION_PV,
+      static_cast<std::uint32_t>(cudaErrorInvalidValue));
+  set_main_device_position_case(first, 300, false);
+  first.execution_status_input[0] = sticky_status;
+  first.execution_status_output[0] = -1;
+  fill_bf16(first.bank_output, -9.0F);
+  require(
+      magpie_tts_rt::plugins::enqueue_main_device_position_bank_test_state(
+          first_state,
+          first.query.data(),
+          first.key.data(),
+          first.value.data(),
+          first.mask_a.data(),
+          first.position_a.data(),
+          first.execution_status_input.data(),
+          first.execution_status_output.data(),
+          first.bank_workspace.data(),
+          first.bank_output.data(),
+          stream) == 0,
+      "sticky status enqueue failed");
+  require_cuda(
+      cudaStreamSynchronize(stream),
+      "sticky Main device-position status synchronize");
+  require(
+      first.execution_status_output[0] == sticky_status,
+      "later layer overwrote the first execution error");
+  for (std::size_t index = 0; index < first.bank_output.size(); ++index) {
+    require(
+        __bfloat16_as_ushort(first.bank_output[index]) ==
+            __bfloat16_as_ushort(__float2bfloat16_rn(-9.0F)),
+        "sticky execution error admitted a context output");
+  }
+
+  // Invalid K disables every selectable cuBLAS node and reports a typed
+  // device status. The stream remains usable so the existing batch boundary
+  // can copy and diagnose the status before codec/publication.
+  set_main_device_position_case(
+      first, kMainDecoderPrefillLength - 1, false);
+  first.execution_status_input[0] = 0;
+  first.execution_status_output[0] = -1;
+  fill_bf16(first.bank_output, -9.0F);
+  require(
+      magpie_tts_rt::plugins::enqueue_main_device_position_bank_test_state(
+          first_state,
+          first.query.data(),
+          first.key.data(),
+          first.value.data(),
+          first.mask_a.data(),
+          first.position_a.data(),
+          first.execution_status_input.data(),
+          first.execution_status_output.data(),
+          first.bank_workspace.data(),
+          first.bank_output.data(),
+          stream) == 0,
+      "invalid selector enqueue failed on the host");
+  require_cuda(
+      cudaStreamSynchronize(stream),
+      "invalid selector status synchronize");
+  require(
+      first.execution_status_output[0] == main_device_position_status(
+          MTT_MAIN_DEVICE_POSITION_STATUS_INVALID_K,
+          0,
+          MTT_MAIN_DEVICE_POSITION_STATUS_OPERATION_SELECTOR,
+          0),
+      "invalid selector did not produce its canonical status");
+
+  // Corrupt one captured node reference to force a device graph-update API
+  // failure. The updater still attempts to disable every remaining variant
+  // and reports the exact CUDA status category/operation without trapping.
+  require(
+      magpie_tts_rt::plugins::
+          invalidate_main_device_position_qk_node_test_state(first_state, 0),
+      "failed to inject device graph-update fault");
+  set_main_device_position_case(first, 300, false);
+  first.execution_status_input[0] = 0;
+  first.execution_status_output[0] = -1;
+  require(
+      magpie_tts_rt::plugins::enqueue_main_device_position_bank_test_state(
+          first_state,
+          first.query.data(),
+          first.key.data(),
+          first.value.data(),
+          first.mask_a.data(),
+          first.position_a.data(),
+          first.execution_status_input.data(),
+          first.execution_status_output.data(),
+          first.bank_workspace.data(),
+          first.bank_output.data(),
+          stream) == 0,
+      "device graph-update fault enqueue failed on the host");
+  require_cuda(
+      cudaStreamSynchronize(stream),
+      "device graph-update fault synchronize");
+  const std::uint32_t update_status = static_cast<std::uint32_t>(
+      first.execution_status_output[0]);
+  require(
+      ((update_status >> MTT_MAIN_DEVICE_POSITION_STATUS_CATEGORY_SHIFT) &
+       MTT_MAIN_DEVICE_POSITION_STATUS_CATEGORY_MASK) ==
+              MTT_MAIN_DEVICE_POSITION_STATUS_CUDA_GRAPH_UPDATE &&
+          ((update_status >> MTT_MAIN_DEVICE_POSITION_STATUS_LAYER_SHIFT) &
+           MTT_MAIN_DEVICE_POSITION_STATUS_LAYER_MASK) == 0 &&
+          ((update_status >>
+            MTT_MAIN_DEVICE_POSITION_STATUS_OPERATION_SHIFT) &
+           MTT_MAIN_DEVICE_POSITION_STATUS_OPERATION_MASK) ==
+              MTT_MAIN_DEVICE_POSITION_STATUS_OPERATION_QK &&
+          (update_status & MTT_MAIN_DEVICE_POSITION_STATUS_DETAIL_MASK) != 0,
+      "device graph-update failure lost its layer/operation/CUDA status");
+  magpie_tts_rt::plugins::destroy_main_device_position_bank_test_state(
+      first_state);
+  require_cuda(
+      cudaStreamDestroy(stream),
+      "destroy Main device-position test stream");
+}
+
+void test_main_device_position_scalar_callback_shapes() {
+  require(
+      magpie_tts_rt::plugins::
+          validate_main_device_position_scalar_callback_shapes_test(),
+      "Main device-position callback scalar lowering contract failed");
 }
 
 void test_main_attention_prior_normalization() {
@@ -1158,12 +1406,12 @@ int main() {
     test_oracle_math_plugins();
     test_main_cross_attention_softmax();
     test_main_self_attention_context();
-    test_main_self_attention_step_context();
     test_main_cross_attention_context();
-    test_main_self_attention_step_scores();
     test_main_attention_prior_normalization();
     test_main_alignment_mean();
     test_eos_contract();
+    test_main_device_position_scalar_callback_shapes();
+    test_main_device_position_production_bank();
   } catch (const std::exception& error) {
     std::cerr << "Local AR plugin test failed: " << error.what() << '\n';
     return 1;

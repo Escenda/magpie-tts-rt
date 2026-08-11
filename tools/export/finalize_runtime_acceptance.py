@@ -34,6 +34,15 @@ if str(BUNDLE_TOOLS) not in sys.path:
 if str(ORACLE_TOOLS) not in sys.path:
     sys.path.insert(0, str(ORACLE_TOOLS))
 
+from cublas_runtime_identity import (  # noqa: E402
+    CublasRuntimeIdentity,
+    parse_cublas_runtime_identity,
+)
+from cuda_runtime_identity import (  # noqa: E402
+    CudaRuntimeIdentity,
+    parse_cuda_runtime_identity,
+)
+
 from export_main_decoder import (  # noqa: E402
     PREFILL_PLAN,
     STEP_PLAN,
@@ -73,8 +82,10 @@ from source_acceptance_receipt import (  # noqa: E402
     validate_public_acceptance,
 )
 from validate_main_decoder_plans import (  # noqa: E402
+    AuthenticatedCodecRestore,
     AuthenticatedPlanExport,
     JsonValue,
+    authenticate_codec_restore,
     authenticate_plan_export,
     load_json,
     require_integer,
@@ -142,6 +153,16 @@ class AuthenticatedReceiptDirectory:
     receipt: dict[str, JsonValue]
     receipt_sha256: str
     artifacts: dict[str, AuthenticatedArtifact]
+
+
+@dataclass(frozen=True)
+class AuthenticatedSequenceReceipt:
+    receipt_sha256: str
+    locked_magpie_restore_sha256: str
+    codec_restore: AuthenticatedCodecRestore
+    cuda_identity: CudaRuntimeIdentity
+    cublas_identity: CublasRuntimeIdentity
+    mode8_class_table_sha256: str
 
 
 @dataclass(frozen=True)
@@ -362,7 +383,7 @@ def authenticate_sequence_receipt(
     text: AuthenticatedTextEncoderExport,
     main: AuthenticatedPlanExport,
     local: AuthenticatedLocalARExport,
-) -> AuthenticatedReceiptDirectory:
+) -> AuthenticatedSequenceReceipt:
     authenticated = authenticate_receipt_directory(
         path,
         receipt_name=SEQUENCE_RECEIPT,
@@ -371,6 +392,21 @@ def authenticate_sequence_receipt(
         status="accepted",
     )
     receipt = authenticated.receipt
+    session_policy = require_mapping(
+        receipt.get("session_policy"),
+        "sequence.session_policy",
+    )
+    if (
+        session_policy.get("main_execution_status_recurrence")
+        != "int32-device-scalar-sticky-12-layer"
+        or session_policy.get(
+            "main_execution_status_checked_before_next_local_ar"
+        )
+        is not True
+    ):
+        raise RuntimeError(
+            "sequence receipt lacks the canonical Main execution-status gate"
+        )
     fixture_count = require_nonnegative_integer(
         receipt.get("fixture_count"),
         "sequence.fixture_count",
@@ -406,6 +442,26 @@ def authenticate_sequence_receipt(
             raise RuntimeError(
                 f"sequence fixture is not exact: {manifest_sha256}"
             )
+        local_ar_invocations = require_nonnegative_integer(
+            case.get("local_ar_invocations"),
+            f"sequence.fixtures[{index}].local_ar_invocations",
+        )
+        status_checks = require_nonnegative_integer(
+            case.get("main_execution_status_check_count"),
+            (
+                f"sequence.fixtures[{index}]."
+                "main_execution_status_check_count"
+            ),
+        )
+        if (
+            case.get("main_execution_status_all_zero") is not True
+            or local_ar_invocations < 1
+            or status_checks != local_ar_invocations - 1
+        ):
+            raise RuntimeError(
+                "sequence fixture does not prove zero Main execution status "
+                f"at every generation boundary: {manifest_sha256}"
+            )
         generated_sha256 = require_sha256(
             case.get("generated_codes_sha256"),
             f"sequence.fixtures[{index}].generated_codes_sha256",
@@ -424,11 +480,37 @@ def authenticate_sequence_receipt(
         raise RuntimeError("sequence receipt omits the canonical golden fixture")
 
     source = require_mapping(receipt.get("source"), "sequence.source")
+    locked_magpie_restore_sha256 = require_sha256(
+        source.get("locked_magpie_restore_sha256"),
+        "sequence.source.locked_magpie_restore_sha256",
+    )
+    expected_restore_sha256 = sha256_file(
+        (EXPORT_TOOLS / "locked_magpie_restore.py").resolve(strict=True)
+    )
+    if (
+        locked_magpie_restore_sha256 != expected_restore_sha256
+        or text.locked_magpie_restore_sha256 != expected_restore_sha256
+        or main.locked_magpie_restore_sha256 != expected_restore_sha256
+        or local.locked_magpie_restore_sha256 != expected_restore_sha256
+    ):
+        raise RuntimeError(
+            "sequence/export locked Magpie restore helper digest mismatch"
+        )
+    codec_restore = authenticate_codec_restore(source, "sequence.source")
+    if (
+        codec_restore != text.codec_restore
+        or codec_restore != main.codec_restore
+        or codec_restore != local.codec_restore
+    ):
+        raise RuntimeError("sequence/export codec restore identity mismatch")
     expected_source = {
         "oracle_lock_sha256": lock_sha256,
         "text_encoder_export_receipt_sha256": text.receipt_sha256,
         "text_encoder_plan_sha256": text.plan_sha256,
         "main_export_receipt_sha256": main.receipt_sha256,
+        "main_mode8_validation_receipt_sha256": (
+            main.mode8_validation_receipt_sha256
+        ),
         "main_prefill_plan_sha256": main.prefill_plan_sha256,
         "main_step_plan_sha256": main.step_plan_sha256,
         "local_ar_export_receipt_sha256": local.receipt_sha256,
@@ -441,7 +523,32 @@ def authenticate_sequence_receipt(
             raise RuntimeError(
                 f"sequence source {key} mismatch: expected {expected}, got {actual}"
             )
-    return authenticated
+    runtime = require_mapping(receipt.get("runtime"), "sequence.runtime")
+    cuda_identity = parse_cuda_runtime_identity(
+        runtime.get("cuda"),
+        "sequence.runtime.cuda",
+    )
+    cublas_identity = parse_cublas_runtime_identity(
+        runtime.get("cublas"),
+        "sequence.runtime.cublas",
+    )
+    mode8_class_table_sha256 = require_sha256(
+        runtime.get("mode8_class_table_sha256"),
+        "sequence.runtime.mode8_class_table_sha256",
+    )
+    if mode8_class_table_sha256 != main.mode8_class_table_sha256:
+        raise RuntimeError(
+            "sequence mode-8 class-table digest differs from the "
+            "authenticated Main Decoder export"
+        )
+    return AuthenticatedSequenceReceipt(
+        receipt_sha256=authenticated.receipt_sha256,
+        locked_magpie_restore_sha256=locked_magpie_restore_sha256,
+        codec_restore=codec_restore,
+        cuda_identity=cuda_identity,
+        cublas_identity=cublas_identity,
+        mode8_class_table_sha256=mode8_class_table_sha256,
+    )
 
 
 def require_locked_source_receipt(
@@ -946,6 +1053,21 @@ def main() -> int:
         plugin_build_evidence,
         PROJECT_ROOT,
     )
+    if sequence.cublas_identity != plugin_build_evidence.cublas_identity:
+        raise RuntimeError(
+            "sequence cuBLAS identity differs from the authenticated "
+            "plugin build receipt"
+        )
+    if sequence.cuda_identity != main_export.cuda_identity:
+        raise RuntimeError(
+            "sequence CUDA runtime identity differs from the authenticated "
+            "Main Decoder export"
+        )
+    if sequence.cublas_identity != main_export.cublas_identity:
+        raise RuntimeError(
+            "sequence cuBLAS identity differs from the authenticated Main "
+            "Decoder export"
+        )
 
     output = args.output.absolute()
     if output.exists() or output.is_symlink():
@@ -1145,6 +1267,30 @@ def main() -> int:
                 ),
                 "tokenizer_identity_sha256": tokenizer_identity_sha256,
                 "tokenizer_identity_receipt_sha256": tokenizer_receipt.sha256,
+                "locked_magpie_restore_sha256": (
+                    sequence.locked_magpie_restore_sha256
+                ),
+                "codec_restore": {
+                    "embedded_codec_model_id": (
+                        sequence.codec_restore.embedded_codec_model_id
+                    ),
+                    "codec_model_sha256": (
+                        sequence.codec_restore.codec_model_sha256
+                    ),
+                    "codec_model_size_bytes": (
+                        sequence.codec_restore.codec_model_size_bytes
+                    ),
+                    "codec_resolution": "authenticated_local_file",
+                    "use_scl_loss": False,
+                    "network_resolution": False,
+                },
+            },
+            "runtime_dependencies": {
+                "cuda": sequence.cuda_identity.to_json(),
+                "cublas": sequence.cublas_identity.to_json(),
+                "mode8_class_table_sha256": (
+                    sequence.mode8_class_table_sha256
+                ),
             },
             "component_receipts": [
                 {

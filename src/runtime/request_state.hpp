@@ -71,14 +71,20 @@ enum class RequestStateErrorCode {
 
 class RequestStateError final : public std::runtime_error {
  public:
-  RequestStateError(RequestStateErrorCode code, std::string detail);
+  RequestStateError(
+      RequestStateErrorCode code,
+      std::string detail,
+      std::int64_t alignment_event_index);
 
   [[nodiscard]] RequestStateErrorCode code() const noexcept;
   [[nodiscard]] const std::string& detail() const noexcept;
+  // -1 means that validation failed before or after the per-event loop.
+  [[nodiscard]] std::int64_t alignment_event_index() const noexcept;
 
  private:
   RequestStateErrorCode code_;
   std::string detail_;
+  std::int64_t alignment_event_index_;
 };
 
 struct AlignmentProgress {
@@ -118,6 +124,23 @@ struct AudioChunk {
   std::uint64_t committed_text_tokens;
   std::vector<AlignmentProgress> alignment_events;
 };
+
+struct AudioChunkOrigin {
+  std::uint32_t random_seed;
+  // Both indices are local to the generation batch; -1 means no EOS.
+  std::int32_t eos_step;
+  std::int32_t eos_frame_index;
+  std::span<const std::int64_t> attended_token_indices;
+};
+
+// Produces the fail-closed diagnostic carried by the terminal C ABI error.
+// It deliberately records generation origin and lease geometry together so a
+// rare alignment failure can be reproduced without guessing the RNG or EOS
+// boundary from surrounding logs.
+[[nodiscard]] std::string describe_audio_chunk_validation_failure(
+    const RequestStateError& error,
+    const AudioChunk& chunk,
+    const AudioChunkOrigin& origin);
 
 struct RequestStateSnapshot {
   std::uint64_t revision;
@@ -172,7 +195,7 @@ class StreamingRequestState final {
   // Returns false only when an accepted cancellation closed the publication
   // gate. The cancellation and publication decisions share mutex_, so a
   // successful request_cancellation() cannot be followed by a new lease.
-  [[nodiscard]] bool publish(AudioChunk chunk);
+  [[nodiscard]] bool publish(AudioChunk&& chunk);
   // Returns true when cancellation was accepted (including an idempotent
   // repeat), and false when completion/failure won the terminal race.
   [[nodiscard]] bool request_cancellation();

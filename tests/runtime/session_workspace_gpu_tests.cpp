@@ -59,99 +59,24 @@ void test_workspace(const std::filesystem::path& manifest_path) {
             workspace.aggregate_codec_tokens(1) != nullptr &&
             workspace.aggregate_codec_tokens(0) !=
                 workspace.aggregate_codec_tokens(1) &&
+            workspace.canonical_local_invalid_rows() != nullptr &&
+            workspace.canonical_local_end_frame_index() != nullptr &&
+            workspace.canonical_local_invalid_rows() !=
+                workspace.local_invalid_rows(0) &&
+            workspace.canonical_local_end_frame_index() !=
+                workspace.local_end_frame_index(0) &&
+            workspace.decoder_position() != nullptr &&
             workspace.codec_pcm() != nullptr,
-        "required device buffer is null or generation slots alias");
-    std::array<magpie_tts_rt::DecoderPositionInput, 4>
-        position_inputs{};
-    std::array<std::int64_t, 4> expected_positions{
-        218, 219, 220, 221};
-    std::int64_t* copied_positions = nullptr;
-    cudaStream_t position_stream = nullptr;
+        "required device buffer is null or canonical buffers alias diagnostics");
+    cudaPointerAttributes position_attributes{};
     require_cuda(
-        cudaMalloc(
-            reinterpret_cast<void**>(&copied_positions),
-            expected_positions.size() * sizeof(std::int64_t)),
-        "allocate copied decoder positions");
-    require_cuda(
-        cudaStreamCreateWithFlags(
-            &position_stream, cudaStreamNonBlocking),
-        "create decoder-position test stream");
-    for (std::size_t index = 0;
-         index < position_inputs.size();
-         ++index) {
-      position_inputs[index] =
-          workspace.acquire_decoder_position(
-              expected_positions[index]);
-      require(
-          position_inputs[index].slot == index,
-          "decoder position slot did not advance");
-      require(
-          reinterpret_cast<std::uintptr_t>(
-              position_inputs[index].address) %
-                  256U ==
-              0U,
-          "decoder position HOST binding is not 256-byte aligned");
-      cudaPointerAttributes position_attributes{};
-      require_cuda(
-          cudaPointerGetAttributes(
-              &position_attributes,
-              position_inputs[index].address),
-          "inspect decoder position HOST binding");
-      require(
-          position_attributes.type == cudaMemoryTypeHost,
-          "decoder position was allocated in the device arena");
-      for (std::size_t earlier = 0; earlier < index; ++earlier) {
-        require(
-            position_inputs[index].address !=
-                position_inputs[earlier].address,
-            "decoder position HOST slots alias");
-      }
-      // This H2D read and event record model TensorRT's asynchronous input
-      // consumption. Four distinct positions are submitted without a stream
-      // synchronization between them.
-      require_cuda(
-          cudaMemcpyAsync(
-              copied_positions + index,
-              position_inputs[index].address,
-              sizeof(std::int64_t),
-              cudaMemcpyHostToDevice,
-              position_stream),
-          "copy decoder position from HOST input");
-      require_cuda(
-          cudaEventRecord(
-              position_inputs[index].input_consumed_event,
-              position_stream),
-          "record decoder-position input consumption");
-    }
-    // The pipeline reaches a codes-ready boundary between decoder batches.
-    // Model that boundary here before reusing the four HOST input slots.
-    require_cuda(
-        cudaStreamSynchronize(position_stream),
-        "complete decoder-position batch");
-    const magpie_tts_rt::DecoderPositionInput wrapped =
-        workspace.acquire_decoder_position(222);
+        cudaPointerGetAttributes(
+            &position_attributes,
+            workspace.decoder_position()),
+        "inspect Main Decoder position binding");
     require(
-        wrapped.slot == 0 &&
-            wrapped.address == position_inputs[0].address &&
-            *wrapped.address == 222,
-        "decoder position slot ring did not wait and wrap at four");
-    std::array<std::int64_t, 4> observed_positions{};
-    require_cuda(
-        cudaMemcpy(
-            observed_positions.data(),
-            copied_positions,
-            observed_positions.size() * sizeof(std::int64_t),
-            cudaMemcpyDeviceToHost),
-        "copy consumed decoder positions");
-    require(
-        observed_positions == expected_positions,
-        "an in-flight decoder position HOST slot was overwritten");
-    require_cuda(
-        cudaStreamDestroy(position_stream),
-        "destroy decoder-position test stream");
-    require_cuda(
-        cudaFree(copied_positions),
-        "free copied decoder positions");
+        position_attributes.type == cudaMemoryTypeDevice,
+        "Main Decoder position is not a DEVICE tensor");
     std::size_t free_during = 0;
     std::size_t total_during = 0;
     require_cuda(

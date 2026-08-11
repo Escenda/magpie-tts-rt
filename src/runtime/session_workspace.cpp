@@ -118,8 +118,6 @@ std::string_view to_string(
       return "missing_tensor";
     case SessionWorkspaceErrorCode::incompatible_tensor_contract:
       return "incompatible_tensor_contract";
-    case SessionWorkspaceErrorCode::cuda_event_failure:
-      return "cuda_event_failure";
   }
   return "unknown";
 }
@@ -190,6 +188,12 @@ SessionWorkspace::SessionWorkspace(
       require_tensor(prefill, "last_hidden", false);
   const TensorSpec& local_hidden =
       require_tensor(local, "decoder_hidden", true);
+  const TensorSpec& step_position =
+      require_tensor(step, "position", true);
+  const TensorSpec& step_execution_status_input =
+      require_tensor(step, "execution_status_in", true);
+  const TensorSpec& step_execution_status_output =
+      require_tensor(step, "execution_status_out", false);
   const TensorSpec& prefill_alignment =
       require_tensor(
           prefill, manifest.alignment.prefill_output_binding, false);
@@ -213,6 +217,13 @@ SessionWorkspace::SessionWorkspace(
       step,
       step_alignment,
       "alignment_scores");
+  require_storage_compatible(
+      manifest,
+      step,
+      step_execution_status_input,
+      step,
+      step_execution_status_output,
+      "main_decoder_execution_status");
 
   text_token_ids_ = allocate_tensor(
       memory_, manifest, "text_token_ids", text, text_ids);
@@ -226,6 +237,45 @@ SessionWorkspace::SessionWorkspace(
       memory_, manifest, "condition_mask", prefill, cfg_mask);
   decoder_hidden_ = allocate_tensor(
       memory_, manifest, "decoder_hidden", local, local_hidden);
+  if (step_position.dtype != TensorDataType::int64 ||
+      storage_bytes(manifest, step, step_position) !=
+          sizeof(std::int64_t)) {
+    fail(
+        SessionWorkspaceErrorCode::incompatible_tensor_contract,
+        "decoder_position",
+        "Main Decoder position must be one DEVICE INT64 scalar");
+  }
+  decoder_position_ = static_cast<std::int64_t*>(
+      allocate_tensor(
+          memory_, manifest, "decoder_position", step, step_position));
+  if (step_execution_status_input.dtype != TensorDataType::int32 ||
+      !step_execution_status_input.shape.empty() ||
+      step_execution_status_input.location !=
+          TensorMemoryLocation::device ||
+      step_execution_status_input.shape_inference_io ||
+      step_execution_status_output.dtype != TensorDataType::int32 ||
+      !step_execution_status_output.shape.empty() ||
+      step_execution_status_output.location !=
+          TensorMemoryLocation::device ||
+      step_execution_status_output.shape_inference_io ||
+      storage_bytes(manifest, step, step_execution_status_input) !=
+          sizeof(std::int32_t)) {
+    fail(
+        SessionWorkspaceErrorCode::incompatible_tensor_contract,
+        "main_decoder_execution_status",
+        "Main Decoder status input/output must be DEVICE INT32 scalars");
+  }
+  for (std::size_t index = 0;
+       index < main_decoder_execution_status_.size();
+       ++index) {
+    main_decoder_execution_status_[index] =
+        static_cast<std::int32_t*>(allocate_tensor(
+            memory_,
+            manifest,
+            "main_decoder_execution_status_" + std::to_string(index),
+            step,
+            step_execution_status_input));
+  }
   alignment_scores_ = allocate_tensor(
       memory_,
       manifest,
@@ -291,6 +341,18 @@ SessionWorkspace::SessionWorkspace(
       storage_bytes(manifest, local, local_invalid);
   const std::uint64_t local_eos_bytes =
       storage_bytes(manifest, local, local_eos);
+  canonical_local_invalid_rows_ =
+      static_cast<std::int32_t*>(
+          allocate_bytes(
+              memory_,
+              "canonical_local_invalid_rows",
+              local_invalid_bytes));
+  canonical_local_end_frame_index_ =
+      static_cast<std::int32_t*>(
+          allocate_bytes(
+              memory_,
+              "canonical_local_end_frame_index",
+              local_eos_bytes));
   for (std::size_t step = 0;
        step < kMaximumDecoderStepsPerEmission;
        ++step) {
@@ -374,44 +436,20 @@ SessionWorkspace::SessionWorkspace(
       manifest.codec.hop_length_samples;
   pinned_pcm_ = std::make_unique<PinnedAllocation>(
       pinned_pcm_capacity_samples_ * sizeof(float));
-  for (std::size_t slot = 0;
-       slot < kDecoderPositionHostSlotCount;
-       ++slot) {
-    pinned_decoder_positions_[slot] =
-        std::make_unique<PinnedAllocation>(sizeof(std::int64_t));
-    if (reinterpret_cast<std::uintptr_t>(
-            pinned_decoder_positions_[slot]->data()) %
-            256U !=
-        0U) {
-      fail(
-          SessionWorkspaceErrorCode::incompatible_tensor_contract,
-          "decoder_position",
-          "TensorRT HOST shape input slot " +
-              std::to_string(slot) +
-              " is not 256-byte aligned");
-    }
-  }
   pinned_valid_sample_length_ =
       std::make_unique<PinnedAllocation>(sizeof(std::int64_t));
   for (std::size_t slot = 0;
        slot < kGenerationBatchSlotCount;
        ++slot) {
-    pinned_attended_token_indices_[slot] =
+    generation_diagnostics_[slot] =
+        static_cast<GenerationBatchDiagnostics*>(
+            allocate_bytes(
+                memory_,
+                "generation_diagnostics_" + std::to_string(slot),
+                sizeof(GenerationBatchDiagnostics)));
+    pinned_generation_diagnostics_[slot] =
         std::make_unique<PinnedAllocation>(
-            kMaximumDecoderStepsPerEmission *
-            sizeof(std::int64_t));
-    pinned_alignment_invalid_steps_[slot] =
-        std::make_unique<PinnedAllocation>(
-            kMaximumDecoderStepsPerEmission *
-            sizeof(std::int32_t));
-    pinned_local_invalid_rows_[slot] =
-        std::make_unique<PinnedAllocation>(
-            kMaximumDecoderStepsPerEmission *
-            sizeof(std::int32_t));
-    pinned_end_frame_indices_[slot] =
-        std::make_unique<PinnedAllocation>(
-            kMaximumDecoderStepsPerEmission *
-            sizeof(std::int32_t));
+            sizeof(GenerationBatchDiagnostics));
   }
   pinned_startup_codec_code_capacity_ =
       static_cast<std::uint64_t>(
@@ -646,41 +684,9 @@ SessionWorkspace::SessionWorkspace(
         },
     });
   }
-  // Create the raw CUDA events only after all other potentially-throwing
-  // workspace construction. A partial event loop is explicitly unwound below.
-  for (std::size_t slot = 0;
-       slot < kDecoderPositionHostSlotCount;
-       ++slot) {
-    const cudaError_t event_status = cudaEventCreateWithFlags(
-        &decoder_position_consumed_events_[slot],
-        cudaEventDisableTiming);
-    if (event_status != cudaSuccess) {
-      for (std::size_t created = 0; created < slot; ++created) {
-        static_cast<void>(
-            cudaEventDestroy(
-                decoder_position_consumed_events_[created]));
-        decoder_position_consumed_events_[created] = nullptr;
-      }
-      fail(
-          SessionWorkspaceErrorCode::cuda_event_failure,
-          "decoder_position",
-          "failed to create input-consumed event for slot " +
-              std::to_string(slot) + ": " +
-              cudaGetErrorString(event_status));
-    }
-  }
 }
 
-SessionWorkspace::~SessionWorkspace() {
-  // SessionResources synchronizes both session streams before workspace
-  // teardown. The events therefore no longer guard live TensorRT inputs here.
-  for (cudaEvent_t& event : decoder_position_consumed_events_) {
-    if (event != nullptr) {
-      static_cast<void>(cudaEventDestroy(event));
-      event = nullptr;
-    }
-  }
-}
+SessionWorkspace::~SessionWorkspace() = default;
 
 void* SessionWorkspace::text_token_ids() const noexcept {
   return text_token_ids_;
@@ -700,37 +706,16 @@ void* SessionWorkspace::condition_mask() const noexcept {
 void* SessionWorkspace::decoder_hidden() const noexcept {
   return decoder_hidden_;
 }
-DecoderPositionInput SessionWorkspace::acquire_decoder_position(
-    const std::int64_t position) {
-  const std::size_t slot = next_decoder_position_slot_;
-  cudaEvent_t event = decoder_position_consumed_events_[slot];
-  const cudaError_t query_status = cudaEventQuery(event);
-  if (query_status == cudaErrorNotReady) {
-    fail(
-        SessionWorkspaceErrorCode::cuda_event_failure,
-        "decoder_position",
-        "attempted to reuse live HOST input slot " +
-            std::to_string(slot) +
-            "; decoder batches must reach their codes-ready boundary "
-            "before a position slot wraps");
-  } else if (query_status != cudaSuccess) {
-    fail(
-        SessionWorkspaceErrorCode::cuda_event_failure,
-        "decoder_position",
-        "failed to query input-consumed event for slot " +
-            std::to_string(slot) + ": " +
-            cudaGetErrorString(query_status));
+std::int64_t* SessionWorkspace::decoder_position() const noexcept {
+  return decoder_position_;
+}
+std::int32_t* SessionWorkspace::main_decoder_execution_status(
+    const std::size_t cache_index) const {
+  if (cache_index >= main_decoder_execution_status_.size()) {
+    throw std::out_of_range(
+        "Main Decoder execution-status index must be 0 or 1");
   }
-  auto* address = static_cast<std::int64_t*>(
-      pinned_decoder_positions_[slot]->data());
-  *address = position;
-  next_decoder_position_slot_ =
-      (slot + 1U) % kDecoderPositionHostSlotCount;
-  return DecoderPositionInput{
-      .address = address,
-      .input_consumed_event = event,
-      .slot = slot,
-  };
+  return main_decoder_execution_status_.at(cache_index);
 }
 void* SessionWorkspace::alignment_scores() const noexcept {
   return alignment_scores_;
@@ -787,6 +772,14 @@ std::int64_t* SessionWorkspace::rng_counter(
 void* SessionWorkspace::local_codec_tokens() const noexcept {
   return local_codec_tokens_;
 }
+std::int32_t*
+SessionWorkspace::canonical_local_invalid_rows() const noexcept {
+  return canonical_local_invalid_rows_;
+}
+std::int32_t*
+SessionWorkspace::canonical_local_end_frame_index() const noexcept {
+  return canonical_local_end_frame_index_;
+}
 std::int32_t* SessionWorkspace::local_invalid_rows(
     const std::size_t step_slot) const {
   if (step_slot >= kMaximumDecoderStepsPerEmission) {
@@ -833,45 +826,24 @@ SessionWorkspace::pinned_valid_sample_length() const noexcept {
   return static_cast<std::int64_t*>(
       pinned_valid_sample_length_->data());
 }
-std::int64_t*
-SessionWorkspace::pinned_attended_token_indices(
+GenerationBatchDiagnostics*
+SessionWorkspace::generation_diagnostics(
     const std::size_t batch_slot) const {
-  if (batch_slot >= pinned_attended_token_indices_.size()) {
+  if (batch_slot >= generation_diagnostics_.size()) {
     throw std::out_of_range(
         "generation diagnostic batch slot must be 0 or 1");
   }
-  return static_cast<std::int64_t*>(
-      pinned_attended_token_indices_.at(batch_slot)->data());
+  return generation_diagnostics_.at(batch_slot);
 }
-std::int32_t*
-SessionWorkspace::pinned_alignment_invalid_steps(
+GenerationBatchDiagnostics*
+SessionWorkspace::pinned_generation_diagnostics(
     const std::size_t batch_slot) const {
-  if (batch_slot >= pinned_alignment_invalid_steps_.size()) {
+  if (batch_slot >= pinned_generation_diagnostics_.size()) {
     throw std::out_of_range(
         "generation diagnostic batch slot must be 0 or 1");
   }
-  return static_cast<std::int32_t*>(
-      pinned_alignment_invalid_steps_.at(batch_slot)->data());
-}
-std::int32_t*
-SessionWorkspace::pinned_local_invalid_rows(
-    const std::size_t batch_slot) const {
-  if (batch_slot >= pinned_local_invalid_rows_.size()) {
-    throw std::out_of_range(
-        "generation diagnostic batch slot must be 0 or 1");
-  }
-  return static_cast<std::int32_t*>(
-      pinned_local_invalid_rows_.at(batch_slot)->data());
-}
-std::int32_t*
-SessionWorkspace::pinned_end_frame_indices(
-    const std::size_t batch_slot) const {
-  if (batch_slot >= pinned_end_frame_indices_.size()) {
-    throw std::out_of_range(
-        "generation diagnostic batch slot must be 0 or 1");
-  }
-  return static_cast<std::int32_t*>(
-      pinned_end_frame_indices_.at(batch_slot)->data());
+  return static_cast<GenerationBatchDiagnostics*>(
+      pinned_generation_diagnostics_.at(batch_slot)->data());
 }
 std::int64_t*
 SessionWorkspace::pinned_startup_codec_codes() const noexcept {

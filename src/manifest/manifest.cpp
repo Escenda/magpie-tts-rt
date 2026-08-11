@@ -545,11 +545,54 @@ template <typename Integer>
        "architecture",
        "endianness",
        "cuda_version",
+       "cublas",
        "tensorrt_version",
        "driver_version",
        "gpu_name",
        "gpu_compute_capability",
        "plugin_abi_version"});
+
+  const auto parse_loaded_library_identity = [](
+      const Json& library,
+      const std::string& library_path,
+      const std::string_view expected_soname) {
+    require_exact_keys(
+        library,
+        ManifestStage::runtime_fingerprint,
+        library_path,
+        {"soname", "size_bytes", "sha256"});
+    const std::string soname = parse_nonempty_string(
+        member(library, "soname"),
+        ManifestStage::runtime_fingerprint,
+        child_path(library_path, "soname"));
+    if (soname != expected_soname) {
+      fail(
+          ManifestStage::runtime_fingerprint,
+          ManifestErrorCode::invalid_value,
+          child_path(library_path, "soname"),
+          "loaded library SONAME must be '" +
+              std::string(expected_soname) + "'");
+    }
+    return RuntimeFingerprint::LoadedLibraryIdentity{
+        .soname = soname,
+        .size_bytes = parse_positive_integer<std::uint64_t>(
+            member(library, "size_bytes"),
+            ManifestStage::runtime_fingerprint,
+            child_path(library_path, "size_bytes")),
+        .sha256 = parse_sha256(
+            member(library, "sha256"),
+            ManifestStage::runtime_fingerprint,
+            child_path(library_path, "sha256")),
+    };
+  };
+
+  const Json& cublas = member(value, "cublas");
+  const std::string cublas_path = child_path(path, "cublas");
+  require_exact_keys(
+      cublas,
+      stage,
+      cublas_path,
+      {"api_version_integer", "library", "lt_library"});
 
   const std::string architecture = parse_nonempty_string(
       member(value, "architecture"), stage, child_path(path, "architecture"));
@@ -583,6 +626,20 @@ template <typename Integer>
           parse_endianness(member(value, "endianness"), child_path(path, "endianness")),
       .cuda_version = parse_numeric_version(
           member(value, "cuda_version"), stage, child_path(path, "cuda_version")),
+      .cublas = RuntimeFingerprint::CublasIdentity{
+          .api_version_integer = parse_positive_integer<std::uint32_t>(
+              member(cublas, "api_version_integer"),
+              stage,
+              child_path(cublas_path, "api_version_integer")),
+          .library = parse_loaded_library_identity(
+              member(cublas, "library"),
+              child_path(cublas_path, "library"),
+              "libcublas.so.13"),
+          .lt_library = parse_loaded_library_identity(
+              member(cublas, "lt_library"),
+              child_path(cublas_path, "lt_library"),
+              "libcublasLt.so.13"),
+      },
       .tensorrt_version = parse_numeric_version(
           member(value, "tensorrt_version"),
           stage,
@@ -812,7 +869,46 @@ template <typename Integer>
       plugin_json,
       stage,
       plugin_path,
-      {"name", "abi_version", "file", "build_receipt"});
+      {"name",
+       "abi_version",
+       "file",
+       "build_receipt",
+       "main_device_position_class_table"});
+  const Json& class_table_json =
+      member(plugin_json, "main_device_position_class_table");
+  const std::string class_table_path =
+      child_path(plugin_path, "main_device_position_class_table");
+  require_exact_keys(
+      class_table_json,
+      stage,
+      class_table_path,
+      {"schema_version", "class_count", "k_count", "sha256"});
+  PluginArtifact::MainDevicePositionClassTable class_table{
+      .schema_version = parse_positive_integer<std::uint32_t>(
+          member(class_table_json, "schema_version"),
+          stage,
+          child_path(class_table_path, "schema_version")),
+      .class_count = parse_positive_integer<std::uint32_t>(
+          member(class_table_json, "class_count"),
+          stage,
+          child_path(class_table_path, "class_count")),
+      .k_count = parse_positive_integer<std::uint32_t>(
+          member(class_table_json, "k_count"),
+          stage,
+          child_path(class_table_path, "k_count")),
+      .sha256 = parse_sha256(
+          member(class_table_json, "sha256"),
+          stage,
+          child_path(class_table_path, "sha256")),
+  };
+  if (class_table.schema_version != 1 || class_table.class_count != 21 ||
+      class_table.k_count != 249) {
+    fail(
+        stage,
+        ManifestErrorCode::invariant_violation,
+        class_table_path,
+        "mode-8 class table must use schema 1 with 21 classes and 249 K records");
+  }
   PluginArtifact plugin{
       .name = parse_identifier(
           member(plugin_json, "name"), stage, child_path(plugin_path, "name")),
@@ -826,6 +922,7 @@ template <typename Integer>
           member(plugin_json, "build_receipt"),
           stage,
           child_path(plugin_path, "build_receipt")),
+      .main_device_position_class_table = std::move(class_table),
   };
 
   return ArtifactsManifest{
@@ -1363,20 +1460,39 @@ void validate_profile_against_inputs(
           "input and output tensor names must be disjoint");
     }
   }
-  for (const TensorSpec& input : engine.inputs) {
-    const bool is_position_shape_input =
-        engine.role == EngineRole::main_decoder_step &&
-        input.name == "position";
-    if (is_position_shape_input) {
+  bool step_position_found = false;
+  bool step_status_input_found = false;
+  bool step_status_output_found = false;
+  for (std::size_t index = 0; index < engine.inputs.size(); ++index) {
+    const TensorSpec& input = engine.inputs.at(index);
+    const std::string input_path =
+        index_path(child_path(path, "inputs"), index);
+    const bool is_step_position =
+        engine.role == EngineRole::main_decoder_step && input.name == "position";
+    if (is_step_position) {
+      step_position_found = true;
       if (input.dtype != TensorDataType::int64 ||
           !input.shape.empty() ||
-          input.location != TensorMemoryLocation::host ||
-          !input.shape_inference_io) {
+          input.location != TensorMemoryLocation::device ||
+          input.shape_inference_io) {
         fail(
             ManifestStage::tensor,
             ManifestErrorCode::invariant_violation,
-            child_path(path, "inputs"),
-            "main_decoder_step/position must be the scalar int64 HOST shape input");
+            input_path,
+            "main_decoder_step/position must be a scalar int64 DEVICE execution input");
+      }
+    } else if (
+        engine.role == EngineRole::main_decoder_step &&
+        input.name == "execution_status_in") {
+      step_status_input_found = true;
+      if (input.dtype != TensorDataType::int32 || !input.shape.empty() ||
+          input.location != TensorMemoryLocation::device ||
+          input.shape_inference_io) {
+        fail(
+            ManifestStage::tensor,
+            ManifestErrorCode::invariant_violation,
+            input_path,
+            "main_decoder_step/execution_status_in must be a scalar int32 DEVICE execution input");
       }
     } else if (
         input.location != TensorMemoryLocation::device ||
@@ -1384,19 +1500,42 @@ void validate_profile_against_inputs(
       fail(
           ManifestStage::tensor,
           ManifestErrorCode::invariant_violation,
-          child_path(path, "inputs"),
-          "only main_decoder_step/position may be a HOST shape input");
+          input_path,
+          "all engine inputs must be ordinary CUDA device tensors");
     }
   }
-  for (const TensorSpec& output : engine.outputs) {
+  for (std::size_t index = 0; index < engine.outputs.size(); ++index) {
+    const TensorSpec& output = engine.outputs.at(index);
+    const std::string output_path =
+        index_path(child_path(path, "outputs"), index);
+    if (engine.role == EngineRole::main_decoder_step &&
+        output.name == "execution_status_out") {
+      step_status_output_found = true;
+      if (output.dtype != TensorDataType::int32 || !output.shape.empty()) {
+        fail(
+            ManifestStage::tensor,
+            ManifestErrorCode::invariant_violation,
+            output_path,
+            "main_decoder_step/execution_status_out must be a scalar int32 DEVICE execution output");
+      }
+    }
     if (output.location != TensorMemoryLocation::device ||
         output.shape_inference_io) {
       fail(
           ManifestStage::tensor,
           ManifestErrorCode::invariant_violation,
-          child_path(path, "outputs"),
+          output_path,
           "all engine outputs must be ordinary CUDA device tensors");
     }
+  }
+  if (engine.role == EngineRole::main_decoder_step &&
+      (!step_position_found || !step_status_input_found ||
+       !step_status_output_found)) {
+    fail(
+        ManifestStage::tensor,
+        ManifestErrorCode::invariant_violation,
+        path,
+        "main_decoder_step requires position plus execution_status_in/out recurrence bindings");
   }
 
   const Json& profiles_json = member(value, "profiles");
@@ -3160,8 +3299,13 @@ void validate_canonical_engine_contracts(
   const EngineManifest& step =
       require_engine(manifest, EngineRole::main_decoder_step);
   std::vector<std::string> step_inputs{
-      "previous_codec_tokens", "position", "condition_mask", "alignment_prior"};
-  std::vector<std::string> step_outputs{"decoder_hidden", "alignment"};
+      "previous_codec_tokens",
+      "position",
+      "execution_status_in",
+      "condition_mask",
+      "alignment_prior"};
+  std::vector<std::string> step_outputs{
+      "decoder_hidden", "alignment", "execution_status_out"};
   for (const KvLayerBindings& layer : manifest.kv_cache.layer_bindings) {
     step_inputs.push_back(layer.step_self_key_input);
     step_inputs.push_back(layer.step_self_value_input);
@@ -3195,6 +3339,14 @@ void validate_canonical_engine_contracts(
   require_tensor_contract(
       step,
       true,
+      "execution_status_in",
+      TensorDataType::int32,
+      {std::vector<std::int64_t>{}},
+      ManifestStage::engine,
+      "/engines/main_decoder_step/inputs/execution_status_in");
+  require_tensor_contract(
+      step,
+      true,
       "condition_mask",
       TensorDataType::boolean,
       {{{2, -1}}},
@@ -3224,6 +3376,14 @@ void validate_canonical_engine_contracts(
       {{{2, -1}}},
       ManifestStage::engine,
       "/engines/main_decoder_step/outputs/alignment");
+  require_tensor_contract(
+      step,
+      false,
+      "execution_status_out",
+      TensorDataType::int32,
+      {std::vector<std::int64_t>{}},
+      ManifestStage::engine,
+      "/engines/main_decoder_step/outputs/execution_status_out");
 
   const EngineManifest& local_ar =
       require_engine(manifest, EngineRole::local_ar_16);
@@ -3419,26 +3579,6 @@ struct CanonicalProfileRange {
   return *found;
 }
 
-[[nodiscard]] const TensorValueRange& require_profile_value_range(
-    const OptimizationProfile& profile,
-    const std::string& tensor_name,
-    const std::string& path) {
-  const auto found = std::find_if(
-      profile.input_values.begin(),
-      profile.input_values.end(),
-      [&tensor_name](const TensorValueRange& range) {
-        return range.tensor_name == tensor_name;
-      });
-  if (found == profile.input_values.end()) {
-    fail(
-        ManifestStage::tensor,
-        ManifestErrorCode::missing_field,
-        path,
-        "canonical optimization-profile value range is missing");
-  }
-  return *found;
-}
-
 void require_canonical_profile(
     const EngineManifest& engine,
     const std::string_view expected_name,
@@ -3498,37 +3638,12 @@ void require_canonical_profile(
           "optimization-profile min/opt/max does not match the canonical v1 range");
     }
   }
-  if (engine.role == EngineRole::main_decoder_step) {
-    if (profile.input_values.size() != 1) {
-      fail(
-          ManifestStage::tensor,
-          ManifestErrorCode::invariant_violation,
-          child_path(index_path(path, 0), "input_values"),
-          "Main Decoder step must authenticate one position value range");
-    }
-    const std::string position_name = "position";
-    const std::string position_path = child_path(
-        child_path(index_path(path, 0), "input_values"),
-        position_name);
-    const TensorValueRange& position = require_profile_value_range(
-        profile,
-        position_name,
-        position_path);
-    if (position.minimum != std::vector<std::int64_t>{218} ||
-        position.optimum != std::vector<std::int64_t>{342} ||
-        position.maximum != std::vector<std::int64_t>{466}) {
-      fail(
-          ManifestStage::tensor,
-          ManifestErrorCode::invariant_violation,
-          position_path,
-          "Main Decoder step position values must be min/opt/max 218/342/466");
-    }
-  } else if (!profile.input_values.empty()) {
+  if (!profile.input_values.empty()) {
     fail(
         ManifestStage::tensor,
         ManifestErrorCode::invariant_violation,
         child_path(index_path(path, 0), "input_values"),
-        "only Main Decoder step may expose a shape-input value range");
+        "schema version 1 does not admit shape-input value ranges");
   }
 }
 
@@ -4059,10 +4174,23 @@ void require_equal_fingerprint_field(
     const std::string& expected_text,
     const std::string& actual_text) {
   if (expected != actual) {
+    std::string pointer = "/runtime";
+    std::size_t segment_begin = 0U;
+    while (segment_begin < field.size()) {
+      const std::size_t separator = field.find('/', segment_begin);
+      const std::size_t segment_end =
+          separator == std::string_view::npos ? field.size() : separator;
+      pointer = child_path(
+          pointer, field.substr(segment_begin, segment_end - segment_begin));
+      if (separator == std::string_view::npos) {
+        break;
+      }
+      segment_begin = separator + 1U;
+    }
     fail(
         ManifestStage::runtime_compatibility,
         ManifestErrorCode::fingerprint_mismatch,
-        child_path("/runtime", field),
+        pointer,
         "expected '" + expected_text + "', actual '" + actual_text + "'");
   }
 }
@@ -4456,6 +4584,48 @@ void require_exact_runtime_fingerprint(
       "cuda_version",
       expected.cuda_version,
       actual.cuda_version);
+  require_equal_fingerprint_field(
+      expected.cublas.api_version_integer,
+      actual.cublas.api_version_integer,
+      "cublas/api_version_integer",
+      std::to_string(expected.cublas.api_version_integer),
+      std::to_string(actual.cublas.api_version_integer));
+  require_equal_fingerprint_field(
+      expected.cublas.library.soname,
+      actual.cublas.library.soname,
+      "cublas/library/soname",
+      expected.cublas.library.soname,
+      actual.cublas.library.soname);
+  require_equal_fingerprint_field(
+      expected.cublas.library.size_bytes,
+      actual.cublas.library.size_bytes,
+      "cublas/library/size_bytes",
+      std::to_string(expected.cublas.library.size_bytes),
+      std::to_string(actual.cublas.library.size_bytes));
+  require_equal_fingerprint_field(
+      expected.cublas.library.sha256,
+      actual.cublas.library.sha256,
+      "cublas/library/sha256",
+      expected.cublas.library.sha256,
+      actual.cublas.library.sha256);
+  require_equal_fingerprint_field(
+      expected.cublas.lt_library.soname,
+      actual.cublas.lt_library.soname,
+      "cublas/lt_library/soname",
+      expected.cublas.lt_library.soname,
+      actual.cublas.lt_library.soname);
+  require_equal_fingerprint_field(
+      expected.cublas.lt_library.size_bytes,
+      actual.cublas.lt_library.size_bytes,
+      "cublas/lt_library/size_bytes",
+      std::to_string(expected.cublas.lt_library.size_bytes),
+      std::to_string(actual.cublas.lt_library.size_bytes));
+  require_equal_fingerprint_field(
+      expected.cublas.lt_library.sha256,
+      actual.cublas.lt_library.sha256,
+      "cublas/lt_library/sha256",
+      expected.cublas.lt_library.sha256,
+      actual.cublas.lt_library.sha256);
   require_equal_fingerprint_field(
       expected.tensorrt_version,
       actual.tensorrt_version,

@@ -8,6 +8,19 @@
     "architecture": "aarch64",
     "endianness": "little",
     "cuda_version": "13.2",
+    "cublas": {
+      "api_version_integer": 130400,
+      "library": {
+        "soname": "libcublas.so.13",
+        "size_bytes": 67751616,
+        "sha256": "826486b8869144621e3a477cddcd28f56733c7c80c6f998b898384fc09e10f91"
+      },
+      "lt_library": {
+        "soname": "libcublasLt.so.13",
+        "size_bytes": 606744240,
+        "sha256": "b7aa42c190c2e7490abd6ea987883e05678e26222b7f9f1c9b96374fcbddbf04"
+      }
+    },
     "tensorrt_version": "10.16.2.10",
     "driver_version": "595.78",
     "gpu_name": "NVIDIA Thor",
@@ -67,6 +80,12 @@
         "path": "receipts/plugin-build.json",
         "sha256": "3434343434343434343434343434343434343434343434343434343434343434",
         "size_bytes": 3
+      },
+      "main_device_position_class_table": {
+        "schema_version": 1,
+        "class_count": 21,
+        "k_count": 249,
+        "sha256": "3535353535353535353535353535353535353535353535353535353535353535"
       }
     }
   },
@@ -1044,8 +1063,15 @@
           "name": "position",
           "dtype": "int64",
           "shape": [],
-          "location": "host",
-          "shape_inference_io": true
+          "location": "device",
+          "shape_inference_io": false
+        },
+        {
+          "name": "execution_status_in",
+          "dtype": "int32",
+          "shape": [],
+          "location": "device",
+          "shape_inference_io": false
         },
         {
           "name": "condition_mask",
@@ -1783,6 +1809,13 @@
             2,
             768
           ],
+          "location": "device",
+          "shape_inference_io": false
+        },
+        {
+          "name": "execution_status_out",
+          "dtype": "int32",
+          "shape": [],
           "location": "device",
           "shape_inference_io": false
         },
@@ -2737,20 +2770,7 @@
               ]
             }
           ],
-          "input_values": [
-            {
-              "tensor_name": "position",
-              "min": [
-                218
-              ],
-              "opt": [
-                342
-              ],
-              "max": [
-                466
-              ]
-            }
-          ]
+          "input_values": []
         }
       ]
     },

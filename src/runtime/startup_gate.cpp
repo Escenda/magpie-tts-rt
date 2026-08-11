@@ -12,6 +12,7 @@ void run_startup_golden_gate(
     const RuntimeBundleManifest& manifest,
     const StartupGoldenFixture& fixture,
     SessionResources& resources) {
+  resources.begin_cuda_graph_memory_accounting();
   LeaseIdSequence lease_ids;
   StreamingRequestState request_state(
       fixture.prepared_token_ids.size(),
@@ -39,7 +40,17 @@ void run_startup_golden_gate(
                 producer_finished));
       });
 
+  resources.finalize_cuda_graph_memory_accounting();
   const RequestStateSnapshot terminal = request_state.snapshot();
+  if (!resources.main_decoder_graphs_ready() ||
+      !resources.local_ar_graph_ready() ||
+      !resources.nanocodec_graphs_ready() ||
+      !resources.cuda_graph_memory_accounted()) {
+    throw StartupGoldenError(
+        StartupGoldenErrorCode::invalid_capture,
+        "startup synthesis did not accept every required Main Decoder, "
+        "Local AR, and NanoCodec CUDA graph");
+  }
   if (terminal.state != RequestLifecycleState::completed ||
       terminal.available_audio_leases != 0 ||
       request_state.has_live_leases()) {

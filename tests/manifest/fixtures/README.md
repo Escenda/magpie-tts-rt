@@ -28,5 +28,7 @@ The fixture also exercises the schema-version-1 Sofia-only contract: its
 217-position speaker context and `AUDIO_BOS` are baked into prefill, CFG row 0
 is conditional while row 1 has an all-zero condition and a mask with only text
 position zero true, and the first one-step decoder write uses absolute cache
-position 218. Profile ranges are fixed to text `T=1/64/512` and NanoCodec tail
-`F=1/4/8`; the placeholder hash values remain synthetic.
+position 218. That position is a scalar INT64 DEVICE execution input, not a
+HOST shape input, so its step profile has no input-value range. Profile ranges
+are fixed to text `T=1/64/512` and NanoCodec tail `F=1/4/8`; the placeholder
+hash values remain synthetic.
